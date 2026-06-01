@@ -133,14 +133,18 @@ async def _call(name: str, args: dict[str, Any]):
 
 
 @pytest.mark.asyncio
-async def test_lists_six_tools_with_schemas() -> None:
+async def test_lists_seven_tools_with_schemas() -> None:
     tools = await _list_tools()
     names = {t.name for t in tools}
+    # 7 actions — 5 pod/deploy-scoped + node-scope's cordon/drain/uncordon
+    # trio + the always-allowed page_human. `uncordon_node` is the
+    # symmetric undo of `cordon_node` after a transient node issue clears.
     assert names == {
         "restart_pod",
         "rollout_undo",
         "scale_deployment",
         "cordon_node",
+        "uncordon_node",
         "drain_node",
         "page_human",
     }

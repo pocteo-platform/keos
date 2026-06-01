@@ -1,6 +1,6 @@
 ---
 id: index
-slug: /runbooks/index
+slug: /runbooks
 title: Runbooks — decision tree
 sidebar_position: 1
 ---

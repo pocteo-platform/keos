@@ -44,11 +44,11 @@ via Helm. CPU-only inference, multi-arch images, no GPU dependency.
 
 | If you're… | Read this |
 |---|---|
-| **A new user** wanting to try it on your laptop | [Getting started → Quickstart](getting-started/quickstart) |
-| **An architect** evaluating the design | [Architecture → Overview](architecture/overview) |
-| **An operator** about to deploy to a cluster | [Platforms → Kubernetes via Helm](platforms/kubernetes-helm) |
-| **On-call**, dealing with an incident | [Runbooks](runbooks/) |
-| **Tuning behavior** | [Configuration → Environment variables](configuration/environment-variables) |
+| **A new user** wanting to try it on your laptop | [Getting started → Quickstart](/docs/getting-started/quickstart) |
+| **An architect** evaluating the design | [Architecture → Overview](/docs/architecture/overview) |
+| **An operator** about to deploy to a cluster | [Platforms → Kubernetes via Helm](/docs/platforms/kubernetes-helm) |
+| **On-call**, dealing with an incident | [Runbooks](/docs/runbooks/) |
+| **Tuning behavior** | [Configuration → Environment variables](/docs/configuration/environment-variables) |
 
 ## What Keos is — and what it isn't
 
@@ -79,8 +79,8 @@ in the repo.
 ## Quick links
 
 - **GitHub:** [pocteo-platform/keos](https://github.com/pocteo-platform/keos)
-- **Release notes:** [v1.0.0-rc.1](release-notes/v1.0.0-rc.1)
-- **Architecture diagrams:** [Architecture → Overview](architecture/overview)
-- **Operational runbooks:** [Runbooks index](runbooks/)
+- **Release notes:** [v1.0.0-rc.1](/docs/release-notes/v1.0.0-rc.1)
+- **Architecture diagrams:** [Architecture → Overview](/docs/architecture/overview)
+- **Operational runbooks:** [Runbooks index](/docs/runbooks/)
 - **Security policy:** [SECURITY.md](https://github.com/pocteo-platform/keos/blob/main/sre-agent/SECURITY.md)
 - **Contributing:** [CONTRIBUTING.md](https://github.com/pocteo-platform/keos/blob/main/sre-agent/CONTRIBUTING.md)

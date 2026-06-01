@@ -122,7 +122,7 @@ function StatusBanner(): React.JSX.Element {
       <div className="container" style={{ textAlign: "center" }}>
         <p style={{ margin: 0 }}>
           Status: <strong>v1.0.0-rc.1</strong> — first release candidate.{" "}
-          <Link to="/docs/RELEASE_NOTES_1.0.0-rc.1">Read the release notes →</Link>
+          <Link to="/docs/release-notes/v1.0.0-rc.1">Read the release notes →</Link>
         </p>
       </div>
     </section>
