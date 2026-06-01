@@ -33,7 +33,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest==8.3.3",
-    "pytest-asyncio==0.24.0",
+    "pytest-asyncio==1.4.0",
     "respx==0.21.1",
     "pytest-cov==5.0.0",
 ]
@@ -41,7 +41,7 @@ dev = [
 [dependency-groups]
 dev = [
     "pytest==8.3.3",
-    "pytest-asyncio==0.24.0",
+    "pytest-asyncio==1.4.0",
     "respx==0.21.1",
     "pytest-cov==5.0.0",
     # Lint + typecheck. Pinned to versions known-good against our codebase
