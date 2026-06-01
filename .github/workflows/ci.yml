@@ -89,7 +89,7 @@ jobs:
 
   frontend-lint:
     runs-on: ubuntu-latest
-    defaults: { run: { working-directory: frontend } }
+    defaults: { run: { working-directory: sre-agent/frontend } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -102,7 +102,7 @@ jobs:
 
   frontend-typecheck:
     runs-on: ubuntu-latest
-    defaults: { run: { working-directory: frontend } }
+    defaults: { run: { working-directory: sre-agent/frontend } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -115,7 +115,7 @@ jobs:
 
   frontend-build:
     runs-on: ubuntu-latest
-    defaults: { run: { working-directory: frontend } }
+    defaults: { run: { working-directory: sre-agent/frontend } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

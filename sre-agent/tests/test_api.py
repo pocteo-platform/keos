@@ -250,10 +250,17 @@ def test_usecases_seed_library(client) -> None:
     r = client.get("/api/usecases", headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     items = r.json()
-    # The library starter set has 3 entries.
-    assert len(items) == 3
+    # The library starter set ships 4 SRE scenarios — memory leak, crashloop
+    # recovery, node pressure, and drain-low-severity. Asserting >= 4 keeps
+    # the test forward-compatible if a fifth scenario is added later.
+    assert len(items) >= 4
     names = {i["id"] for i in items}
-    assert "lib-memory-leak" in names
+    assert {
+        "lib-memory-leak",
+        "lib-crashloop-recovery",
+        "lib-node-pressure",
+        "lib-drain-low-severity",
+    }.issubset(names)
 
 
 def test_usecase_create_and_delete(client) -> None:
