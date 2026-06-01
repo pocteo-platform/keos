@@ -24,80 +24,68 @@ CPU-only inference, multi-arch images (amd64 + arm64), no GPU dependency.
 
 ---
 
-## Before you start (prerequisites)
+## Install — pick your platform
 
-| Tool | Version | Why | Install |
-|---|---|---|---|
-| **Docker Desktop** | 24+ | Container runtime for the off-cluster stack | https://www.docker.com/products/docker-desktop |
-| **Python** | 3.11 or 3.12 | Host-side helpers (`doctor`, `seed_rag`) | https://www.python.org/downloads/ |
-| **Git** | any | clone the repo | https://git-scm.com/downloads |
-| **kubectl** | ≥ 1.27 | talk to the cluster | `winget install Kubernetes.kubectl` / `brew install kubectl` / `apt install kubectl` |
-| **Make** | any | run `make <target>` | macOS/Linux: built-in. Windows: use `.\make.ps1` instead. |
+| Your host | Install guide | One-liner |
+|---|---|---|
+| **Linux** (native Docker) | [docs/platforms/linux](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/linux.md) | `git clone …/keos && cd keos/sre-agent && make install` |
+| **macOS** (Docker Desktop, Intel + Apple Silicon) | [docs/platforms/macos](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/macos.md) | `git clone …/keos && cd keos/sre-agent && make install` |
+| **Windows** (Docker Desktop + WSL2) | [docs/platforms/windows](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/windows.md) | `git clone …/keos && cd keos/sre-agent && .\make.ps1 install` |
+| **Talos Linux** (production edge) | [docs/platforms/talos](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/talos.md) | Helm install — see guide |
+| **Jetson Orin Nano** (GPU edge) | [docs/platforms/jetson](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/jetson.md) | Helm install with `ollama.gpu.enabled=true` |
+| **Any conformant K8s** (production) | [docs/platforms/kubernetes-helm](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/kubernetes-helm.md) | `helm install pocteo oci://ghcr.io/pocteo-platform/charts/pocteo` |
 
-The `install` target downloads the rest automatically into `~/.local/bin` (no
-sudo): `uv` (Python deps), `k3d` (laptop K8s cluster), `opa` (policy engine),
-`helm` (for Chaos Mesh install), plus the LLM models into a Docker volume.
+The first three are local-demo paths (laptop / dev workstation); the last
+three are production / edge paths. The full docs site is at
+**http://localhost:3000** after `make install`.
 
-### Windows-specific one-time setup
-
-1. **Docker Desktop must be RUNNING** before `make install`. Whale icon in the
-   system tray = running. If it just installed, sign in + restart it.
-2. **Allow `.\make.ps1` to execute** (fresh Windows blocks unsigned scripts).
-   Open PowerShell **as Administrator** and run once:
-   ```powershell
-   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-   ```
-3. **Port 80 must be free** — Caddy binds it. Common conflicts: IIS, Skype,
-   Apache, OneDrive's reporting. Check with:
-   ```powershell
-   Get-NetTCPConnection -LocalPort 80 -ErrorAction SilentlyContinue
-   ```
-   If something's there, stop the service (`Stop-Service W3SVC` for IIS) or
-   set `CADDY_HTTP_PORT=8080` in `.env.local` and use `http://localhost:8080`.
-
-### Resource budget
+### Resource budget (all local-demo paths)
 
 - **Disk**: ~3 GB for the repo + ~2.2 GB for LLM models (in a persistent Docker
   volume, kept across `make down`, dropped by `make clean`).
 - **RAM**: 6 GB free for the LLM. Chat model resident is ~2 GB; kept alive
   for 30 min between calls.
-- **CPU**: any modern x86 works. First scenario takes 4-5 min on CPU; ~25 s
-  on an NVIDIA GPU (see [docs/JETSON.md](docs/JETSON.md)).
+- **CPU**: any modern x86 / arm64 works. First scenario takes 4-5 min on
+  CPU; ~25 s on an NVIDIA GPU (see the [Jetson guide](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/jetson.md)).
+
+The `install` target downloads everything else automatically into
+`~/.local/bin` (no sudo): `uv` (Python deps), `k3d` (laptop K8s cluster),
+`opa` (policy engine), `helm` (for Chaos Mesh install), plus the LLM
+models into a Docker volume.
 
 ---
 
-## Quick Start
+## Quick Start (laptop demo)
 
 **Three commands. ~10 minutes on a cold machine** (mostly model download).
 
-### Windows (PowerShell)
-
-```powershell
-git clone https://github.com/your-org/self-healing-poc keos
-cd keos
-.\make.ps1 install      # prereqs + models + compose + cluster + seed + doctor
-.\make.ps1 demo-ui      # opens the SPA, auto-dispatches a scenario
-```
-
-### macOS / Linux
+### Linux / macOS / WSL
 
 ```bash
-git clone https://github.com/your-org/self-healing-poc keos
-cd keos
-make install            # same full path
-make demo-ui
+git clone https://github.com/pocteo-platform/keos
+cd keos/sre-agent
+make install            # prereqs + models + compose + cluster + seed + doctor
+make demo-ui            # opens the SPA, auto-dispatches a scenario
 ```
 
-The browser opens **http://localhost**. On first launch you'll see a token
-prompt. Get the token with:
+### Windows (native PowerShell)
 
 ```powershell
-# Windows
-Get-Content .env.local
+git clone https://github.com/pocteo-platform/keos
+cd keos\sre-agent
+.\make.ps1 install      # same full path
+.\make.ps1 demo-ui
 ```
+
+The browser opens **http://localhost** (SPA) and **http://localhost:3000**
+(docs site). On first launch the SPA shows a token prompt. Get the token
+with:
+
 ```bash
-# macOS/Linux
-cat .env.local
+cat .env.local          # Linux / macOS / WSL
+```
+```powershell
+Get-Content .env.local  # Windows
 ```
 
 Copy the value after `SHP_API_TOKEN=` and paste it into the SPA. The token

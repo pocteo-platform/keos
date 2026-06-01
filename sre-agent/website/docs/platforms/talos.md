@@ -2,7 +2,7 @@
 id: talos
 slug: /platforms/talos
 title: Talos Linux
-sidebar_position: 4
+sidebar_position: 6
 ---
 
 # Keos on Talos Linux
