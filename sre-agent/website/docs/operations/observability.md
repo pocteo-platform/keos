@@ -7,9 +7,9 @@ sidebar_position: 1
 
 # Observability
 
-Keos exposes both **Prometheus metrics** and **structured JSON logs** so the
-agent itself can be operated like any other production service — alerted on,
-dashboarded, log-shipped.
+The Keos SRE Agent exposes both **Prometheus metrics** and **structured JSON
+logs** so the agent itself can be operated like any other production service —
+alerted on, dashboarded, log-shipped.
 
 ## TL;DR
 

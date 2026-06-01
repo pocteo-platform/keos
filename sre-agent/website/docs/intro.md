@@ -50,27 +50,28 @@ via Helm. CPU-only inference, multi-arch images, no GPU dependency.
 | **On-call**, dealing with an incident | [Runbooks](/docs/runbooks/) |
 | **Tuning behavior** | [Configuration → Environment variables](/docs/configuration/environment-variables) |
 
-## What Keos is — and what it isn't
+## What the Keos SRE Agent is — and what it isn't
 
-Keos **is**:
+The agent **is**:
 
 - A policy-gated decision loop. Every remediation passes through Rego policy
   *before* any side effect; the LLM never has the keys to mutate the cluster.
 - A forensic audit chain. Every state transition is HMAC-signed and verifiable
   offline — tampering breaks the chain loudly.
-- An edge-ready agent. CPU-only by design; the same chart runs on a laptop k3d
+- Edge-ready by design. CPU-only by default; the same chart runs on a laptop k3d
   cluster, a 3-node Talos cluster, or a Jetson Orin Nano with GPU acceleration.
 - An open product surface. The 6-action catalog, the LangGraph state machine,
   the OPA matrix — all transparent and operator-editable.
 
-Keos **is not**:
+The agent **is not**:
 
 - A replacement for human SREs. It encodes patterns operators have already
   written; it doesn't invent new ones.
 - A chat-for-kubectl. The interaction model is policy-gated automation, not
   free-form LLM action.
 - An incident management platform. Page-out, ticketing, on-call rotation —
-  Keos integrates with these via webhooks, doesn't replace them.
+  the agent integrates with these via webhooks, doesn't replace them.
+- The Keos edge OS itself — that's the underlying platform this agent runs on.
 
 For the deeper comparison vs kagent / K8sGPT / Botkube / Cast AI, see
 [POSITIONING.md](https://github.com/pocteo-platform/keos/blob/main/sre-agent/POSITIONING.md)

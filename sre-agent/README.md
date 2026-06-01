@@ -7,19 +7,20 @@
 [![Docs](https://img.shields.io/badge/docs-pocteo--platform.github.io%2Fkeos-15117A)](https://pocteo-platform.github.io/keos/)
 [![Multi-arch](https://img.shields.io/badge/images-linux%2Famd64%20%7C%20linux%2Farm64-informational)](deploy/buildx-bake.hcl)
 
-**The Autonomous AI SRE Agent for Your Cloud-Native Infrastructure.**
+**The autonomous SRE that ships inside every Keos edge node — by Pocteo Platform.**
 
-Keos is a policy-gated AI SRE agent that watches a Kubernetes cluster,
-diagnoses infrastructure incidents with retrieval-augmented context, plans
-a single remediation action, gates it through Open Policy Agent, executes
-under scoped RBAC, verifies the cluster healed, and writes an HMAC-signed
-audit record.
+**Keos** is [Pocteo Platform](https://github.com/pocteo-platform)'s Kubernetes
+edge OS — designed to run on Jetson, Talos, k3s-on-tiny-hardware, or any
+conformant cluster via Helm. The **Keos SRE Agent** (this repo) is the
+autonomous reliability layer that ships inside every Keos edge node: it
+watches the local cluster, diagnoses infrastructure incidents with
+retrieval-augmented context, plans a single remediation action, gates it
+through Open Policy Agent, executes under scoped RBAC, verifies the cluster
+healed, and writes an HMAC-signed audit record.
 
 > The loop: **Observe → Predict → Heal → Learn**.
 
-Built to port from a developer laptop to a fleet of edge K8s clusters —
-k3s on Jetson, Talos on small-footprint nodes, any conformant cluster via
-Helm. CPU-only inference, multi-arch images, no GPU dependency.
+CPU-only inference, multi-arch images (amd64 + arm64), no GPU dependency.
 
 ---
 

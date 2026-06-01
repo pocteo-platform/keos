@@ -13,9 +13,9 @@ your machine.
 
 ## What you get
 
-Keos is **a single agent process plus a stack of stateful services**.
-Everything runs in Docker (laptop demo) or in-cluster Kubernetes
-(Helm path); the topology is identical.
+The Keos SRE Agent runs as **a single agent process plus a stack of
+stateful services**. Everything runs in Docker (laptop demo) or
+in-cluster Kubernetes (Helm path); the topology is identical.
 
 ```text title="Mermaid diagram (paste into https://mermaid.live to render)"
 flowchart LR
