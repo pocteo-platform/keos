@@ -203,6 +203,32 @@ services:
       - frontend
     restart: unless-stopped
 
+  docs:
+    # Docusaurus docs site (sre-agent/website/) built into a tiny nginx
+    # image. Self-contained, static; no runtime deps on the rest of the
+    # stack. Hosted on http://localhost:3000 — port 3000 is free in the
+    # current compose footprint (which uses 80, 8000, 4222, 6333, 6334,
+    # 8089, 8090, 8181, 8222, 11434).
+    #
+    # GitHub Pages was the original deploy target, but a free private
+    # GitHub org can't publish Pages — so the docs ship via compose
+    # instead for now. Easy to layer a Pages workflow back on later
+    # without touching this service.
+    build:
+      context: ./website
+      dockerfile: Dockerfile
+    image: shp-docs:latest
+    container_name: shp-docs
+    ports:
+      - "3000:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
 volumes:
   ollama_models:
     name: shp_ollama_models
