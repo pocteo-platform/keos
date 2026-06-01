@@ -1,0 +1,9 @@
+{
+  "label": "Platforms",
+  "position": 4,
+  "link": {
+    "type": "generated-index",
+    "title": "Install on your platform",
+    "description": "Per-platform walkthroughs: laptop with Docker Desktop, any conformant Kubernetes via Helm, k3s on Jetson with GPU, Talos on small-footprint clusters, and air-gapped deployments."
+  }
+}

@@ -22,7 +22,8 @@ PYTHON ?= $(shell command -v python3 2>/dev/null || command -v python 2>/dev/nul
 
 .PHONY: help install doctor up down restart rebuild rebuild-nocache rebuild-full logs ps seed pull-models cluster cluster-down \
         kubeconfig test test-policy demo demo-ui clean \
-        lint lint-python lint-frontend format typecheck typecheck-python typecheck-frontend coverage
+        lint lint-python lint-frontend format typecheck typecheck-python typecheck-frontend coverage \
+        docs-install docs-dev docs-build docs-serve docs-clean
 
 help:
 	@echo "Targets:"
@@ -137,6 +138,27 @@ typecheck-frontend:
 # minimum % yet — Phase 10.7 ratchets that up after the cleanup pass.
 coverage:
 	@export PATH="$$HOME/.local/bin:$$PATH" && uv run pytest --cov --cov-report=term-missing --cov-report=xml
+
+# -----------------------------------------------------------------------
+# Docs site (Docusaurus 3, lives under `website/`).
+# Sourced from `docs/` — no duplication. See `website/README.md`.
+# -----------------------------------------------------------------------
+
+docs-install:
+	@cd website && npm install
+
+docs-dev:
+	@cd website && npm start
+
+# CI=1 makes broken cross-doc links fail the build instead of warning.
+docs-build:
+	@cd website && CI=1 npm run build
+
+docs-serve:
+	@cd website && npm run serve
+
+docs-clean:
+	@cd website && npm run clear && rm -rf build/
 
 up: .env.local
 	@# Seed empty kubeconfig placeholder files so Docker bind-mounts them as

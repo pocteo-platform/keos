@@ -1,0 +1,81 @@
+# Build the Docusaurus site on every PR (verifies links + types).
+# Publish to GitHub Pages on push to `main` from the `sre-agent/website/`
+# subtree.
+#
+# Setup once in the repo settings:
+#   • Settings → Pages → Source: GitHub Actions
+#   • Settings → Actions → General → Workflow permissions: Read+Write
+#
+# The deployed URL becomes:
+#   https://<org>.github.io/<repo>   (= https://pocteo-platform.github.io/keos)
+
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sre-agent/docs/**"
+      - "sre-agent/website/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "sre-agent/docs/**"
+      - "sre-agent/website/**"
+      - ".github/workflows/docs.yml"
+  # Allow manual rebuild from the Actions tab.
+  workflow_dispatch:
+
+# Cancel in-flight builds when a newer commit lands — Pages only cares
+# about the latest revision.
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sre-agent/website
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: sre-agent/website/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Build (broken links fail)
+        env:
+          CI: "true"
+        run: npm run build
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: sre-agent/website/build
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
