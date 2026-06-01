@@ -2,7 +2,7 @@
 id: jetson
 slug: /platforms/jetson
 title: k3s on Jetson Orin Nano
-sidebar_position: 3
+sidebar_position: 5
 ---
 
 # Running Keos on NVIDIA Jetson
@@ -259,7 +259,9 @@ CPU that GPU offload would add latency.
 
 ## See also
 
-- [INSTALL.md](/docs/platforms/docker-desktop) — install matrix entry pointing here
+- [Linux install](linux) — laptop demo on native Docker
+- [Talos install](talos) — production edge cluster
+- [Kubernetes via Helm](kubernetes-helm) — any conformant cluster
 - [CONFIG_REFERENCE.md](/docs/configuration/environment-variables) — `ollama.gpu.*` Helm keys documented
 - [USER_GUIDE.md §9](/docs/getting-started/overview) — day-2 ops, includes a perf-tuning section
 - Upstream: <https://docs.nvidia.com/datacenter/cloud-native/kubernetes/install-k8s.html>

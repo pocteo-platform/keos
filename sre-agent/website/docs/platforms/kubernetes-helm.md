@@ -2,7 +2,7 @@
 id: kubernetes-helm
 slug: /platforms/kubernetes-helm
 title: Kubernetes via Helm
-sidebar_position: 2
+sidebar_position: 4
 description: Production install path. Helm chart deploys the full stack into any conformant Kubernetes cluster.
 ---
 
