@@ -1,16 +1,19 @@
-# Keos — User Guide
+# Keos SRE Agent — User Guide
 
-> **The Autonomous AI SRE Platform for Your Cloud-Native Infrastructure.**
+> **The autonomous SRE that ships inside every Keos edge node — by Pocteo Platform.**
 
-Keos is a policy-gated AI SRE agent that watches a Kubernetes cluster,
-diagnoses infrastructure incidents with retrieval-augmented context, plans
-a single remediation action, gates that action through Open Policy Agent
-(OPA), executes it under scoped RBAC, verifies the cluster healed, and
-writes an HMAC-signed audit record. The agent runs the loop
+**Pocteo Platform** is the company. **Keos** is Pocteo's Kubernetes edge OS.
+The **Keos SRE Agent** (covered by this guide) is the autonomous
+reliability layer that runs inside every Keos edge node — it watches the
+local cluster, diagnoses infrastructure incidents with retrieval-augmented
+context, plans a single remediation action, gates that action through Open
+Policy Agent (OPA), executes it under scoped RBAC, verifies the cluster
+healed, and writes an HMAC-signed audit record. The agent runs the loop
 **Observe → Predict → Heal → Learn** end-to-end on every event.
 
-This guide takes a reader from "what is this" to "I'm running Keos on my
-edge cluster" without context-switching. Sections in dependency order.
+This guide takes a reader from "what is this" to "I'm running the SRE Agent
+on my edge cluster" without context-switching. Sections in dependency
+order.
 
 ## Contents
 
@@ -32,9 +35,13 @@ edge cluster" without context-switching. Sections in dependency order.
 
 ---
 
-## 1. What Keos is (and isn't)
+## 1. What this is (and isn't)
 
-**Keos is** an autonomous SRE agent for Kubernetes that takes
+**Pocteo Platform** is the company. **Keos** is Pocteo's Kubernetes edge
+OS. The **Keos SRE Agent** (this codebase) is the autonomous reliability
+layer that ships inside every Keos edge node.
+
+**The Keos SRE Agent is** an autonomous SRE for Kubernetes that takes
 operational incidents from telemetry → diagnosis → remediation → verify,
 without an on-call human in the loop for the majority of known-known
 failures. It targets infrastructure issues: memory leaks, crashloops,
@@ -50,11 +57,11 @@ surges.
 | **Heal** | The proposed action goes through OPA's severity-× action matrix. If allowed, it dispatches through the MCP server (same surface Claude Desktop or kagent would use) to kubectl. |
 | **Learn** | The verify node polls the cluster until the action's effect is observable. Every state transition writes one HMAC-signed line to the audit log. The result feeds back into the operator's view (or the next training pass). |
 
-**Keos is NOT**:
+**The Keos SRE Agent is NOT**:
 - A replacement for SREs. It accelerates known-knowns; humans own the unknowns.
 - A magic self-healing button. The action catalogue is intentionally narrow (6 verbs).
 - A chat-for-kubectl. No natural-language query interface — telemetry in, actions out.
-- A SIEM. Keos pivoted away from security incidents in Phase 9; that's not its target.
+- A SIEM. The codebase pivoted away from security incidents in Phase 9; that's not its target.
 - A cost-optimisation agent (that's Cast AI's role).
 - A diagnostic translator alone (that's K8sGPT's role).
 

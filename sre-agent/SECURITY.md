@@ -1,8 +1,9 @@
 # Security policy
 
-Keos is a policy-gated agent that takes actions against real Kubernetes
-clusters. A bug here can have operational consequences. We take security
-reports seriously and ask reporters to use the private channel below.
+The Keos SRE Agent is a policy-gated agent that takes actions against real
+Kubernetes clusters. A bug here can have operational consequences. We take
+security reports seriously and ask reporters to use the private channel
+below.
 
 ## Supported versions
 

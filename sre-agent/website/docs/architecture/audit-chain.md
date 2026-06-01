@@ -25,7 +25,8 @@ captures:
 - Operator overrides (mode flips, approvals)
 
 A standard Kubernetes audit log captures only the last bullet. We need
-all six. So Keos writes its own log, with its own integrity guarantee.
+all six. So the Keos SRE Agent writes its own log, with its own
+integrity guarantee.
 
 ## Format
 

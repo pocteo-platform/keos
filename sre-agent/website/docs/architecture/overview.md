@@ -13,9 +13,9 @@ description: The macro picture of Keos — the LangGraph loop, the safety mesh, 
 
 ## The macro view
 
-Keos is one agent process and a stack of supporting services. The
-diagram below shows the runtime topology — services, queues, stores,
-and the cluster the agent watches.
+The Keos SRE Agent is one process plus a stack of supporting services.
+The diagram below shows the runtime topology — services, queues, stores,
+and the cluster the agent watches (inside its host Keos edge node).
 
 ```text title="Mermaid diagram (paste into https://mermaid.live to render)"
 flowchart TB

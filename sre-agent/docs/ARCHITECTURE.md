@@ -33,11 +33,11 @@ flowchart LR
     A -.->|escalate| H[Human / Slack]
 ```
 
-Keos receives an infrastructure event, decides whether to act, gates the
-action through Open Policy Agent, executes under scoped RBAC, verifies
-the cluster healed, and writes a tamper-evident audit record. If
-confidence is low, the policy denies, the action fails, or the cluster
-didn't heal — it escalates to a human instead.
+The Keos SRE Agent receives an infrastructure event, decides whether to
+act, gates the action through Open Policy Agent, executes under scoped
+RBAC, verifies the cluster healed, and writes a tamper-evident audit
+record. If confidence is low, the policy denies, the action fails, or the
+cluster didn't heal — it escalates to a human instead.
 
 The loop has a name: **Observe → Predict → Heal → Learn**.
 
