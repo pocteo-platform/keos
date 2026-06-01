@@ -184,11 +184,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install OPA
-        run: |
-          curl -fsSL -o /usr/local/bin/opa \
-            https://openpolicyagent.org/downloads/v0.69.0/opa_linux_amd64_static
-          chmod +x /usr/local/bin/opa
+      # Use the upstream OPA install action — it pins the version, caches
+      # the binary between runs, and retries flaky CDN downloads. The
+      # previous `curl -fsSL` hit exit 56 ("failure receiving data from
+      # peer") roughly once a week on the openpolicyagent.org mirror;
+      # this action falls back to GitHub Releases.
+      - uses: open-policy-agent/setup-opa@v2
+        with:
+          version: v0.69.0
       - run: opa fmt --diff policies/
       - run: opa check policies/
 
