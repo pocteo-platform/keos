@@ -1,0 +1,35 @@
+{{ .Chart.Name | upper }} {{ .Chart.AppVersion }} installed in namespace {{ .Release.Namespace | quote }}.
+
+Get the SPA URL:
+{{- if .Values.ingress.enabled }}
+  http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}
+{{- else }}
+  Service `pocteo` is {{ .Values.caddy.service.type }}. Examples:
+
+  # ClusterIP (default): port-forward
+  kubectl -n {{ .Release.Namespace }} port-forward svc/pocteo 8080:80
+  # Then open http://localhost:8080
+
+  # Or, set ingress.enabled=true on upgrade for a public route.
+{{- end }}
+
+Get the bearer token (paste into the SPA login screen):
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "pocteo.fullname" . }}-auth \
+      -o jsonpath='{.data.SHP_API_TOKEN}' | base64 -d
+
+Flip the agent into active mode:
+
+  kubectl patch agentmode default --type=merge \
+      -p '{"spec":{"mode":"active"}}'
+
+The agent will be reachable at:
+  Container ns DNS:  http://pocteo.{{ .Release.Namespace }}.svc.cluster.local
+  API + WS:          http://pocteo.{{ .Release.Namespace }}.svc.cluster.local/api
+                     http://pocteo.{{ .Release.Namespace }}.svc.cluster.local/ws/events
+
+Logs:
+  kubectl -n {{ .Release.Namespace }} logs deploy/api -f
+
+Uninstall:
+  helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}

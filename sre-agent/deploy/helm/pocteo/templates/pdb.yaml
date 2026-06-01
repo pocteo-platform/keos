@@ -1,0 +1,29 @@
+{{/*
+  PodDisruptionBudgets for the user-facing services.
+
+  Both api and mcp-server run as 1-replica Deployments today, so the
+  budget can't actually save us from a voluntary disruption — but the
+  resource makes the intent explicit ("don't roll all replicas at
+  once") AND it's the right shape when we go HA in a future phase.
+
+  minAvailable: 0 lets `kubectl drain` complete instead of blocking
+  forever. The disruption window is then governed by the rolling-update
+  strategy on the Deployment.
+*/}}
+
+{{- range $svc := list "api" "mcp-server" }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "pocteo.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $svc }}
+spec:
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pocteo
+      app.kubernetes.io/component: {{ $svc }}
+---
+{{- end }}

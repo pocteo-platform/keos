@@ -1,0 +1,50 @@
+# Keep runtime state out of every image. Without this, `docker build`
+# copies whatever's in the working tree — including stale incidents,
+# audit logs, traces, kubeconfigs, secrets, and dev venvs — into the
+# final image. That's a privacy + size hazard AND the reason previous
+# rebuilds carried isolate_pod-era incidents into a post-pivot image.
+
+# Runtime artefacts (api process writes here at run time via bind mount)
+agent/audit.log
+agent/audit.log.*
+agent/incidents/
+agent/traces/
+agent/approvals/
+
+# Local secrets + cluster auth
+.env
+.env.local
+.kube/
+
+# Python dev clutter
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node dev clutter (large + always rebuilt)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Test + IDE
+tests/
+.vscode/
+.idea/
+
+# Git + docs (not needed at runtime; reduce image size)
+.git/
+.github/
+docs/
+*.md
+!agent/runbooks/*.md
+
+# OS junk
+.DS_Store
+Thumbs.db

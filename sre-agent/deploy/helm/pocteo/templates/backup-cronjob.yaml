@@ -1,0 +1,45 @@
+{{/*
+  Velero Schedule CR — daily backup of the release namespace.
+
+  Gated on `backup.velero.enabled` so a vanilla install doesn't try to
+  apply an unrecognised kind. Velero itself is NOT installed by this
+  chart; the operator is expected to run `velero install` separately
+  with their cloud storage provider already configured.
+
+  Includes:
+    - The 5 PVCs (ollama, qdrant, nats, audit/data shared, usecase)
+    - All Pocteo CRs (AgentMode, chaos experiments)
+    - ConfigMaps + Secrets in the release namespace
+
+  Excludes:
+    - The big short-lived ephemeral state (chaos-mesh sub-chart's own
+      data — separate concern, restore from the upstream chart instead).
+
+  Recovery procedure: see docs/BACKUP_RESTORE.md.
+*/}}
+{{- if .Values.backup.velero.enabled }}
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: {{ include "pocteo.fullname" . }}-daily
+  labels:
+    {{- include "pocteo.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.velero.schedule | quote }}
+  template:
+    ttl: {{ .Values.backup.velero.ttl | quote }}
+    storageLocation: {{ .Values.backup.velero.storageLocation | quote }}
+    includedNamespaces:
+      - {{ .Release.Namespace }}
+    # Skip ephemeral resources — Pods + ReplicaSets get recreated by
+    # their owning Deployment/StatefulSet on restore.
+    excludedResources:
+      - pods
+      - replicasets
+      - events
+      - events.events.k8s.io
+    # CRs we care about live in `security.poc/v1` (AgentMode) and
+    # `chaos-mesh.org/v1alpha1` (chaos experiments).
+    includeClusterResources: false
+    snapshotVolumes: true
+{{- end }}

@@ -1,0 +1,218 @@
+# Off-cluster services for the self-healing-poc.
+# The agent itself runs on the host (Python process), not in compose,
+# so it can iterate fast without rebuilds. It talks to these via localhost.
+
+name: self-healing-poc
+
+services:
+  ollama:
+    image: ollama/ollama:0.4.7
+    container_name: shp-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: shp-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      # Qdrant doesn't ship curl/wget in its image, so use the embedded HTTP server's
+      # readiness via a TCP probe through Python. Fall back to grpc port check.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  nats:
+    image: nats:2.10.22-alpine
+    container_name: shp-nats
+    command:
+      - "-js"
+      - "-sd"
+      - "/data"
+      - "-m"
+      - "8222"
+    ports:
+      - "4222:4222"  # client
+      - "8222:8222"  # monitoring
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8222/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  k8sgpt:
+    # K8sGPT's `serve --mcp --mcp-http` exposes its analyzers over the
+    # Model Context Protocol (HTTP+SSE) on port 8089. Rule-based
+    # analyzers only — we deliberately don't use the LLM backend. The
+    # mounted config file declares a stub OpenAI provider just to satisfy
+    # the boot-time auth check; the agent's MCP calls never set
+    # `explain=true`, so no outbound LLM request is ever made.
+    image: ghcr.io/k8sgpt-ai/k8sgpt:v0.4.33
+    container_name: shp-k8sgpt
+    command:
+      - "serve"
+      - "--mcp"
+      - "--mcp-http"
+      - "--mcp-port"
+      - "8089"
+    ports:
+      - "8089:8089"
+    volumes:
+      # The agent and k3d run on the host; the kubeconfig inside the
+      # container needs to point at host.docker.internal:6550 instead of
+      # 127.0.0.1:6550. The Makefile's `kubeconfig` target generates this
+      # alongside the host-facing kubeconfig.
+      # k8sgpt's distroless image runs as user `nonroot`; config lives in
+      # /home/nonroot/.config/k8sgpt/, not /root/.
+      - ./.kube/config-container:/home/nonroot/.kube/config:ro
+      - ./k8sgpt-config/k8sgpt.yaml:/home/nonroot/.config/k8sgpt/k8sgpt.yaml:ro
+    # K8sGPT's image is distroless-ish — no curl/wget for an internal
+    # healthcheck. The graph treats k8sgpt unavailability as graceful
+    # degradation, so the lack of a healthcheck is fine.
+    restart: unless-stopped
+
+  mcp-server:
+    # FastMCP server exposing the 5 action tools. The agent's execute node
+    # calls in here over HTTP; Claude Desktop / Cursor / kagent can also
+    # use the stdio transport by `docker compose run --rm -it mcp-server
+    # python -m mcp_server` (or by spawning `python -m mcp_server` on the host).
+    build:
+      context: .
+      dockerfile: mcp_server/Dockerfile
+    container_name: shp-mcp-server
+    environment:
+      - OPA_URL=http://opa:8181
+      - KUBECONFIG=/root/.kube/config
+      - AUDIT_LOG_PATH=/audit/audit.log
+      # If the cluster is unreachable from the container, default to the
+      # safest mode so OPA's mode gate denies everything.
+      - FALLBACK_AGENT_MODE=observe-only
+    volumes:
+      - ./.kube/config-container:/root/.kube/config:ro
+      # Share the audit log with the host-side agent. Both processes append
+      # to the same file; the HMAC is per-record so interleaving is fine.
+      - ./agent:/audit
+    ports:
+      - "8090:8090"
+    depends_on:
+      - opa
+    restart: unless-stopped
+
+  opa:
+    image: openpolicyagent/opa:0.69.0
+    container_name: shp-opa
+    command:
+      - "run"
+      - "--server"
+      - "--addr=:8181"
+      - "--log-level=info"
+      - "/policies"
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./policies:/policies:ro
+    # Note: the official OPA image is distroless (only /opa exists), so we cannot
+    # run wget/curl/sh inside the container. Health is probed externally via
+    # GET http://localhost:8181/health by callers (tests, make.ps1 demo, agent).
+    restart: unless-stopped
+
+  api:
+    # The agent + FastAPI in one process. Embeds the LangGraph NATS consumer,
+    # the AgentMode CRD watcher, the audit logger, and uvicorn serving
+    # /api/* + /ws/events. Shares the audit log + traces with the host via
+    # the agent/ bind mount, so any host-side `python -m agent.graph --once`
+    # writes to the same file Phase 8.4's Audit-chain tab reads from.
+    build:
+      context: .
+      dockerfile: agent/Dockerfile.api
+    container_name: shp-api
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - QDRANT_URL=http://qdrant:6333
+      - NATS_URL=nats://nats:4222
+      - OPA_URL=http://opa:8181
+      - MCP_URL=http://mcp-server:8090/mcp
+      - K8SGPT_URL=http://k8sgpt:8089/mcp
+      - KUBECONFIG=/root/.kube/config
+      - AUDIT_LOG_PATH=/audit/audit.log
+      - SHP_USECASES_PATH=/data/shp-usecases.json
+      - FALLBACK_AGENT_MODE=observe-only
+      # SHP_API_TOKEN + AUDIT_HMAC_KEY come in via the env_file below.
+      # `.env.local` is generated by `make up` on first run. Marked optional
+      # so plain `docker compose up` works too — the api container falls back
+      # to a generated dev token if the file is missing (logged at startup).
+    env_file:
+      - path: .env.local
+        required: false
+    volumes:
+      - ./.kube/config-container:/root/.kube/config:ro
+      - ./agent:/audit
+      - shp_usecase_data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      - ollama
+      - qdrant
+      - nats
+      - opa
+      - mcp-server
+    restart: unless-stopped
+
+  frontend:
+    # Production SPA build served by nginx. The image is content-only —
+    # the token comes from the user pasting on first load.
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: shp-frontend
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  caddy:
+    # Reverse proxy. http://localhost lands on the SPA; /api/* and /ws/*
+    # forward to the API.
+    image: caddy:2.8-alpine
+    container_name: shp-caddy
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  ollama_models:
+    name: shp_ollama_models
+  qdrant_data:
+    name: shp_qdrant_data
+  nats_data:
+    name: shp_nats_data
+  caddy_data:
+    name: shp_caddy_data
+  caddy_config:
+    name: shp_caddy_config
+  shp_usecase_data:
+    name: shp_usecase_data

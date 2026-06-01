@@ -1,0 +1,46 @@
+# k3d cluster config for the self-healing PoC.
+# Schema: https://k3d.io/v5/usage/configfile/
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+
+metadata:
+  name: poc
+
+servers: 1
+agents: 0
+
+image: rancher/k3s:v1.31.5-k3s1
+
+# Pin the API server's host port so the agent's kubeconfig points at a stable
+# endpoint (we rewrite 0.0.0.0 -> 127.0.0.1 post-creation; see Makefile).
+ports:
+  - port: 6550:6443
+    nodeFilters:
+      - server:0
+
+options:
+  k3d:
+    wait: true
+    timeout: "120s"
+  k3s:
+    extraArgs:
+      # We don't need ingress for the PoC — disable to keep the cluster lean.
+      - arg: "--disable=traefik"
+        nodeFilters:
+          - server:0
+      # Disable servicelb too; we hit pods directly via kubectl.
+      - arg: "--disable=servicelb"
+        nodeFilters:
+          - server:0
+      # Issue the server cert with host.docker.internal as a SAN so the
+      # in-container kubeconfig (.kube/config-container) — which uses that
+      # hostname to reach back into the host — can verify the cert. Without
+      # this, api / k8sgpt / mcp-server hit "Hostname mismatch" on every
+      # kube API call (k3s defaults to 127.0.0.1 + service DNS only).
+      - arg: "--tls-san=host.docker.internal"
+        nodeFilters:
+          - server:0
+  kubeconfig:
+    # We export our own kubeconfig to .\.kube\config; don't pollute ~/.kube/config.
+    updateDefaultKubeconfig: false
+    switchCurrentContext: false

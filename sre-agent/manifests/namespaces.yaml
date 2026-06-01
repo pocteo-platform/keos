@@ -1,0 +1,24 @@
+# Three namespaces:
+#  - security:   the agent's ServiceAccount lives here. Protected by RBAC + OPA.
+#  - workloads:  demo apps the agent is permitted to act on.
+#  - monitoring: out of scope for this PoC but reserved (mirrors the Jetson target shape).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: security
+  labels:
+    shp.io/role: control-plane
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: workloads
+  labels:
+    shp.io/role: workloads
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    shp.io/role: observability

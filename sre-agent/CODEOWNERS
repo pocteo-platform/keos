@@ -1,0 +1,63 @@
+# Code ownership. GitHub uses this to auto-assign reviewers; branch
+# protection enforces "at least one code-owner approval" before merge.
+#
+# Path patterns follow .gitignore syntax. Last matching pattern wins.
+#
+# Placeholder team handles — REPLACE before pushing to a real org. Use
+# either GitHub team handles (`@your-org/team-name`) or individual user
+# handles (`@username`). At least one owner per critical path is required.
+
+# Default owners for anything not otherwise matched.
+*                                       @your-org/keos-maintainers
+
+# ---------------------------------------------------------------------------
+# Backend agent — graph, LLM wrappers, OPA gate, audit log, schemas.
+# ---------------------------------------------------------------------------
+/agent/                                 @your-org/keos-backend
+/mcp_server/                            @your-org/keos-backend
+/scripts/                               @your-org/keos-backend
+
+# Policies need a security-aware reviewer in addition to backend.
+/policies/                              @your-org/keos-backend @your-org/keos-security
+
+# ---------------------------------------------------------------------------
+# Frontend — SPA, i18n, design system.
+# ---------------------------------------------------------------------------
+/frontend/                              @your-org/keos-frontend
+/frontend/src/lib/branding.ts           @your-org/keos-frontend @your-org/keos-design
+
+# ---------------------------------------------------------------------------
+# Deployment — Helm chart, k3d bootstrap, Talos machine config, CI/CD.
+# ---------------------------------------------------------------------------
+/deploy/                                @your-org/keos-sre
+/manifests/                             @your-org/keos-sre
+/k3d/                                   @your-org/keos-sre
+/.github/workflows/                     @your-org/keos-sre
+/Makefile                               @your-org/keos-sre
+/make.ps1                               @your-org/keos-sre
+/docker-compose.yml                     @your-org/keos-sre
+
+# ---------------------------------------------------------------------------
+# Tests — anyone with the right context, but a reviewer from the area
+# being tested is expected too.
+# ---------------------------------------------------------------------------
+/tests/                                 @your-org/keos-maintainers
+
+# ---------------------------------------------------------------------------
+# Documentation — lower review bar, but architecture docs need an
+# architecture-aware reviewer.
+# ---------------------------------------------------------------------------
+/docs/                                  @your-org/keos-maintainers
+/docs/ARCHITECTURE.md                   @your-org/keos-maintainers @your-org/keos-backend
+/docs/SECURITY.md                       @your-org/keos-security
+/docs/BACKUP_RESTORE.md                 @your-org/keos-sre
+/docs/OBSERVABILITY.md                  @your-org/keos-sre
+
+# ---------------------------------------------------------------------------
+# Governance files — maintainers only. These describe how we work; changing
+# them without a discussion creates confusion downstream.
+# ---------------------------------------------------------------------------
+/CONTRIBUTING.md                        @your-org/keos-maintainers
+/CODEOWNERS                             @your-org/keos-maintainers
+/SECURITY.md                            @your-org/keos-maintainers @your-org/keos-security
+/CHANGELOG.md                           @your-org/keos-maintainers

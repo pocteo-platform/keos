@@ -1,0 +1,30 @@
+apiVersion: v2
+name: pocteo
+description: |
+  Keos — The Autonomous AI SRE Platform for Your Cloud-Native
+  Infrastructure. Installs the full Keos stack (Ollama, Qdrant, NATS,
+  OPA, MCP server, API, frontend, Caddy ingress) plus the agent runtime
+  itself, all in one namespace.
+
+type: application
+version: 1.0.0-rc.1
+appVersion: "1.0.0-rc.1"
+
+keywords:
+  - sre
+  - kubernetes
+  - ai-agent
+  - self-healing
+  - autonomous
+maintainers:
+  - name: Keos platform
+    url: https://github.com/your-org/pocteo
+
+# Chaos Mesh is optional but recommended for the demo. Toggle via
+# `--set chaos-mesh.enabled=false`.
+dependencies:
+  - name: chaos-mesh
+    version: "2.7.2"
+    repository: https://charts.chaos-mesh.org
+    condition: chaos-mesh.enabled
+    alias: chaos-mesh

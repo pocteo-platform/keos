@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+# Pre-commit hook.
+#
+# Runs lint-staged on the changed paths only — way faster than `make lint`
+# on every commit. Each staged file is auto-formatted + auto-fixed where
+# possible; unfixable lint errors block the commit.
+#
+# To skip on rare occasions (rebases, WIP commits): `git commit --no-verify`.
+# Skipping habitually defeats the point; reach for it only when you're
+# certain the next commit fixes the issue.
+
+npx lint-staged

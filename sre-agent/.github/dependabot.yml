@@ -1,0 +1,60 @@
+# Dependabot config — daily checks for security + minor updates.
+#
+# Pinned strategy: we LET Dependabot open PRs against `main` even for
+# major bumps. CI gates the merge; reviewer decides whether to take
+# the bump now or wait. Major bumps come with breaking-change context
+# in the PR body — easier than chasing changelogs manually.
+
+version: 2
+
+updates:
+  # Python (top-level pyproject.toml).
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels: ["deps", "python"]
+    groups:
+      patch-and-minor:
+        update-types: ["minor", "patch"]
+
+  # Frontend npm deps.
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "daily"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels: ["deps", "frontend"]
+    groups:
+      patch-and-minor:
+        update-types: ["minor", "patch"]
+
+  # Dockerfile base images. Bumps to python:3.12-slim / node:20-alpine /
+  # nginx:1.27-alpine land here.
+  - package-ecosystem: "docker"
+    directory: "/agent"
+    schedule:
+      interval: "weekly"
+    labels: ["deps", "docker"]
+  - package-ecosystem: "docker"
+    directory: "/mcp_server"
+    schedule:
+      interval: "weekly"
+    labels: ["deps", "docker"]
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    labels: ["deps", "docker"]
+
+  # GitHub Actions versions — covers cache-action, checkout, etc.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["deps", "ci"]
