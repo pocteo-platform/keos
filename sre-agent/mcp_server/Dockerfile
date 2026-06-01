@@ -4,7 +4,7 @@
 # kubectl is included so the underlying agent.tools.* functions work; the
 # container kubeconfig (./.kube/config-container) is mounted at runtime.
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # kubectl + uv + tini (clean signal handling for the server).
 RUN apt-get update \
