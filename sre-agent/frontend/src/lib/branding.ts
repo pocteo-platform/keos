@@ -5,14 +5,23 @@
 // Generic UI labels (the ones that used to name K8sGPT / Falco) live in the
 // i18n JSON files — this file is for product-level branding only.
 
+// Product hierarchy:
+//   Pocteo Platform  → the company
+//      └── Keos      → the Kubernetes edge OS (the product)
+//             └── Keos SRE Agent  → the autonomous reliability layer
+//                                    that ships inside every Keos edge
+//                                    node (THIS app).
+export const COMPANY_NAME = "Pocteo Platform";
+export const PLATFORM_NAME = "Keos";
 export const PRODUCT_NAME = "Keos SRE Agent";
 
-export const TAGLINE_EN = "The Autonomous AI SRE Agent for Your Cloud-Native Infrastructure";
+export const TAGLINE_EN =
+  "The autonomous SRE that lives inside every Keos edge node — by Pocteo Platform.";
 export const TAGLINE_FR =
-  "L'agent SRE autonome propulsé par l'IA pour vos infrastructures cloud-native";
+  "L'agent SRE autonome embarqué dans chaque nœud edge Keos — par Pocteo Platform.";
 
-export const BRAND_FOOTER_EN = "Created by Keos platform";
-export const BRAND_FOOTER_FR = "Créé par la plateforme Keos";
+export const BRAND_FOOTER_EN = "Pocteo Platform · Keos edge OS";
+export const BRAND_FOOTER_FR = "Pocteo Platform · Keos edge OS";
 
 // The agentic loop. Renders as phase chips on the timeline + as lane
 // dividers / colors on the React Flow graph.

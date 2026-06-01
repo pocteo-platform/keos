@@ -20,19 +20,32 @@ function HomepageHero(): React.JSX.Element {
   return (
     <header className={clsx("hero hero--primary")} style={{ padding: "4rem 2rem" }}>
       <div className="container" style={{ textAlign: "center", maxWidth: 880 }}>
-        <h1 className="hero__title">{siteConfig.title}</h1>
+        <p
+          style={{
+            margin: 0,
+            opacity: 0.85,
+            fontSize: "0.9rem",
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+          }}
+        >
+          By Pocteo Platform · part of Keos
+        </p>
+        <h1 className="hero__title" style={{ marginTop: "0.6rem" }}>
+          {siteConfig.title}
+        </h1>
         <p className="hero__subtitle">{siteConfig.tagline}</p>
         <p style={{ marginTop: "1.5rem", fontSize: "1.05rem", lineHeight: 1.55 }}>
-          A policy-gated autonomous SRE for Kubernetes. Observes events, diagnoses with
-          retrieval-augmented context, plans one remediation, gates it through OPA, executes under
-          scoped RBAC, verifies the cluster healed, and writes a tamper-evident HMAC audit record —
-          every time.
+          Keos is Pocteo Platform's Kubernetes edge OS. The <strong>Keos SRE Agent</strong> ships
+          inside every Keos edge node — observing events, diagnosing with retrieval-augmented
+          context, planning one remediation, gating it through OPA, executing under scoped RBAC,
+          verifying the cluster healed, and writing a tamper-evident HMAC audit record. Every time.
         </p>
         <div style={{ display: "flex", gap: "1rem", justifyContent: "center", marginTop: "2rem" }}>
-          <Link className="button button--secondary button--lg" to="/docs/USER_GUIDE">
-            Quick start →
+          <Link className="button button--primary button--lg" to="/docs/getting-started/quickstart">
+            Quickstart →
           </Link>
-          <Link className="button button--outline button--lg" to="/docs/ARCHITECTURE">
+          <Link className="button button--outline button--lg" to="/docs/architecture/overview">
             Architecture
           </Link>
         </div>

@@ -18,7 +18,8 @@ const BASE_URL = process.env.DOCS_BASE_URL ?? `/${GITHUB_REPO}/`;
 
 const config: Config = {
   title: "Keos SRE Agent",
-  tagline: "The Autonomous AI SRE Platform for Your Cloud-Native Infrastructure",
+  tagline:
+    "The autonomous SRE that lives inside every Keos edge node — by Pocteo Platform.",
   favicon: "img/favicon.ico",
 
   url: URL,
@@ -180,7 +181,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Created by the Keos / Pocteo platform · v1.0.0-rc.1`,
+      copyright: `Pocteo Platform · Keos edge OS · SRE Agent v1.0.0-rc.1`,
     },
     prism: {
       theme: prismThemes.github,

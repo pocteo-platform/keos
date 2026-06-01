@@ -1,15 +1,10 @@
 # Keos SRE Agent
 
-<!--
-  Badges target a public-repo URL that doesn't exist yet — they'll 404 until
-  someone replaces `your-org` with the real GitHub org after publishing.
-  Status + Docs badges link to in-tree files and work today.
--->
-[![CI](https://github.com/your-org/self-healing-poc/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/self-healing-poc/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/your-org/self-healing-poc?include_prereleases&sort=semver)](https://github.com/your-org/self-healing-poc/releases)
-[![Status](https://img.shields.io/badge/status-v1.0.0--rc.1-orange)](docs/RELEASE_NOTES_1.0.0-rc.1.md)
-[![Docs](https://img.shields.io/badge/docs-User%20Guide-blue)](docs/USER_GUIDE.md)
-[![Architecture](https://img.shields.io/badge/architecture-Mermaid%20diagrams-purple)](docs/ARCHITECTURE.md)
+[![CI](https://github.com/pocteo-platform/keos/actions/workflows/ci.yml/badge.svg)](https://github.com/pocteo-platform/keos/actions/workflows/ci.yml)
+[![Docs site](https://github.com/pocteo-platform/keos/actions/workflows/docs.yml/badge.svg)](https://pocteo-platform.github.io/keos/)
+[![Release](https://img.shields.io/github/v/release/pocteo-platform/keos?include_prereleases&sort=semver)](https://github.com/pocteo-platform/keos/releases)
+[![Status](https://img.shields.io/badge/status-v1.0.0--rc.1-blueviolet)](docs/RELEASE_NOTES_1.0.0-rc.1.md)
+[![Docs](https://img.shields.io/badge/docs-pocteo--platform.github.io%2Fkeos-15117A)](https://pocteo-platform.github.io/keos/)
 [![Multi-arch](https://img.shields.io/badge/images-linux%2Famd64%20%7C%20linux%2Farm64-informational)](deploy/buildx-bake.hcl)
 
 **The Autonomous AI SRE Agent for Your Cloud-Native Infrastructure.**

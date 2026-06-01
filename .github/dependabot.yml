@@ -8,9 +8,9 @@
 version: 2
 
 updates:
-  # Python (top-level pyproject.toml).
+  # Python (pyproject.toml under sre-agent/).
   - package-ecosystem: "pip"
-    directory: "/"
+    directory: "/sre-agent"
     schedule:
       interval: "daily"
       time: "06:00"
@@ -23,7 +23,7 @@ updates:
 
   # Frontend npm deps.
   - package-ecosystem: "npm"
-    directory: "/frontend"
+    directory: "/sre-agent/frontend"
     schedule:
       interval: "daily"
       time: "06:00"
@@ -37,20 +37,27 @@ updates:
   # Dockerfile base images. Bumps to python:3.12-slim / node:20-alpine /
   # nginx:1.27-alpine land here.
   - package-ecosystem: "docker"
-    directory: "/agent"
+    directory: "/sre-agent/agent"
     schedule:
       interval: "weekly"
     labels: ["deps", "docker"]
   - package-ecosystem: "docker"
-    directory: "/mcp_server"
+    directory: "/sre-agent/mcp_server"
     schedule:
       interval: "weekly"
     labels: ["deps", "docker"]
   - package-ecosystem: "docker"
-    directory: "/frontend"
+    directory: "/sre-agent/frontend"
     schedule:
       interval: "weekly"
     labels: ["deps", "docker"]
+
+  # Docs site (Docusaurus 3).
+  - package-ecosystem: "npm"
+    directory: "/sre-agent/website"
+    schedule:
+      interval: "weekly"
+    labels: ["deps", "docs"]
 
   # GitHub Actions versions — covers cache-action, checkout, etc.
   - package-ecosystem: "github-actions"

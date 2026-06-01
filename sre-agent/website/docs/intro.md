@@ -1,20 +1,38 @@
 ---
 id: intro
 slug: /
-title: Welcome to Keos
+title: Welcome
 sidebar_position: 1
 sidebar_label: Welcome
-description: Keos is an autonomous, policy-gated AI SRE agent for Kubernetes. This site is your operator handbook.
+description: The autonomous SRE agent that ships inside every Keos edge node — by Pocteo Platform.
 ---
 
 # Keos SRE Agent
 
-**The Autonomous AI SRE Platform for Your Cloud-Native Infrastructure.**
+**The autonomous SRE that lives inside every Keos edge node.**
 
-Keos watches a Kubernetes cluster, diagnoses infrastructure incidents
-with retrieval-augmented context, plans a single remediation action,
-gates it through Open Policy Agent, executes under scoped RBAC, verifies
-the cluster healed, and writes an HMAC-signed audit record — every time.
+## How the pieces fit
+
+```text
+Pocteo Platform        ← the company
+        │
+        └── Keos       ← the Kubernetes edge OS (this is the product)
+              │
+              └── Keos SRE Agent   ← the autonomous reliability layer that
+                                     runs INSIDE every Keos edge cluster
+                                     (this site documents it)
+```
+
+- **Pocteo Platform** is the company building edge-native infrastructure.
+- **Keos** is Pocteo's Kubernetes operating system for the edge — designed
+  to run on Jetson, Talos, k3s-on-tiny-hardware, anywhere a full
+  control plane fits in <2 GB of RAM.
+- The **Keos SRE Agent** (what this site is about) is a policy-gated
+  autonomous SRE that ships inside every Keos edge node. It watches the
+  local cluster, diagnoses infrastructure incidents with retrieval-augmented
+  context, plans a single remediation, gates it through Open Policy Agent,
+  executes under scoped RBAC, verifies the cluster healed, and writes an
+  HMAC-signed audit record — every time.
 
 > The loop: **Observe → Predict → Heal → Learn**.
 

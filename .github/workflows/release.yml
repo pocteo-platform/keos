@@ -23,16 +23,25 @@ permissions:
   packages: write   # for ghcr.io push
   id-token: write   # for cosign keyless OIDC
 
+# All `run:` steps default to executing inside `sre-agent/` because the
+# project lives in that subfolder of the repo root.
+defaults:
+  run:
+    working-directory: sre-agent
+
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        # All paths are relative to the REPO ROOT — docker/build-push-action's
+        # `context:` and `file:` ignore the workflow-level
+        # defaults.run.working-directory above.
         component:
-          - { name: api,        context: .,        dockerfile: agent/Dockerfile.api }
-          - { name: mcp-server, context: .,        dockerfile: mcp_server/Dockerfile }
-          - { name: frontend,   context: frontend, dockerfile: frontend/Dockerfile }
+          - { name: api,        context: sre-agent,          dockerfile: sre-agent/agent/Dockerfile.api }
+          - { name: mcp-server, context: sre-agent,          dockerfile: sre-agent/mcp_server/Dockerfile }
+          - { name: frontend,   context: sre-agent/frontend, dockerfile: sre-agent/frontend/Dockerfile }
     steps:
       - uses: actions/checkout@v4
         with:
