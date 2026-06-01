@@ -1,11 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Keos placeholder logo. Brutalist square — matches the SPA's
-  globals.css 0px radius design. Replace with a real mark when ready.
+  Keos hexagonal mark — placeholder approximation of the lion-head logo.
+  Replace with the real PNG/SVG by dropping it in as `logo.svg` (overwrites
+  this file) or as `logo.png` and updating docusaurus.config.ts's
+  `navbar.logo.src` to `img/logo.png`.
+
+  Brand colors: brand-deep #15117A, brand-navy #080646.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect x="0" y="0" width="32" height="32" fill="#2563EB"/>
-  <text x="16" y="22" font-family="ui-sans-serif, system-ui, sans-serif"
-        font-size="16" font-weight="700" fill="#FFFFFF" text-anchor="middle">K</text>
-  <rect x="22" y="22" width="6" height="6" fill="#F59E0B"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="32" height="32"
+     aria-label="Keos">
+  <defs>
+    <linearGradient id="kg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#080646"/>
+      <stop offset="100%" stop-color="#15117A"/>
+    </linearGradient>
+  </defs>
+  <!-- Outer hexagon outline -->
+  <path d="M32 4 L56 18 L56 46 L32 60 L8 46 L8 18 Z"
+        fill="url(#kg)" stroke="url(#kg)" stroke-width="2"/>
+  <!-- Inner hexagon (negative space) -->
+  <path d="M32 12 L48 22 L48 42 L32 52 L16 42 L16 22 Z"
+        fill="#FFFFFF"/>
+  <!-- Stylized lion-head silhouette: two ears + center cleft -->
+  <path d="M22 26 L26 22 L30 26 L32 22 L34 26 L38 22 L42 26 L42 38 L32 44 L22 38 Z"
+        fill="url(#kg)"/>
+  <!-- Eyes -->
+  <rect x="27" y="30" width="2" height="3" fill="#FFFFFF"/>
+  <rect x="35" y="30" width="2" height="3" fill="#FFFFFF"/>
 </svg>
