@@ -125,7 +125,7 @@ jobs:
           cache-dependency-path: sre-agent/frontend/package-lock.json
       - run: npm ci || npm install
       - run: npm run build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: sre-agent/frontend/dist
