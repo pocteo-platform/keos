@@ -1,0 +1,61 @@
+# Local environment
+.env
+.envrc
+
+# Kubeconfig (k3d-emitted, scoped to this repo)
+.kube/
+
+# Provisioned binaries (opa.exe, etc.)
+bin/
+
+# Agent audit trail (regenerated each run)
+agent/audit.log
+agent/audit.log.*
+
+# Phase 8 runtime data
+agent/traces/
+agent/incidents/
+agent/approvals/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# uv / packaging
+*.egg-info/
+dist/
+build/
+
+# Persistent data dirs (compose volumes are named, but defensive)
+qdrant_data/
+nats_data/
+ollama_data/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code local session state
+.claude/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
+# Husky internals (the .husky/_/ dir is per-clone generated)
+.husky/_/
+
+# OS
+.DS_Store
+Thumbs.db
+.env.local
+

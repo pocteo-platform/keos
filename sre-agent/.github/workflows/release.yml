@@ -1,0 +1,184 @@
+# Release pipeline — triggered by pushing a `v*.*.*` tag.
+#
+# Outputs per tag:
+#   - 3 multi-arch images at ghcr.io/<owner>/pocteo-{api,mcp-server,frontend}:<tag>
+#   - Each image is signed with cosign (keyless via GitHub OIDC).
+#   - Each image carries an SBOM attestation (syft via the cosign attest path).
+#   - A GitHub Release with auto-generated changelog from the previous tag.
+#
+# To pre-flight a release without pushing to ghcr.io, push a tag prefixed
+# `prerelease-` instead — only the dry-run build runs, no push, no signing.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"        # v1.0.0
+      - "v[0-9]+.[0-9]+.[0-9]+-*"      # v1.0.0-rc.1
+      - "prerelease-*"                  # dry-run
+
+permissions:
+  contents: write   # for the GitHub Release
+  packages: write   # for ghcr.io push
+  id-token: write   # for cosign keyless OIDC
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component:
+          - { name: api,        context: .,        dockerfile: agent/Dockerfile.api }
+          - { name: mcp-server, context: .,        dockerfile: mcp_server/Dockerfile }
+          - { name: frontend,   context: frontend, dockerfile: frontend/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for the changelog generator below
+
+      - name: Resolve tag + dry-run flag
+        id: meta
+        run: |
+          REF="${GITHUB_REF##*/}"
+          if [[ "$REF" == prerelease-* ]]; then
+            echo "dry_run=true" >> "$GITHUB_OUTPUT"
+            echo "version=${REF#prerelease-}" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+            echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+          fi
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "image=ghcr.io/${OWNER}/pocteo-${{ matrix.component.name }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: steps.meta.outputs.dry_run == 'false'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + (maybe) push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.component.context }}
+          file: ${{ matrix.component.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.meta.outputs.dry_run == 'false' }}
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=Apache-2.0
+          cache-from: type=gha,scope=${{ matrix.component.name }}
+          cache-to: type=gha,scope=${{ matrix.component.name }},mode=max
+          provenance: true
+          sbom: true
+
+      - name: Install cosign
+        if: steps.meta.outputs.dry_run == 'false'
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v2.4.1
+
+      - name: Sign image (keyless OIDC)
+        if: steps.meta.outputs.dry_run == 'false'
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign --yes \
+            ${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}
+
+      - name: Generate + attach SBOM (syft)
+        if: steps.meta.outputs.dry_run == 'false'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.component.name }}.spdx.json
+          upload-artifact: true
+
+      - name: Attest SBOM to image
+        if: steps.meta.outputs.dry_run == 'false'
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign attest --yes \
+            --predicate sbom-${{ matrix.component.name }}.spdx.json \
+            --type spdxjson \
+            ${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}
+
+  github-release:
+    runs-on: ubuntu-latest
+    needs: build-and-publish
+    if: ${{ !startsWith(github.ref, 'refs/tags/prerelease-') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create release notes
+        id: notes
+        run: |
+          TAG="${GITHUB_REF##*/}"
+          PREV=$(git tag --sort=-creatordate | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' | grep -v "^${TAG}$" | head -1)
+          {
+            echo "## ${TAG}"
+            echo ""
+            if [ -n "$PREV" ]; then
+              echo "### Changes since ${PREV}"
+              git log --pretty=format:"- %s (%h)" "${PREV}..${TAG}"
+            else
+              echo "First release."
+            fi
+            echo ""
+            echo ""
+            echo "### Images"
+            OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+            echo "- \`ghcr.io/${OWNER}/pocteo-api:${TAG#v}\`"
+            echo "- \`ghcr.io/${OWNER}/pocteo-mcp-server:${TAG#v}\`"
+            echo "- \`ghcr.io/${OWNER}/pocteo-frontend:${TAG#v}\`"
+            echo ""
+            echo "All images are signed (cosign keyless) and have SBOMs attached."
+            echo "Verify with: \`cosign verify --certificate-identity-regexp '.*' --certificate-oidc-issuer-regexp '.*' ghcr.io/${OWNER}/pocteo-api:${TAG#v}\`"
+          } > release-notes.md
+          echo "path=release-notes.md" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: false   # we built our own above
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+
+  helm-publish:
+    # Push the chart to ghcr.io as an OCI artifact alongside the images.
+    runs-on: ubuntu-latest
+    needs: build-and-publish
+    if: ${{ !startsWith(github.ref, 'refs/tags/prerelease-') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: Resolve version
+        id: v
+        run: echo "version=${GITHUB_REF##*/v}" >> "$GITHUB_OUTPUT"
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+      - name: Package + push chart
+        run: |
+          helm dependency update deploy/helm/pocteo
+          helm package deploy/helm/pocteo --version "${{ steps.v.outputs.version }}" --app-version "${{ steps.v.outputs.version }}"
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          helm push "pocteo-${{ steps.v.outputs.version }}.tgz" "oci://ghcr.io/${OWNER}/charts"

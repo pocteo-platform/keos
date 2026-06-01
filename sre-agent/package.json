@@ -1,0 +1,35 @@
+{
+  "name": "keos-sre-agent-monorepo",
+  "version": "1.0.0-rc.1",
+  "private": true,
+  "description": "Root scripts + lint-staged + husky for the repo. The actual app lives in frontend/ (SPA) and agent/ + mcp_server/ (Python).",
+  "scripts": {
+    "prepare": "husky || true",
+    "lint-staged": "lint-staged"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0"
+  },
+  "lint-staged": {
+    "frontend/**/*.{ts,tsx,js,jsx}": [
+      "bash -c 'cd frontend && npx prettier --write'",
+      "bash -c 'cd frontend && npx eslint --fix'"
+    ],
+    "frontend/**/*.{css,json,md}": [
+      "bash -c 'cd frontend && npx prettier --write'"
+    ],
+    "agent/**/*.py": [
+      "uv run ruff format",
+      "uv run ruff check --fix"
+    ],
+    "mcp_server/**/*.py": [
+      "uv run ruff format",
+      "uv run ruff check --fix"
+    ],
+    "tests/**/*.py": [
+      "uv run ruff format",
+      "uv run ruff check --fix"
+    ]
+  }
+}

@@ -1,0 +1,126 @@
+{{/*
+  StatefulSets for the three stateful components:
+    - ollama  (model weights on PVC)
+    - qdrant  (vector store on PVC)
+    - nats    (JetStream on PVC)
+  Each gets a headless Service so its Pod has a stable DNS name.
+*/}}
+
+{{- range $idx, $name := list "ollama" "qdrant" "nats" }}
+{{- $cfg := index $.Values $name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {{- include "pocteo.labels" $ | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: pocteo
+    app.kubernetes.io/component: {{ $name }}
+  ports:
+    - name: http
+      port: {{ if eq $name "ollama" }}11434{{ else if eq $name "qdrant" }}6333{{ else }}4222{{ end }}
+      targetPort: {{ if eq $name "ollama" }}11434{{ else if eq $name "qdrant" }}6333{{ else }}4222{{ end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pocteo.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pocteo
+      app.kubernetes.io/component: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pocteo
+        app.kubernetes.io/component: {{ $name }}
+    spec:
+      {{/* NATS + Qdrant run non-root cleanly; Ollama writes models to
+           /root/.ollama and requires uid 0. Apply the strict pod-level
+           context only to the two safe images. */}}
+      {{- if ne $name "ollama" }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- else }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      {{- end }}
+      {{/* GPU acceleration for Ollama — see values.yaml `ollama.gpu` +
+           docs/JETSON.md. The runtimeClassName selects the NVIDIA OCI
+           runtime; the container-level resources.limits requests the
+           GPU device. Only applies to Ollama; Qdrant + NATS are
+           CPU-bound. */}}
+      {{- if and (eq $name "ollama") $cfg.gpu.enabled $cfg.gpu.runtimeClassName }}
+      runtimeClassName: {{ $cfg.gpu.runtimeClassName | quote }}
+      {{- end }}
+      {{- if and (eq $name "ollama") $cfg.gpu.enabled $cfg.gpu.tolerations }}
+      tolerations: {{- toYaml $cfg.gpu.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if and (eq $name "ollama") $cfg.gpu.enabled $cfg.gpu.nodeSelector }}
+      nodeSelector: {{- toYaml $cfg.gpu.nodeSelector | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "pocteo.image" (dict "global" $.Values.global "repository" $cfg.image.repository "tag" $cfg.image.tag) }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            {{- if ne $name "ollama" }}
+            readOnlyRootFilesystem: true
+            {{- end }}
+          {{- if eq $name "nats" }}
+          args: ["-js", "-sd", "/data"]
+          {{- end }}
+          ports:
+            - containerPort: {{ if eq $name "ollama" }}11434{{ else if eq $name "qdrant" }}6333{{ else }}4222{{ end }}
+          {{- if and (eq $name "ollama") $cfg.gpu.enabled }}
+          {{/* Splice the GPU resource limit into the configured resources
+               block. We can't use toYaml on a merged dict in a one-liner,
+               so render both halves explicitly. */}}
+          resources:
+            requests:
+              {{- toYaml $cfg.resources.requests | nindent 14 }}
+            limits:
+              {{- toYaml $cfg.resources.limits | nindent 14 }}
+              {{ $cfg.gpu.resourceName }}: {{ $cfg.gpu.count }}
+          {{- else }}
+          resources: {{- toYaml $cfg.resources | nindent 12 }}
+          {{- end }}
+          # Readiness via TCP — works without bundling a probe-aware client.
+          readinessProbe:
+            tcpSocket:
+              port: {{ if eq $name "ollama" }}11434{{ else if eq $name "qdrant" }}6333{{ else }}4222{{ end }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          {{- if $cfg.persistence.enabled }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ if eq $name "ollama" }}/root/.ollama{{ else if eq $name "qdrant" }}/qdrant/storage{{ else }}/data{{ end }}
+          {{- end }}
+  {{- if $cfg.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ $cfg.persistence.size }}
+        {{- if $cfg.persistence.storageClass }}
+        storageClassName: {{ $cfg.persistence.storageClass | quote }}
+        {{- end }}
+  {{- end }}
+{{- end }}

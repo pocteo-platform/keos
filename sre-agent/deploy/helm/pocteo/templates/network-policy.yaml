@@ -1,0 +1,199 @@
+{{/*
+  NetworkPolicy: per-component egress + ingress restrictions.
+
+  Gated on `.Values.networkPolicy.enabled` (default true). Disable on
+  clusters whose CNI does NOT enforce policies — vanilla k3s/flannel
+  silently accepts but doesn't apply them, leaving the operator with
+  a false sense of security.
+
+  Topology:
+    Caddy        --[80, ws]--> Frontend
+                 --[8000]----> API
+    API          --[8000]----> MCP server, OPA, Qdrant, NATS, Ollama, K8sGPT, K8s apiserver, kube-dns
+    MCP server   --[8181]----> OPA
+                 --[443]-----> K8s apiserver
+    Frontend     <-- ingress from Caddy only; no egress required
+
+  Everything else is denied.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+
+{{/* All policies key off the same chart labels so a NetworkPolicy stays
+     correct even if pod names change. */}}
+{{- $partOf := "pocteo" -}}
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api
+  labels:
+    {{- include "pocteo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pocteo
+      app.kubernetes.io/component: api
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # From Caddy (HTTP API + WebSocket) and from MCP server (none today,
+    # but reserved if the agent later inverts the call direction).
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: {{ $partOf }}
+              app.kubernetes.io/component: caddy
+      ports:
+        - { port: 8000, protocol: TCP }
+  egress:
+    # Stateful stores + policy gate inside the release namespace.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: {{ $partOf }}
+      ports:
+        - { port: 11434, protocol: TCP }   # Ollama
+        - { port: 6333,  protocol: TCP }   # Qdrant
+        - { port: 4222,  protocol: TCP }   # NATS
+        - { port: 8181,  protocol: TCP }   # OPA
+        - { port: 8090,  protocol: TCP }   # MCP server
+        - { port: 8089,  protocol: TCP }   # K8sGPT (optional)
+    # Cluster DNS (kube-dns / coredns lives in kube-system).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    # Kubernetes API server. We can't pin its IP — allow egress to the
+    # default service range. Operators who want stricter rules can pin
+    # to the kubernetes.default.svc endpoint via NetworkPolicy egress
+    # selectors that match their cluster's apiserver namespace label.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Exclude RFC1918 — we only need the apiserver address. If
+              # your apiserver is on a private LB, drop this except block.
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - { port: 443, protocol: TCP }
+        - { port: 6443, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-server
+  labels:
+    {{- include "pocteo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pocteo
+      app.kubernetes.io/component: mcp-server
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: {{ $partOf }}
+              app.kubernetes.io/component: api
+      ports:
+        - { port: 8090, protocol: TCP }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: {{ $partOf }}
+              app.kubernetes.io/component: opa
+      ports:
+        - { port: 8181, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    # K8s apiserver — required because the MCP tools call kubectl, which
+    # talks to the apiserver under the hood.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - { port: 443, protocol: TCP }
+        - { port: 6443, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend
+  labels:
+    {{- include "pocteo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pocteo
+      app.kubernetes.io/component: frontend
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: {{ $partOf }}
+              app.kubernetes.io/component: caddy
+      ports:
+        - { port: 80, protocol: TCP }
+  egress: []  # The SPA is static; nginx doesn't need outbound traffic.
+---
+{{/* OPA / Qdrant / NATS / Ollama / K8sGPT only need to accept calls
+     from inside the release. They live inside `part-of: pocteo` so a
+     single shared policy is enough. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: stateful-stores
+  labels:
+    {{- include "pocteo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/part-of
+        operator: In
+        values: [{{ $partOf }}]
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [ollama, qdrant, nats, opa, k8sgpt]
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: {{ $partOf }}
+  egress:
+    # K8sGPT needs to talk to the kube-apiserver. The others only need
+    # cluster DNS; both are cheap to allow uniformly.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - { port: 443, protocol: TCP }
+        - { port: 6443, protocol: TCP }
+{{- end }}

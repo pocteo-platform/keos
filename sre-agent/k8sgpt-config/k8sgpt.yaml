@@ -1,0 +1,17 @@
+ai:
+    providers:
+        - name: openai
+          model: gpt-4o-mini
+          password: stub-not-used
+          temperature: 0.7
+          topp: 0.5
+          topk: 50
+          maxtokens: 2048
+          customheaders: []
+    defaultprovider: "openai"
+commit: ""
+date: ""
+kubeconfig: ""
+kubecontext: ""
+verbose: false
+version: ""

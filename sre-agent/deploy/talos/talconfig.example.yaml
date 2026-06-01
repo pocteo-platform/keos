@@ -1,0 +1,55 @@
+# Sample Talos machine config snippet for Keos.
+#
+# Talos has no SSH and no shell. Persistent storage for the three
+# stateful StatefulSets (Ollama, Qdrant, NATS) needs a StorageClass that
+# works on your hardware:
+#   - Bare-metal cluster:  openebs / longhorn / rook-ceph
+#   - Single-node dev:     local-path (Rancher's, ships with k3s)
+#   - Cloud:               managed CSI driver
+#
+# Apply with:
+#   talosctl --nodes <ip> apply-config --file talconfig.yaml
+#
+# Then install Keos with the right runtime socket (Talos uses
+# /run/containerd/containerd.sock, NOT the k3s path):
+#   helm install pocteo deploy/helm/pocteo -n pocteo --create-namespace \
+#       --set chaos-mesh.chaosDaemon.runtime=containerd \
+#       --set chaos-mesh.chaosDaemon.socketPath=/run/containerd/containerd.sock \
+#       --set-string auth.apiToken=$(openssl rand -base64 32) \
+#       --set-string auth.hmacKey=$(openssl rand -base64 32)
+
+version: v1alpha1
+debug: false
+persist: true
+machine:
+  type: controlplane
+  kubelet:
+    # Keos's chaos_observer watches kubelet events; nothing extra needed
+    # here. Just make sure your kubelet image cache has room for the
+    # Keos images (ollama is ~2.5 GB, model itself ~2 GB).
+    extraConfig:
+      maxPods: 250
+
+  # Talos rotates kubelet logs aggressively. The audit log is persisted by
+  # Keos into a PVC, not the host. Nothing to do at the Talos layer for
+  # audit retention.
+
+  # Image pre-pull (air-gapped). Pre-cache the three Keos images plus
+  # Chaos Mesh + Ollama into the node's containerd image store via
+  # `talosctl image cache`:
+  registries:
+    config:
+      ghcr.io:
+        auth: {}   # populate if your registry needs creds
+  pods: []
+
+cluster:
+  network:
+    cni:
+      # Talos defaults to Flannel. Cilium / Calico also work — no chart
+      # change required.
+      name: flannel
+
+  # Keos doesn't need any cluster-level extra config; everything is
+  # delivered via the Helm chart's RBAC and CRDs.
+  extraManifests: []

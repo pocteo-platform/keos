@@ -1,0 +1,428 @@
+{
+  "app": {
+    "title": "Agent K8s Auto-réparateur",
+    "subtitle": "Réponse aux incidents au bord du réseau, contrôlée par politique"
+  },
+  "nav": {
+    "cluster": "Cluster",
+    "incidents": "Incidents",
+    "pipeline": "Pipeline",
+    "usecases": "Cas d'usage",
+    "control": "Contrôle"
+  },
+  "topbar": {
+    "language": "Langue",
+    "theme": "Thème",
+    "logout": "Déconnexion",
+    "tokenOk": "Jeton OK",
+    "tokenMissing": "Jeton manquant",
+    "live": "En direct",
+    "openMenu": "Ouvrir le menu",
+    "closeMenu": "Fermer le menu"
+  },
+  "modes": {
+    "observe-only": "Observation seule",
+    "active": "Actif",
+    "frozen": "Gelé"
+  },
+  "common": {
+    "loading": "Chargement…",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "duplicate": "Dupliquer",
+    "run": "Exécuter",
+    "approve": "Approuver",
+    "deny": "Refuser",
+    "close": "Fermer",
+    "details": "Détails",
+    "back": "Retour",
+    "search": "Recherche",
+    "filter": "Filtre",
+    "all": "Tous",
+    "yes": "Oui",
+    "no": "Non",
+    "none": "Aucun",
+    "empty": "Rien à afficher",
+    "error": "Une erreur s'est produite",
+    "retry": "Réessayer",
+    "copy": "Copier",
+    "running": "En cours..."
+  },
+  "login": {
+    "title": "Collez votre jeton d'API",
+    "body": "Le jeton bearer a été généré par `make up` et écrit dans `.env.local` à la racine du dépôt. Ouvrez ce fichier et collez la valeur après `SHP_API_TOKEN=` ci-dessous.",
+    "placeholder": "SHP_API_TOKEN=…",
+    "submit": "Se connecter",
+    "invalid": "Ce jeton n'a pas débloqué l'API. Vérifiez `.env.local`."
+  },
+  "cluster": {
+    "title": "Vue d'ensemble du cluster",
+    "subtitle": "Vue en temps réel du cluster k3d du PoC",
+    "stats": {
+      "nodes": "Nœuds",
+      "namespaces": "Espaces de noms",
+      "runningPods": "Pods actifs",
+      "agentMode": "Mode de l'agent"
+    },
+    "namespacePicker": "Espace de noms",
+    "podCard": {
+      "ready": "Prêt",
+      "restarts": "Redémarrages",
+      "age": "Âge",
+      "phase": "Phase",
+      "owner": "Propriétaire",
+      "noOwner": "Pod autonome"
+    },
+    "drawer": {
+      "title": "Détails du pod",
+      "events": "Événements",
+      "containers": "Conteneurs",
+      "spec": "Spécification"
+    },
+    "empty": {
+      "title": "Aucun pod dans cet espace de noms",
+      "body": "Essayez un autre espace, ou lancez `make cluster` pour initialiser les charges de démo."
+    },
+    "tabs": {
+      "pods": "Pods",
+      "deployments": "Déploiements",
+      "nodes": "Nœuds",
+      "events": "Événements"
+    },
+    "nodes": {
+      "empty": "Aucun nœud joignable. Le kubeconfig pointe-t-il vers un cluster actif ?",
+      "ready": "Prêt",
+      "notReady": "NonPrêt",
+      "columns": {
+        "name": "Nom",
+        "status": "Statut",
+        "version": "Version",
+        "taints": "Taints"
+      }
+    },
+    "deployments": {
+      "empty": "Aucun Déploiement dans cet espace de noms.",
+      "available": "Disponible",
+      "degraded": "Dégradé",
+      "updated": "mis à jour",
+      "columns": {
+        "name": "Nom",
+        "replicas": "Répliques",
+        "images": "Image(s)",
+        "age": "Âge",
+        "status": "Statut"
+      }
+    },
+    "events": {
+      "empty": "Aucun événement récent dans cet espace de noms.",
+      "warningsOnly": "Avertissements seulement",
+      "searchPlaceholder": "Recherche par raison, message, objet concerné…"
+    }
+  },
+  "control": {
+    "title": "Contrôle",
+    "subtitle": "Interrupteur de mode, approbations en attente, journal d'audit",
+    "mode": {
+      "title": "Mode de l'agent",
+      "description": "Basculer l'interrupteur. observe-only et frozen refusent toute action au niveau d'OPA.",
+      "confirm": {
+        "title": "Passer en mode {{mode}} ?",
+        "body": "Le nouveau mode prend effet au prochain événement. Le changement est lui-même écrit dans l'audit.",
+        "submit": "Confirmer",
+        "cancel": "Annuler"
+      }
+    },
+    "approvals": {
+      "title": "Approbations en attente",
+      "description": "Actions L3 refusées par la matrice qu'un opérateur peut autoriser.",
+      "empty": "Aucune approbation en attente.",
+      "approveOnce": "Approuver une fois (override humain)",
+      "denyReason": "Motif du refus"
+    },
+    "audit": {
+      "title": "Journal d'audit",
+      "description": "Signé HMAC, append-only. Cliquez sur une ligne pour inspecter.",
+      "columns": {
+        "ts": "Heure",
+        "event": "Événement",
+        "incident": "Incident",
+        "source": "Source",
+        "hmac": "HMAC",
+        "preview": "Aperçu"
+      },
+      "verifyAll": "Tout vérifier",
+      "valid": "Valide",
+      "invalid": "Invalide"
+    }
+  },
+  "incidents": {
+    "title": "Incidents",
+    "subtitle": "Chaque incident traité par l'agent, avec toute sa provenance.",
+    "empty": "Aucun incident pour l'instant. Lancez-en un depuis « Cas d'usage » ou via `make demo`.",
+    "searchPlaceholder": "Rechercher par id, règle, pod ou diagnostic…",
+    "filters": {
+      "severity": "Gravité",
+      "namespace": "Espace de noms",
+      "status": "Statut"
+    },
+    "columns": {
+      "time": "Heure",
+      "severity": "Gravité",
+      "namespace": "Espace",
+      "pod": "Pod",
+      "diagnosis": "Diagnostic",
+      "action": "Action",
+      "outcome": "Résultat",
+      "mode": "Mode"
+    },
+    "outcomes": {
+      "healed": "Réparé",
+      "escalated": "Escaladé",
+      "failed": "Échec",
+      "unknown": "—"
+    },
+    "pagination": {
+      "showing": "{{from}}–{{to}} sur {{total}}",
+      "prev": "Précédent",
+      "next": "Suivant"
+    },
+    "detail": {
+      "proposed": "Action proposée"
+    },
+    "tabs": {
+      "pipeline": {
+        "title": "Pipeline",
+        "empty": "Aucun enregistrement de trace pour cet incident."
+      },
+      "falco": {
+        "title": "Événement de télémétrie",
+        "empty": "Aucun événement de télémétrie brut capturé."
+      },
+      "rag": {
+        "title": "Contexte RAG",
+        "empty": "Aucun runbook récupéré."
+      },
+      "k8sgpt": {
+        "title": "Signaux de diagnostic",
+        "empty": "Aucun signal de diagnostic pour cet incident."
+      },
+      "llm": {
+        "title": "Réponses LLM",
+        "diagnose": "Sortie de diagnostic",
+        "plan": "Sortie du plan d'action"
+      },
+      "policy": {
+        "title": "Décision de politique",
+        "decision": "Décision",
+        "modeAtEval": "Mode au moment de l'évaluation",
+        "noReasons": "Autorisée sans motif particulier.",
+        "raw": "Objet décision brut"
+      },
+      "action": {
+        "title": "Résultat de l'action",
+        "empty": "L'action n'a jamais été exécutée.",
+        "stdout": "stdout",
+        "stderr": "stderr",
+        "error": "erreur",
+        "raw": "Résultat brut"
+      },
+      "audit": {
+        "title": "Chaîne d'audit",
+        "chainValid": "Chaîne valide",
+        "chainBroken": "Chaîne rompue",
+        "fileValid": "Fichier d'audit entièrement vérifié.",
+        "fileBroken": "Le fichier d'audit contient des enregistrements altérés.",
+        "empty": "Aucun enregistrement d'audit pour cet incident."
+      }
+    }
+  },
+  "pipeline": {
+    "title": "Pipeline",
+    "live": {
+      "subtitle": "Trace en direct des incidents en cours",
+      "watching": "Surveillance de l'incident",
+      "empty": "Aucun incident en cours. Lancez-en un depuis « Cas d'usage » ou avec `make demo`.",
+      "picker": {
+        "label": "Suivre",
+        "auto": "Auto",
+        "manual": "Manuel",
+        "choose": "Incident",
+        "autoOption": "Auto : suivre le plus récent",
+        "noneActive": "Aucun incident actif pour l'instant",
+        "activeCount": "actifs"
+      }
+    },
+    "replay": {
+      "watching": "Relecture",
+      "empty": "Aucun enregistrement de trace pour cet incident."
+    },
+    "tabs": {
+      "timeline": "Timeline",
+      "graph": "Graphe"
+    },
+    "timeline": {
+      "phases": {
+        "observe": "Observer",
+        "predict": "Prédire",
+        "heal": "Réparer",
+        "learn": "Apprendre"
+      },
+      "telemetry": {
+        "podsReadyOverTime": "Pods prêts · 4 dernières min",
+        "podsReady": "Pods prêts",
+        "restarts": "Redémarrages",
+        "actionsTaken": "Actions",
+        "actionLog": "Journal d'actions",
+        "waiting": "En attente du premier événement…"
+      }
+    },
+    "scrubber": {
+      "step": "Événement suivant",
+      "scrub": "Parcourir la timeline",
+      "instant": "Instantané"
+    },
+    "drawer": {
+      "input": "Entrée",
+      "output": "Sortie",
+      "error": "Erreur"
+    },
+    "nodes": {
+      "triage": {
+        "title": "Tri",
+        "desc": "Analyse la télémétrie entrante : gravité, espace de noms, pod, conteneur."
+      },
+      "retrieve_context": {
+        "title": "Récupération du contexte",
+        "desc": "Embedde l'alerte et récupère les 3 meilleurs runbooks depuis Qdrant."
+      },
+      "k8sgpt_analyze": {
+        "title": "Signaux du cluster",
+        "desc": "Collecte des observations structurées sur l'état réel du cluster."
+      },
+      "diagnose": {
+        "title": "Diagnostic",
+        "desc": "Le LLM produit un diagnostic JSON avec confiance et preuves."
+      },
+      "plan_action": {
+        "title": "Plan d'action",
+        "desc": "Le LLM choisit un outil dans le catalogue de 5 actions."
+      },
+      "policy_gate": {
+        "title": "Porte de politique",
+        "desc": "OPA évalue l'action selon la matrice gravité × espace de noms."
+      },
+      "execute": {
+        "title": "Exécuter",
+        "desc": "Dispatch l'action via le serveur MCP vers kubectl."
+      },
+      "verify": {
+        "title": "Vérifier",
+        "desc": "Sonde le cluster jusqu'à constater que la remédiation a pris effet."
+      },
+      "escalate": {
+        "title": "Escalade",
+        "desc": "Avertit un humain et met l'action en attente de validation."
+      }
+    },
+    "running": {
+      "title": "L'agent traite l'incident",
+      "subtitle": "En attente du premier evenement de trace depuis la boucle de l'agent..."
+    }
+  },
+  "usecases": {
+    "title": "Cas d'usage",
+    "subtitle": "Scénarios synthétiques enregistrés avec leurs attentes. Utilisez-les pour les démos ou pour vérifier l'agent sur une forme spécifique d'incident.",
+    "empty": "Aucun cas d'usage. Créez-en un pour démarrer un scénario personnalisé.",
+    "new": "Nouveau cas",
+    "confirmDelete": "Supprimer le cas d'usage « {{name}} » ?",
+    "card": {
+      "rule": "règle",
+      "expected": "attendu"
+    },
+    "wizard": {
+      "titleNew": "Nouveau cas d'usage",
+      "titleEdit": "Modifier le cas d'usage",
+      "next": "Suivant",
+      "previous": "Précédent",
+      "save": "Enregistrer",
+      "saveAndRun": "Enregistrer et exécuter",
+      "steps": {
+        "context": "Contexte",
+        "target": "Cible",
+        "falco": "Télémétrie / chaos",
+        "expected": "Attendu",
+        "runbook": "Runbook",
+        "review": "Revue"
+      },
+      "context": {
+        "name": "Nom",
+        "namePlaceholder": "Identifiant court et unique (ex. « Fuite mémoire dans nginx-demo »)",
+        "descriptionEn": "Description (EN)",
+        "descriptionEnPlaceholder": "Ce que ce cas illustre, en markdown.",
+        "descriptionFr": "Description (FR)",
+        "descriptionFrPlaceholder": "Ce que ce cas illustre, en markdown.",
+        "tags": "Tags",
+        "tagsPlaceholder": "Tapez un tag puis Entrée"
+      },
+      "target": {
+        "namespace": "Espace de noms",
+        "ownerKind": "Type de propriétaire",
+        "podMode": "Sélection du pod",
+        "modeSpecific": "Pod spécifique",
+        "modeLabel": "Par label",
+        "podName": "Nom du pod",
+        "pickPod": "Choisir un pod en cours d'exécution",
+        "podLabels": "Sélecteur de labels",
+        "noLabels": "Aucun label pour l'instant. Ajoutez-en au moins un pour matcher un pod.",
+        "addLabel": "Ajouter label"
+      },
+      "falco": {
+        "rule": "Événement / règle",
+        "rulePlaceholder": "Pod restart loop detected",
+        "priority": "Gravité",
+        "outputTemplate": "Modèle de message",
+        "outputPlaceholder": "Le conteneur dans {ns}/{pod} est entré en CrashLoopBackOff",
+        "placeholdersHint": "Utilisez {pod}, {ns}, {image} comme variables.",
+        "fields": "Champs de l'événement",
+        "preview": "Aperçu en direct"
+      },
+      "expected": {
+        "description": "Les attentes sont évaluées après l'exécution. Ce ne sont pas des tests stricts — le LLM est non-déterministe — juste un contrôle de cohérence.",
+        "diagnosisKeywords": "Mots-clés du diagnostic",
+        "keywordPlaceholder": "Tapez un mot-clé puis Entrée (ex. « OOMKilled »)",
+        "tool": "Action proposée",
+        "toolAny": "Tout outil",
+        "policy": "Décision de politique",
+        "outcome": "Résultat final"
+      },
+      "chaos": {
+        "title": "Expérience Chaos Mesh",
+        "kind": "Type",
+        "action": "Action",
+        "duration": "Durée"
+      },
+      "runbook": {
+        "description": "Optionnel. Si fourni, le runbook est embarqué dans Qdrant juste avant l'exécution, tagué avec l'id du cas d'usage. Le nœud diagnose le verra parmi les meilleurs résultats RAG.",
+        "en": "Runbook (EN)",
+        "fr": "Runbook (FR)",
+        "placeholderEn": "# Runbook\\n\\n**Symptom:** …\\n\\n**Action:** …",
+        "placeholderFr": "# Runbook\\n\\n**Symptôme :** …\\n\\n**Action :** …"
+      },
+      "review": {
+        "summary": "Résumé",
+        "raw": "JSON brut"
+      }
+    },
+    "results": {
+      "title": "Résultats du cas d'usage",
+      "expected": "attendu",
+      "actual": "réel"
+    }
+  },
+  "errors": {
+    "fetchFailed": "Impossible de joindre l'API. Vérifiez `make up` et votre jeton bearer.",
+    "wsDisconnected": "Flux temps-réel déconnecté. Reconnexion…"
+  }
+}

@@ -1,0 +1,9 @@
+# Singleton AgentMode named "default" — the agent always reads this one.
+# Starts in observe-only so a fresh cluster is fail-safe.
+apiVersion: security.poc/v1
+kind: AgentMode
+metadata:
+  name: default
+spec:
+  mode: observe-only
+  note: "Default mode at cluster bootstrap. Flip with `kubectl patch agentmode default --patch-file manifests/patches/mode-active.yaml`."

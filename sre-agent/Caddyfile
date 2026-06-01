@@ -1,0 +1,27 @@
+# Reverse proxy for the PoC. Routes:
+#   /              -> frontend (nginx serving the SPA build)
+#   /api/*         -> FastAPI on :8000
+#   /ws/*          -> FastAPI WebSocket on :8000 (auto-upgrade)
+#
+# Caddy auto-upgrades WS for ws:// URLs that hit a proxied backend. Listen on
+# :80 so the demo URL is simply `http://localhost`.
+
+:80 {
+    encode gzip
+
+    @api path /api/*
+    handle @api {
+        reverse_proxy api:8000
+    }
+
+    @ws path /ws/*
+    handle @ws {
+        reverse_proxy api:8000
+    }
+
+    # Everything else is the SPA. nginx already does the SPA-fallback to
+    # index.html (see frontend/nginx.conf), so we just forward.
+    handle {
+        reverse_proxy frontend:80
+    }
+}

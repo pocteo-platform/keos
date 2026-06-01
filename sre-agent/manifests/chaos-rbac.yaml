@@ -1,0 +1,35 @@
+# Read-only access for the agent's ServiceAccount to Chaos Mesh CRs.
+# The agent never APPLIES chaos — operators do that via the Use Case wizard,
+# which uses the operator's kubeconfig. The agent only needs to read CRs so
+# the observer can correlate ChaosExperiment status with kubelet events.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pocteo-agent-chaos-reader
+rules:
+  - apiGroups: [chaos-mesh.org]
+    resources:
+      - podchaos
+      - networkchaos
+      - stresschaos
+      - iochaos
+      - timechaos
+      - kernelchaos
+      - httpchaos
+      - workflows
+      - schedules
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pocteo-agent-chaos-reader
+subjects:
+  - kind: ServiceAccount
+    name: self-healing-agent
+    namespace: security
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pocteo-agent-chaos-reader

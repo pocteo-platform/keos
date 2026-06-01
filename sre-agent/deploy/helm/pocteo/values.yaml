@@ -1,0 +1,327 @@
+# Keos Helm chart values.
+#
+# Every knob lives here. The chart is multi-arch ready — set
+# `global.imageRegistry` and the image digests will resolve from your
+# org's registry instead of the default.
+
+global:
+  # Where component images are pulled from. Override per-env in CI.
+  imageRegistry: ghcr.io/your-org
+  imagePullSecrets: []
+  # Labels added to every resource — handy for cluster-wide filtering.
+  labels: {}
+
+# ---------------------------------------------------------------------------
+# Auth: the SPA bearer token + the HMAC key for the audit log.
+# Both are required; the chart refuses to install with empty defaults.
+# Generate with:
+#   openssl rand -base64 32
+# ---------------------------------------------------------------------------
+auth:
+  # If empty, helm install fails with a clear error. Populate via
+  # --set-string auth.apiToken=... or a secrets manager.
+  apiToken: ""
+  hmacKey: ""
+
+# ---------------------------------------------------------------------------
+# Pod-level hardening.
+#
+# Sane defaults that satisfy the K8s Restricted Pod Security Standard:
+#   - runAsNonRoot, runAsUser 1000
+#   - readOnlyRootFilesystem (the app writes only to mounted volumes)
+#   - drop ALL capabilities
+#   - seccomp RuntimeDefault (limits syscalls to a vetted set)
+#
+# Per-component overrides live next to each component's image stanza
+# below (e.g. ollama needs runAsUser:0 to write to its model dir).
+# ---------------------------------------------------------------------------
+security:
+  # Pod-level security context (applies to every container in the pod).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  # Container-level security context (per-container).
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    capabilities:
+      drop: [ALL]
+
+# ---------------------------------------------------------------------------
+# Observability — Prometheus + structured logs.
+#
+# When `monitoring.enabled: true`, a `ServiceMonitor` CR is rendered so a
+# Prometheus Operator instance auto-discovers the agent's /metrics
+# endpoint. Disable for clusters without the operator (you can still
+# scrape directly by configuring a `scrape_config`).
+#
+# `logging.format` switches the agent's log formatter: `json` for cluster
+# installs (so Loki / Datadog parse cleanly), `text` for `make demo`
+# / laptop iteration (more eyeball-friendly). If unset in env, the agent
+# auto-detects based on /.dockerenv.
+# ---------------------------------------------------------------------------
+monitoring:
+  enabled: false
+  scrapeInterval: 30s
+  scrapeTimeout: 10s
+  # Extra labels to attach to the ServiceMonitor so Prometheus's
+  # `serviceMonitorSelector` finds it (vary by operator install).
+  labels: {}
+
+logging:
+  format: json  # one of: json | text
+
+# ---------------------------------------------------------------------------
+# Data lifecycle — bounded retention for audit log, incidents, traces.
+#
+# `auditDays`     audit.log rotates daily at midnight UTC; rotated files
+#                 older than this are purged. 0 = rotate but keep all.
+# `incidentDays`  agent/incidents/*.json older than this are deleted.
+# `traceDays`     agent/traces/*.jsonl older than this are deleted.
+# `sweepIntervalS` how often the background pruner runs.
+#
+# Defaults are conservative for a forensic-ready laptop demo. Edge
+# clusters with limited disk should drop `incidentDays` to ~14 and
+# rely on `BACKUP_RESTORE.md` for long-term storage.
+# ---------------------------------------------------------------------------
+retention:
+  auditDays: 30
+  incidentDays: 90
+  traceDays: 30
+  sweepIntervalS: 3600
+
+# Optional Velero backup. When enabled, a `Schedule` CR is rendered that
+# Velero (must be installed separately) honors. The Helm chart never
+# installs Velero itself.
+backup:
+  velero:
+    enabled: false
+    schedule: "0 2 * * *"   # daily 02:00 UTC
+    ttl: "168h"             # keep backups 7 days
+    # Storage location name as registered in the Velero install.
+    storageLocation: "default"
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy enforcement. When true, each Deployment gets a policy that
+# only permits the egress / ingress flows the agent actually needs.
+# Disable for environments without a CNI that supports NetworkPolicy
+# (vanilla k3s ships flannel which does NOT enforce them — use kube-router
+# or Calico to make this effective).
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+
+# Agent runtime defaults to observe-only — safest on first install.
+agent:
+  defaultMode: observe-only  # one of: observe-only | active | frozen
+  confidenceThreshold: 0.6
+  # Namespace watch scope (chaos_observer). Empty list = watch every
+  # namespace except the system deny-list (kube-system, kube-public,
+  # kube-node-lease, chaos-mesh, local-path-storage). Set to a specific
+  # list (e.g. ["workloads","production"]) to lock it down.
+  watchNamespaces: []
+
+# Inbound alert sources. Each integration that POSTs alerts to the agent
+# gets its own dedicated bearer token, kept separate from the SPA's
+# SHP_API_TOKEN so revoking one integration doesn't break the UI.
+inbound:
+  # Prometheus Alertmanager webhook receiver token. Alertmanager sets
+  # this via `http_config.authorization.credentials` in its receiver.
+  # When unset, POST /api/webhooks/alertmanager returns 503 (fail-closed).
+  alertmanagerWebhookToken: ""
+
+# Outbound notifications fired by the `page_human` tool. Both optional —
+# leave empty to disable. The agent never blocks on these; webhook
+# failures are logged and the graph completes regardless.
+notifications:
+  # Slack incoming-webhook URL. Receives a Block Kit card on every
+  # escalation, with severity / namespace / pod / proposed action.
+  # Get one at https://api.slack.com/messaging/webhooks.
+  # Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXX
+  slackWebhookUrl: ""
+
+  # Generic JSON POST endpoint. Use for Microsoft Teams (incoming webhook),
+  # PagerDuty Events API, or your own ChatOps. Payload is the full
+  # page_human args dict (reason, incident_id, namespace, pod, proposed_tool, severity).
+  pageHumanWebhookUrl: ""
+
+# Ollama (LLM inference).
+ollama:
+  image:
+    repository: ollama/ollama
+    tag: "0.4.7"
+  resources:
+    requests: { cpu: 200m, memory: 1Gi }
+    limits:   { cpu: "2",  memory: 6Gi }
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""   # cluster default
+  chatModel: qwen2.5:3b-instruct-q4_K_M
+  embedModel: nomic-embed-text
+
+  # GPU acceleration — see docs/JETSON.md for the full setup walkthrough.
+  #
+  # Enabling this requires the cluster to have:
+  #   1. NVIDIA Container Toolkit installed on the node(s)
+  #      (`nvidia-container-toolkit` + containerd / cri-o configured to
+  #      register the `nvidia` runtime)
+  #   2. The NVIDIA device plugin DaemonSet running so the kubelet
+  #      advertises `nvidia.com/gpu` as a schedulable resource
+  #   3. A RuntimeClass object named matching `runtimeClassName` below
+  #      (default `nvidia`)
+  #
+  # On Jetson Orin Nano (8 GB) with Qwen2.5-3B q4_K_M, a full graph run
+  # drops from ~4-5 min (CPU laptop) to ~20-30 s. Embedding latency
+  # drops to <100 ms.
+  #
+  # Default is OFF — laptop installs and CPU edge clusters work
+  # unchanged. Flip to true ONLY when the prerequisites above are met.
+  gpu:
+    enabled: false
+    # The kubelet resource name. Stick with `nvidia.com/gpu` for the
+    # NVIDIA device plugin. Use a custom value for other vendors
+    # (`amd.com/gpu`, `intel.com/gpu`).
+    resourceName: "nvidia.com/gpu"
+    # Number of GPUs to request. Ollama uses exactly 1 even when more
+    # are available, so this should stay 1 unless you're sharing the
+    # node with other GPU workloads and want to soft-reserve.
+    count: 1
+    # K8s RuntimeClass to select the NVIDIA runtime. On a NVIDIA device
+    # plugin install this is created automatically; on a manual setup
+    # `kubectl apply -f -` an `apiVersion: node.k8s.io/v1, kind: RuntimeClass`
+    # object with `handler: nvidia`. Leave empty to use the cluster default
+    # runtime (works on Talos with NVIDIA System Extension).
+    runtimeClassName: "nvidia"
+    # Optional tolerations — useful when the GPU nodes are tainted to
+    # keep non-GPU workloads off them.
+    tolerations: []
+    # Optional node-selector — pin Ollama to a specific Jetson when
+    # the cluster mixes Jetsons + amd64 nodes.
+    nodeSelector: {}
+
+# Qdrant (RAG vector store).
+qdrant:
+  image:
+    repository: qdrant/qdrant
+    tag: "v1.12.4"
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: "1",  memory: 1Gi }
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+
+# NATS JetStream.
+nats:
+  image:
+    repository: nats
+    tag: "2.10.22-alpine"
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+
+# OPA policy gate.
+opa:
+  image:
+    repository: openpolicyagent/opa
+    tag: "0.69.0"
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { cpu: 200m, memory: 256Mi }
+
+# MCP server (action catalog).
+mcpServer:
+  image:
+    repository: pocteo-mcp-server
+    tag: "0.1.0"
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+  fallbackMode: observe-only
+
+# FastAPI + agent runtime.
+api:
+  image:
+    repository: pocteo-api
+    tag: "0.1.0"
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: "1",  memory: 1Gi }
+  # CORS allowed origins, comma-joined into KEOS_ALLOWED_ORIGINS env.
+  # Empty list = dev defaults (localhost). For production set to your
+  # public Ingress URL(s), e.g. ["https://keos.example.com"].
+  allowedOrigins: []
+  # Global per-IP rate limit (slowapi format: "N/period").
+  # Probe + scrape paths (/api/health, /api/health/detailed, /metrics)
+  # are exempt regardless of this setting.
+  rateLimit: "120/minute"
+  # K8s probes. Tuned for the slow first-boot mode_store watch (initial
+  # GET against the K8s API can take ~5s on cold caches).
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 3
+    startup:
+      periodSeconds: 5
+      failureThreshold: 60  # 5 min max for first boot
+
+# SPA (nginx + built React).
+frontend:
+  image:
+    repository: pocteo-frontend
+    tag: "0.1.0"
+  resources:
+    requests: { cpu: 25m,  memory: 32Mi }
+    limits:   { cpu: 200m, memory: 128Mi }
+
+# Caddy reverse proxy. Set `ingress.enabled: true` and `ingress.host` to
+# expose via an external IngressClass instead of NodePort.
+caddy:
+  image:
+    repository: caddy
+    tag: "2.8-alpine"
+  service:
+    type: ClusterIP
+    port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  host: pocteo.local
+  tls:
+    enabled: false
+    secretName: ""
+
+# ---------------------------------------------------------------------------
+# Chaos Mesh sub-chart.
+#
+# The dependency itself is declared in Chart.yaml. Tune the runtime here:
+# k3s uses /run/k3s/containerd/containerd.sock; Talos uses
+# /run/containerd/containerd.sock; Docker uses /var/run/docker.sock.
+# ---------------------------------------------------------------------------
+chaos-mesh:
+  enabled: true
+  chaosDaemon:
+    runtime: containerd
+    socketPath: /run/containerd/containerd.sock
+  dashboard:
+    create: false  # the SPA's pipeline view replaces it

@@ -1,0 +1,87 @@
+# Scoped RBAC for the self-healing agent.
+#
+# Identity:    ServiceAccount security/self-healing-agent
+# In-scope:    workloads namespace — pods, deployments, networkpolicies
+# Out-of-scope (by RBAC AND by OPA):
+#   - kube-system, kube-public, security namespaces
+#   - cluster-admin verbs anywhere
+#
+# The CRD read permission is cluster-scoped because the AgentMode CR is cluster-scoped.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: self-healing-agent
+  namespace: security
+  labels:
+    shp.io/component: agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: self-healing-agent
+  namespace: workloads
+  labels:
+    shp.io/component: agent
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, delete, patch]
+  - apiGroups: [""]
+    resources: [pods/log, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch, patch]
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    verbs: [get, patch, update]
+  # Phase 9.2: the SRE catalog drops NetworkPolicy verbs (no more
+  # isolate_pod / apply_network_policy) and adds Eviction verbs for
+  # drain_node. cordon_node patches the Node directly (handled by the
+  # cluster-scoped role below).
+  - apiGroups: [""]
+    resources: [pods/eviction]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: self-healing-agent
+  namespace: workloads
+subjects:
+  - kind: ServiceAccount
+    name: self-healing-agent
+    namespace: security
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: self-healing-agent
+---
+# Cluster-scoped permissions: read AgentMode CR (cluster-scoped) + patch
+# Nodes (for cordon_node / drain_node). OPA's matrix gates which actions
+# fire; RBAC is the second layer of defence.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: self-healing-agent-cluster
+rules:
+  - apiGroups: [security.poc]
+    resources: [agentmodes]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: self-healing-agent-cluster
+subjects:
+  - kind: ServiceAccount
+    name: self-healing-agent
+    namespace: security
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: self-healing-agent-cluster
