@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Keos placeholder logo. Brutalist square — matches the SPA's
+  globals.css 0px radius design. Replace with a real mark when ready.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <rect x="0" y="0" width="32" height="32" fill="#2563EB"/>
+  <text x="16" y="22" font-family="ui-sans-serif, system-ui, sans-serif"
+        font-size="16" font-weight="700" fill="#FFFFFF" text-anchor="middle">K</text>
+  <rect x="22" y="22" width="6" height="6" fill="#F59E0B"/>
+</svg>

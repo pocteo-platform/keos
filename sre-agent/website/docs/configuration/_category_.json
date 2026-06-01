@@ -1,0 +1,9 @@
+{
+  "label": "Configuration",
+  "position": 5,
+  "link": {
+    "type": "generated-index",
+    "title": "Configuration reference",
+    "description": "Every behavior knob. Environment variables, Helm values, and the OPA severity × action matrix that gates every remediation."
+  }
+}

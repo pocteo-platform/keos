@@ -1,0 +1,20 @@
+# Build output (regenerated on every `npm run build`)
+build/
+.docusaurus/
+
+# Dependencies
+node_modules/
+
+# Generated translation stubs (run `npm run write-translations` locally)
+i18n/*/code.json
+
+# Local env
+.env
+.env.local
+
+# Misc
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
