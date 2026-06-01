@@ -1,7 +1,7 @@
 # Two-stage build: node-based build then nginx-served static.
 # The image does NOT bake a token; the SPA prompts the user to paste it.
 
-FROM node:20-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 
 # Cache deps separately so source-only edits don't bust npm install.
