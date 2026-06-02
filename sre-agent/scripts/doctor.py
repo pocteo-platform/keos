@@ -106,6 +106,28 @@ def main() -> int:
                 print(f"             -> fix: {fix}")
             failures.append((name, c))
 
+    # Phase 12 — calibration status (cluster-wide median, % above 90 %).
+    # Informational only; never causes the doctor to exit non-zero.
+    try:
+        r2 = httpx.get(f"{base}/api/calibration", headers=headers, timeout=5.0)
+        if r2.status_code == 200:
+            cal = r2.json()
+            n = cal.get("total", 0)
+            median = cal.get("median_confidence")
+            pct90 = cal.get("pct_above_90")
+            label = "CALIBRATION ".ljust(12)
+            if n == 0:
+                print(f"{_sym(True)} {label} no incidents graded yet")
+            else:
+                median_s = f"{median:.2f}" if median is not None else "n/a"
+                pct90_s = f"{pct90 * 100:.0f}%" if pct90 is not None else "n/a"
+                print(
+                    f"{_sym(True)} {label} rules={n} median={median_s} "
+                    f"above_90={pct90_s}  (target ≥ 90%)"
+                )
+    except Exception:  # noqa: BLE001
+        pass  # calibration is best-effort; don't fail the doctor on it
+
     print()
     if not failures:
         print("All systems go. You can run a use case from the UI.")

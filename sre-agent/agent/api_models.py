@@ -168,6 +168,46 @@ class AuditVerifyResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Calibration (Phase 12) — per-rule confidence statistics + threshold.
+# ---------------------------------------------------------------------------
+
+
+class CalibrationRule(BaseModel):
+    """One row of the calibration store, projected for the SPA."""
+
+    rule_id: str
+    n_total: int
+    n_graded: int
+    n_correct: int
+    n_escalated_lowconf: int
+    n_escalated_other: int
+    n_stale: int
+    n_override: int
+    accuracy: float | None
+    mean_confidence: float | None
+    p50_confidence: float
+    p90_confidence: float
+    threshold_override: float | None
+    learned_threshold: float
+    effective_threshold: float
+    updated_at: str
+
+
+class CalibrationList(BaseModel):
+    total: int
+    items: list[CalibrationRule]
+    median_confidence: float | None = None
+    pct_above_90: float | None = None
+
+
+class CalibrationThresholdRequest(BaseModel):
+    """Operator-pinned override. `null` clears the override."""
+
+    threshold: float | None
+    note: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Scenarios + use cases
 # ---------------------------------------------------------------------------
 

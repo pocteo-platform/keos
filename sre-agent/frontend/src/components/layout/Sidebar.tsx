@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Activity, Boxes, GitBranch, Layers, ShieldCheck, X } from "lucide-react";
+import { Activity, Boxes, GitBranch, Layers, ShieldCheck, Target, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   COMPANY_NAME,
@@ -17,6 +17,7 @@ const items = [
   { to: "/incidents", icon: Activity, key: "nav.incidents" },
   { to: "/pipeline/live", icon: GitBranch, key: "nav.pipeline" },
   { to: "/usecases", icon: Boxes, key: "nav.usecases" },
+  { to: "/calibration", icon: Target, key: "nav.calibration" },
   { to: "/control", icon: ShieldCheck, key: "nav.control" },
 ] as const;
 

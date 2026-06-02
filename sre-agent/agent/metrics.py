@@ -69,6 +69,44 @@ llm_call_duration_seconds = Histogram(
 
 
 # ---------------------------------------------------------------------------
+# Calibration — Phase 12. The 90 %-confidence target lives here.
+# Cardinality is bounded by the seeded runbook set + macro-loop's
+# proposed runbooks (Phase 16) — single-digits to low-tens per cluster.
+# ---------------------------------------------------------------------------
+
+diagnose_confidence = Histogram(
+    "keos_diagnose_confidence",
+    "Distribution of LLM-reported confidence at the diagnose step, "
+    "partitioned by rule. Operators alert on a falling p50 (rule's "
+    "diagnoses are getting more uncertain) and on a rising "
+    "count above the per-rule threshold (rule is finally well-tuned).",
+    labelnames=("rule",),
+    # Confidence is 0..1; buckets bias to the [0.5, 0.95] range where
+    # the threshold decisions actually happen.
+    buckets=(0.1, 0.3, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.99),
+    registry=REGISTRY,
+)
+
+diagnose_outcome_total = Counter(
+    "keos_diagnose_outcome_total",
+    "Terminal incident outcomes per rule, used by the calibration store "
+    "to compute per-rule accuracy. Bucket values match calibration/grader.py.",
+    labelnames=("rule", "bucket"),
+    # bucket ∈ {healed, escalated_lowconf, escalated_other, stale, override}
+    registry=REGISTRY,
+)
+
+calibration_threshold = Gauge(
+    "keos_calibration_threshold",
+    "The threshold currently gating the diagnose→plan_action edge for "
+    "each rule. Includes any operator override. Compare with "
+    "keos_diagnose_confidence p50 to see if the gate is too tight.",
+    labelnames=("rule",),
+    registry=REGISTRY,
+)
+
+
+# ---------------------------------------------------------------------------
 # Policy + safety mesh counters.
 # ---------------------------------------------------------------------------
 
@@ -168,6 +206,9 @@ __all__ = [
     "graph_runs_total",
     "graph_run_duration_seconds",
     "llm_call_duration_seconds",
+    "diagnose_confidence",
+    "diagnose_outcome_total",
+    "calibration_threshold",
     "policy_decisions_total",
     "escalations_total",
     "pending_approvals",

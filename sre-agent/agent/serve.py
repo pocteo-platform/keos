@@ -61,6 +61,18 @@ async def _process_message(m, label: str) -> None:
         final = await asyncio.to_thread(_run_with_id, event, forced_id)
         save_incident(final["incident_id"], final)
         trace_bus.mark_done(final["incident_id"])
+        # Phase 12 — grade the outcome against the calibration store +
+        # emit the Prometheus per-rule bucket counter. Wrapped because
+        # calibration must never block the consumer's ack.
+        try:
+            from agent.calibration import grade_outcome
+            from agent.metrics import diagnose_outcome_total
+
+            bucket = grade_outcome(final)
+            if bucket and final.get("rule"):
+                diagnose_outcome_total.labels(rule=final["rule"], bucket=bucket).inc()
+        except Exception:  # noqa: BLE001
+            log.exception("[%s] calibration grader raised; ignoring", label)
         log.info("[%s] graph run done incident_id=%s", label, final["incident_id"])
     except Exception:  # noqa: BLE001
         log.exception("[%s] graph crashed for message; nak'ing", label)

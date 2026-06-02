@@ -13,6 +13,7 @@ const PipelinePage = lazy(() => import("@/routes/pipeline"));
 const IncidentsPage = lazy(() => import("@/routes/incidents"));
 const IncidentDetailPage = lazy(() => import("@/routes/incident-detail"));
 const UseCasesPage = lazy(() => import("@/routes/usecases"));
+const CalibrationPage = lazy(() => import("@/routes/calibration"));
 
 export default function App() {
   const token = useApp((s) => s.token);
@@ -47,6 +48,7 @@ export default function App() {
               <Route path="/pipeline/:id" element={<PipelinePage />} />
               <Route path="/pipeline/live" element={<PipelinePage />} />
               <Route path="/usecases" element={<UseCasesPage />} />
+              <Route path="/calibration" element={<CalibrationPage />} />
               <Route path="*" element={<Navigate to="/cluster" replace />} />
             </Routes>
           </Suspense>

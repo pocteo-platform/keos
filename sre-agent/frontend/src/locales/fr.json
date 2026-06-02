@@ -8,6 +8,7 @@
     "incidents": "Incidents",
     "pipeline": "Pipeline",
     "usecases": "Cas d'usage",
+    "calibration": "Calibration",
     "control": "Contrôle"
   },
   "topbar": {

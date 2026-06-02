@@ -177,6 +177,33 @@ export interface PendingApproval {
   denied_reasons: string[];
 }
 
+// ─── Calibration (Phase 12) ─────────────────────────────────────────────
+export interface CalibrationRule {
+  rule_id: string;
+  n_total: number;
+  n_graded: number;
+  n_correct: number;
+  n_escalated_lowconf: number;
+  n_escalated_other: number;
+  n_stale: number;
+  n_override: number;
+  accuracy: number | null;
+  mean_confidence: number | null;
+  p50_confidence: number;
+  p90_confidence: number;
+  threshold_override: number | null;
+  learned_threshold: number;
+  effective_threshold: number;
+  updated_at: string;
+}
+
+export interface CalibrationList {
+  total: number;
+  items: CalibrationRule[];
+  median_confidence: number | null;
+  pct_above_90: number | null;
+}
+
 export interface UseCase {
   id: string;
   name: string;
@@ -227,6 +254,17 @@ export const api = {
       `/api/cluster/events?ns=${encodeURIComponent(ns)}&limit=${limit}`,
     ),
   listActiveIncidents: () => request<ActiveIncident[]>("GET", "/api/incidents/active"),
+
+  // Phase 12 — calibration
+  listCalibration: () => request<CalibrationList>("GET", "/api/calibration"),
+  getCalibrationRule: (rule: string) =>
+    request<CalibrationRule>("GET", `/api/calibration/${encodeURIComponent(rule)}`),
+  setCalibrationThreshold: (rule: string, threshold: number | null, note?: string) =>
+    request<CalibrationRule>(
+      "POST",
+      `/api/calibration/${encodeURIComponent(rule)}/threshold`,
+      { threshold, note: note ?? null },
+    ),
 
   listIncidents: (
     params: {

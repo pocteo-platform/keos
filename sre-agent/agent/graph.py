@@ -309,6 +309,21 @@ def node_diagnose(state: IncidentState) -> dict[str, Any]:
         }
     payload = d.model_dump()
     audit.emit(state["incident_id"], "diagnose", payload)
+
+    # Phase 12 — record the confidence sample for per-rule calibration.
+    # Best-effort; never lets a calibration error break the graph.
+    try:
+        from agent.calibration import record_diagnose
+        from agent.metrics import diagnose_confidence
+
+        rule = state.get("rule")
+        conf = float(payload.get("confidence", 0.0))
+        if rule:
+            record_diagnose(rule, conf)
+            diagnose_confidence.labels(rule=rule).observe(conf)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("calibration: diagnose-record failed (%s); graph continues", exc)
+
     return {"diagnosis": payload}
 
 
@@ -587,11 +602,45 @@ def _route_after_triage(state: IncidentState) -> str:
 
 
 def _route_after_diagnose(state: IncidentState) -> str:
+    """Gate the diagnose→plan_action edge.
+
+    Phase 12 — instead of one global threshold, the per-rule threshold
+    from `agent/calibration` wins:
+      • Operator-pinned override (set via the SPA) is highest priority.
+      • Learned threshold (rule's own p25 once we have ≥20 graded
+        incidents) is the middle tier.
+      • Global default (`settings.confidence_threshold`, default 0.6)
+        is the fallback for new rules.
+
+    Falls back to the global threshold on any calibration-store error
+    so the graph stays usable even when the SQLite is unhealthy.
+    """
     diag = state.get("diagnosis", {})
     conf = float(diag.get("confidence", 0.0))
-    if conf < settings.confidence_threshold:
+    rule = state.get("rule")
+
+    threshold = float(settings.confidence_threshold)
+    source = "global"
+    if rule:
+        try:
+            from agent.calibration import get_default_store
+            from agent.metrics import calibration_threshold
+
+            stats = get_default_store().get(rule)
+            threshold = stats.effective_threshold
+            source = "override" if stats.threshold_override is not None else (
+                "learned" if stats.n_graded >= 20 else "global"
+            )
+            calibration_threshold.labels(rule=rule).set(threshold)
+        except Exception as exc:  # noqa: BLE001
+            log.debug(
+                "calibration: threshold lookup failed (%s); using global default", exc
+            )
+
+    if conf < threshold:
         log.info(
-            "diagnosis confidence %.2f < %.2f -> escalate", conf, settings.confidence_threshold
+            "diagnosis confidence %.2f < %.2f (rule=%s, source=%s) -> escalate",
+            conf, threshold, rule, source,
         )
         return "escalate"
     return "plan_action"
