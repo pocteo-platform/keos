@@ -162,6 +162,11 @@ class IncidentState(TypedDict, total=False):
     agent_mode: AgentModeLiteral
     context: dict[str, Any]
     k8sgpt_findings: list[dict[str, Any]]
+    # Phase 13 — per-pod metric baselines (EWMA + per-hour seasonal
+    # residual). Always present after `enrich_with_baselines`; may be
+    # an empty list when the learner has no data for this pod yet, or
+    # when the store / Prometheus is unconfigured.
+    baselines: list[dict[str, Any]]
     diagnosis: dict[str, Any]
     proposed_action: dict[str, Any]
     policy_decision: dict[str, Any]

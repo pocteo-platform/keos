@@ -208,6 +208,43 @@ class CalibrationThresholdRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Baselines (Phase 13) — per-metric snapshots returned to the SPA + scripts.
+# ---------------------------------------------------------------------------
+
+
+class BaselineSnapshotModel(BaseModel):
+    """One row in the per-pod / per-metric baseline read view.
+
+    `status` is one of `ok | learning | missing`. `current` is the
+    most-recent sample value; baseline fields are present only when
+    `status == "ok"`. `sigma_above` is bounded — see
+    `agent.baselines.math.safe_zscore`.
+    """
+
+    metric: str
+    namespace: str
+    scope: str
+    status: str
+    current: float | None = None
+    mean: float | None = None
+    std: float | None = None
+    sigma_above: float | None = None
+    seasonal_residual: float | None = None
+    n_samples: int = 0
+
+
+class BaselineList(BaseModel):
+    """Returned by `GET /api/baselines?ns=&pod=`. `total_samples` is
+    the count of raw samples currently in the store for ALL metrics —
+    the doctor / SPA banner uses it to render the warmup progress."""
+
+    total: int
+    items: list[BaselineSnapshotModel]
+    total_samples: int = 0
+    keys_known: int = 0
+
+
+# ---------------------------------------------------------------------------
 # Scenarios + use cases
 # ---------------------------------------------------------------------------
 

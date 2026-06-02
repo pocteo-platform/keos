@@ -107,6 +107,40 @@ calibration_threshold = Gauge(
 
 
 # ---------------------------------------------------------------------------
+# Baselines — Phase 13. Lets dashboards answer "is the learner running?"
+# and "how anomalous was the last incident's target pod?".
+# Cardinality stays low: gauges are per metric_name (≤ 10), histogram is
+# unlabeled. Per-(metric, pod) detail lives in the SQLite store, not in
+# Prometheus.
+# ---------------------------------------------------------------------------
+
+baseline_samples_total = Counter(
+    "keos_baseline_samples_total",
+    "Samples persisted by the baseline learner since startup, labelled by "
+    "the logical metric name. A flat counter means the learner has stopped "
+    "polling or Prometheus is down.",
+    labelnames=("metric",),
+    registry=REGISTRY,
+)
+
+baseline_keys_known = Gauge(
+    "keos_baseline_keys_known",
+    "Number of distinct (metric, namespace, scope) keys the store has "
+    "seen. Roughly 'how many pods/nodes the agent has learned'.",
+    registry=REGISTRY,
+)
+
+baseline_enrich_sigma_above = Histogram(
+    "keos_baseline_enrich_sigma_above",
+    "Per-snapshot σ-above-baseline seen by the enrich_with_baselines node. "
+    "p90 ≥ 3 means the incident's target pod looked clearly anomalous; "
+    "p90 ≤ 1 means the baselines didn't help separate signal from noise.",
+    buckets=(0.0, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 25.0),
+    registry=REGISTRY,
+)
+
+
+# ---------------------------------------------------------------------------
 # Policy + safety mesh counters.
 # ---------------------------------------------------------------------------
 
@@ -209,6 +243,9 @@ __all__ = [
     "diagnose_confidence",
     "diagnose_outcome_total",
     "calibration_threshold",
+    "baseline_samples_total",
+    "baseline_keys_known",
+    "baseline_enrich_sigma_above",
     "policy_decisions_total",
     "escalations_total",
     "pending_approvals",

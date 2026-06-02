@@ -128,6 +128,32 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         pass  # calibration is best-effort; don't fail the doctor on it
 
+    # Phase 13 — baselines learner status. Informational; the doctor
+    # reports cold-start ("learning") vs warm ("ok") + key count so the
+    # operator knows when the LLM is being fed σ-above-baseline context.
+    try:
+        r3 = httpx.get(f"{base}/api/baselines", headers=headers, timeout=5.0)
+        if r3.status_code == 200:
+            b = r3.json()
+            n_keys = b.get("keys_known", 0)
+            n_samples = b.get("total_samples", 0)
+            items = b.get("items", []) or []
+            n_ok = sum(1 for it in items if it.get("status") == "ok")
+            n_learning = sum(1 for it in items if it.get("status") == "learning")
+            label = "BASELINES   ".ljust(12)
+            if n_keys == 0:
+                print(
+                    f"{_sym(True)} {label} no Prometheus samples yet "
+                    f"(learner warming or PROMETHEUS_URL unset)"
+                )
+            else:
+                print(
+                    f"{_sym(True)} {label} keys={n_keys} samples={n_samples} "
+                    f"fitted={n_ok} learning={n_learning}"
+                )
+    except Exception:  # noqa: BLE001
+        pass  # baselines best-effort
+
     print()
     if not failures:
         print("All systems go. You can run a use case from the UI.")

@@ -289,6 +289,51 @@ def node_k8sgpt_analyze(state: IncidentState) -> dict[str, Any]:
     return {"k8sgpt_findings": targeted}
 
 
+def node_enrich_with_baselines(state: IncidentState) -> dict[str, Any]:
+    """Phase 13 — attach per-pod metric baselines for the diagnose LLM.
+
+    Reads `state["namespace"]` + `state["pod"]`, asks the baselines
+    store for the top-N most-interesting snapshots, returns them under
+    `baselines`. Wide try/except: a baseline store failure must NEVER
+    block the graph. Fail-OPEN-but-empty — diagnose still runs without
+    the snapshots, same pattern as `k8sgpt_analyze`.
+    """
+    ns = state.get("namespace") or ""
+    pod = state.get("pod") or ""
+    snapshots: list[dict[str, Any]] = []
+    if ns and pod:
+        try:
+            from agent.baselines import snapshot_for_pod
+
+            snapshots = [s.to_dict() for s in snapshot_for_pod(ns, pod)]
+        except Exception as exc:  # noqa: BLE001
+            log.warning("enrich_with_baselines raised %s; continuing empty", exc)
+            snapshots = []
+    # Project the σ-above-baseline distribution into Prometheus so
+    # dashboards can answer "did the baselines actually help?". Best-
+    # effort; never break the graph on a metrics push failure.
+    try:
+        from agent.metrics import baseline_enrich_sigma_above
+
+        for snap in snapshots:
+            sigma = snap.get("sigma_above")
+            if isinstance(sigma, int | float) and sigma > 0:
+                baseline_enrich_sigma_above.observe(float(sigma))
+    except Exception as exc:  # noqa: BLE001
+        log.debug("baseline metric emit failed (%s); continuing", exc)
+    audit.emit(
+        state["incident_id"],
+        "enrich_with_baselines",
+        {
+            "namespace": ns,
+            "pod": pod,
+            "snapshot_count": len(snapshots),
+            "snapshots": snapshots,
+        },
+    )
+    return {"baselines": snapshots}
+
+
 def node_diagnose(state: IncidentState) -> dict[str, Any]:
     ctx = state.get("context", {}) or {}
     d = llm_diagnose(
@@ -296,6 +341,7 @@ def node_diagnose(state: IncidentState) -> dict[str, Any]:
         ctx.get("runbook_hits", []),
         ctx.get("pod_describe", ""),
         state.get("k8sgpt_findings", []),
+        state.get("baselines", []),
     )
     if d is None:
         audit.emit(state["incident_id"], "diagnose_failed", {"reason": "validation"})
@@ -747,6 +793,10 @@ def build_graph():
     sg.add_node("triage", _inst("triage", node_triage))
     sg.add_node("retrieve_context", _inst("retrieve_context", node_retrieve_context))
     sg.add_node("k8sgpt_analyze", _inst("k8sgpt_analyze", node_k8sgpt_analyze))
+    sg.add_node(
+        "enrich_with_baselines",
+        _inst("enrich_with_baselines", node_enrich_with_baselines),
+    )
     sg.add_node("diagnose", _inst("diagnose", node_diagnose))
     sg.add_node("plan_action", _inst("plan_action", node_plan_action))
     sg.add_node("policy_gate", _inst("policy_gate", node_policy_gate))
@@ -759,7 +809,8 @@ def build_graph():
         "triage", _route_after_triage, {"escalate": "escalate", "next": "retrieve_context"}
     )
     sg.add_edge("retrieve_context", "k8sgpt_analyze")
-    sg.add_edge("k8sgpt_analyze", "diagnose")
+    sg.add_edge("k8sgpt_analyze", "enrich_with_baselines")
+    sg.add_edge("enrich_with_baselines", "diagnose")
     sg.add_conditional_edges(
         "diagnose", _route_after_diagnose, {"plan_action": "plan_action", "escalate": "escalate"}
     )

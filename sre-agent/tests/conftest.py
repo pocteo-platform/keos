@@ -322,7 +322,7 @@ def patch_llm(monkeypatch):
     def set_scenario(key):
         state["scenario"] = key
 
-    def fake_diagnose(event, runbook_hits, pod_describe, k8sgpt_findings=None):
+    def fake_diagnose(event, runbook_hits, pod_describe, k8sgpt_findings=None, baselines=None):
         canned = CANNED_LLM[state["scenario"]]["diagnosis"]
         return Diagnosis.model_validate(canned)
 

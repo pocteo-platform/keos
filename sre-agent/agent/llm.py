@@ -32,10 +32,11 @@ log = logging.getLogger(__name__)
 DIAGNOSE_SYSTEM = """\
 You are an autonomous SRE agent for a Kubernetes cluster.
 
-You have up to THREE input sources:
+You have up to FOUR input sources:
   1. The raw infrastructure telemetry event (always present).
   2. Top runbook excerpts retrieved by similarity (1-3 items).
   3. Structured findings about the live cluster state (0+ items, may be empty).
+  4. Metric baselines for the target pod (0+ snapshots, may be empty).
 
 When cluster signals exist, treat them as ground-truth observations of the
 cluster's current state. The telemetry event tells you what was DETECTED;
@@ -43,6 +44,14 @@ the cluster signals tell you what is actually WRONG right now. If the two
 disagree (e.g., the event says "container failed to start" but the signal
 says "ImagePullBackOff: manifest unknown"), prefer the cluster signal for
 `root_cause` and note the reconciliation in `notes`.
+
+When metric baselines are present, weight a "N σ above baseline" reading
+MORE than a raw absolute value. A pod at 838 MiB memory only matters if
+that is 23 σ above its 7-day mean of 412 MiB; the same 838 MiB at 0.4 σ
+above its mean of 800 MiB is normal load. Mention the σ figure in
+`evidence` when it drives your root_cause. If a baseline is in status
+"learning" or "missing", fall back to the raw value but do not invent
+a baseline.
 
 Produce a SINGLE JSON OBJECT with exactly these five keys:
 
@@ -287,11 +296,65 @@ def _try_parse(raw: str, model_cls: type) -> Any | None:
         return None
 
 
+def _fmt_baseline_value(v: float | None) -> str:
+    """Pretty-print one baseline number for the prompt. Bytes and big
+    numbers get human units so the LLM doesn't have to count digits.
+
+    Kept here (not in `agent.baselines`) because the formatting is a
+    presentation choice tied to the prompt, not to the snapshot data."""
+    if v is None:
+        return "n/a"
+    absv = abs(v)
+    if absv >= 1024 * 1024 * 1024:
+        return f"{v / (1024**3):.2f} GiB"
+    if absv >= 1024 * 1024:
+        return f"{v / (1024**2):.1f} MiB"
+    if absv >= 1024:
+        return f"{v / 1024:.1f} KiB"
+    if absv >= 1.0:
+        return f"{v:.2f}"
+    return f"{v:.4f}"
+
+
+def _render_baselines_block(snapshots: list[dict[str, Any]] | None) -> str:
+    """Build the "=== METRIC BASELINES ===" block injected into the
+    diagnose user prompt. Returns empty string when the input is
+    empty so the prompt stays compact on cold-start clusters."""
+    if not snapshots:
+        return ""
+    lines: list[str] = []
+    for s in snapshots[:5]:
+        metric = s.get("metric", "?")
+        status = s.get("status", "missing")
+        current = _fmt_baseline_value(s.get("current"))
+        if status == "ok":
+            mean = _fmt_baseline_value(s.get("mean"))
+            std = _fmt_baseline_value(s.get("std"))
+            sigma = s.get("sigma_above")
+            sigma_part = f"{sigma:+.1f}σ" if isinstance(sigma, int | float) else "n/a"
+            residual = s.get("seasonal_residual")
+            seasonal_part = (
+                f", seasonal Δ {_fmt_baseline_value(residual)}" if residual is not None else ""
+            )
+            lines.append(
+                f"- {metric}: current {current}, baseline {mean} ± {std} "
+                f"({sigma_part} above{seasonal_part}, n={s.get('n_samples', 0)})"
+            )
+        elif status == "learning":
+            lines.append(
+                f"- {metric}: current {current}, baseline still learning (insufficient history)"
+            )
+        else:  # missing
+            lines.append(f"- {metric}: no baseline available")
+    return "\n\n=== METRIC BASELINES (target pod) ===\n" + "\n".join(lines)
+
+
 def diagnose(
     event: dict[str, Any],
     runbook_hits: list[dict[str, Any]],
     pod_describe: str,
     k8sgpt_findings: list[dict[str, Any]] | None = None,
+    baselines: list[dict[str, Any]] | None = None,
 ) -> Diagnosis | None:
     # Plain-text sections — small models like Qwen2.5-3B follow these better
     # than nested JSON, which they tend to echo back instead of summarising.
@@ -324,6 +387,7 @@ def diagnose(
         findings_blob = "\n\n=== K8SGPT FINDINGS (ground-truth cluster state) ===\n" + "\n".join(
             lines
         )
+    baselines_blob = _render_baselines_block(baselines)
     user = (
         "=== FALCO ALERT ===\n"
         + falco
@@ -332,6 +396,7 @@ def diagnose(
         + "\n\n=== POD STATE ===\n"
         + pod_blob
         + findings_blob
+        + baselines_blob
         + "\n\n=== YOUR TASK ===\n"
         "Return the diagnosis JSON object now."
     )
