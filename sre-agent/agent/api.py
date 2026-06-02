@@ -43,6 +43,9 @@ from agent.api_models import (
     AuditList,
     AuditRecord,
     AuditVerifyResponse,
+    CalibrationList,
+    CalibrationRule,
+    CalibrationThresholdRequest,
     DenialRequest,
     DeploymentSummary,
     EventSummary,
@@ -1009,6 +1012,103 @@ async def _publish_event(subject: str, payload: dict[str, Any]) -> None:
         await js.publish(subject, json.dumps(payload).encode())
     finally:
         await nc.drain()
+
+
+# ---------------------------------------------------------------------------
+# Calibration (Phase 12)
+# ---------------------------------------------------------------------------
+
+
+def _rule_stats_to_model(stats: Any) -> "CalibrationRule":
+    """Project a `RuleStats` dataclass into the public API model."""
+    return CalibrationRule(
+        rule_id=stats.rule_id,
+        n_total=stats.n_total,
+        n_graded=stats.n_graded,
+        n_correct=stats.n_correct,
+        n_escalated_lowconf=stats.n_escalated_lowconf,
+        n_escalated_other=stats.n_escalated_other,
+        n_stale=stats.n_stale,
+        n_override=stats.n_override,
+        accuracy=stats.accuracy,
+        mean_confidence=stats.mean_confidence,
+        p50_confidence=stats.p50_confidence,
+        p90_confidence=stats.p90_confidence,
+        threshold_override=stats.threshold_override,
+        learned_threshold=stats.learned_threshold,
+        effective_threshold=stats.effective_threshold,
+        updated_at=stats.updated_at,
+    )
+
+
+@app.get(
+    "/api/calibration",
+    response_model=CalibrationList,
+    dependencies=[Depends(require_bearer)],
+)
+def list_calibration() -> CalibrationList:
+    """All rules the agent has seen, with per-rule confidence stats."""
+    from agent.calibration import get_default_store
+
+    items = [_rule_stats_to_model(s) for s in get_default_store().list_all()]
+    # Cluster-wide aggregates so the SPA can render a "where are we vs 90 %"
+    # banner without re-computing client-side.
+    median = None
+    pct_above_90 = None
+    all_samples: list[float] = []
+    for it in items:
+        if it.mean_confidence is not None:
+            all_samples.append(it.mean_confidence)
+    if all_samples:
+        ordered = sorted(all_samples)
+        mid = len(ordered) // 2
+        median = ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+        above = sum(1 for x in ordered if x >= 0.9)
+        pct_above_90 = above / len(ordered)
+    return CalibrationList(
+        total=len(items),
+        items=items,
+        median_confidence=median,
+        pct_above_90=pct_above_90,
+    )
+
+
+@app.get(
+    "/api/calibration/{rule_id}",
+    response_model=CalibrationRule,
+    dependencies=[Depends(require_bearer)],
+)
+def get_calibration_rule(rule_id: str) -> CalibrationRule:
+    from agent.calibration import get_default_store
+
+    stats = get_default_store().get(rule_id)
+    return _rule_stats_to_model(stats)
+
+
+@app.post(
+    "/api/calibration/{rule_id}/threshold",
+    response_model=CalibrationRule,
+    dependencies=[Depends(require_bearer)],
+)
+def set_calibration_threshold(
+    rule_id: str, req: CalibrationThresholdRequest
+) -> CalibrationRule:
+    """Pin (or clear, with `threshold=null`) the operator override for a
+    rule. Persisted to the SQLite store; survives agent restart."""
+    from agent.calibration import get_default_store
+
+    store = get_default_store()
+    store.set_threshold_override(rule_id, req.threshold)
+    audit.emit(
+        f"calibration-{rule_id}",
+        "calibration.threshold_override",
+        {
+            "rule_id": rule_id,
+            "threshold": req.threshold,
+            "note": req.note,
+        },
+    )
+    return _rule_stats_to_model(store.get(rule_id))
 
 
 # ---------------------------------------------------------------------------
