@@ -628,19 +628,22 @@ def _route_after_diagnose(state: IncidentState) -> str:
 
             stats = get_default_store().get(rule)
             threshold = stats.effective_threshold
-            source = "override" if stats.threshold_override is not None else (
-                "learned" if stats.n_graded >= 20 else "global"
+            source = (
+                "override"
+                if stats.threshold_override is not None
+                else ("learned" if stats.n_graded >= 20 else "global")
             )
             calibration_threshold.labels(rule=rule).set(threshold)
         except Exception as exc:  # noqa: BLE001
-            log.debug(
-                "calibration: threshold lookup failed (%s); using global default", exc
-            )
+            log.debug("calibration: threshold lookup failed (%s); using global default", exc)
 
     if conf < threshold:
         log.info(
             "diagnosis confidence %.2f < %.2f (rule=%s, source=%s) -> escalate",
-            conf, threshold, rule, source,
+            conf,
+            threshold,
+            rule,
+            source,
         )
         return "escalate"
     return "plan_action"

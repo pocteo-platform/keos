@@ -6,12 +6,28 @@ name: self-healing-poc
 
 services:
   ollama:
+    # Ollama auto-detects an attached GPU at runtime — when the GPU
+    # reservation (see docker-compose.gpu.yml) is in scope, the CUDA
+    # backend kicks in (visible in the startup log:
+    # `library=cuda ... name="NVIDIA GeForce ..."`). Without that
+    # overlay this service runs CPU-only. The Makefile / make.ps1 `up`
+    # target auto-detects a usable NVIDIA GPU on the host and applies
+    # the overlay automatically — no explicit `up-gpu` needed.
     image: ollama/ollama:0.4.7
     container_name: shp-ollama
     ports:
       - "11434:11434"
     volumes:
       - ollama_models:/root/.ollama
+    environment:
+      # 30-minute keep-alive keeps the model resident between scenarios.
+      # Default is 5 min; 30 min matches typical SPA session length.
+      OLLAMA_KEEP_ALIVE: "30m"
+      # Allow concurrent diagnose + plan_action evaluations.
+      OLLAMA_NUM_PARALLEL: "2"
+      # Trim context window from default 8k to 4k — saves VRAM on smaller
+      # cards while still covering the diagnose prompt comfortably.
+      OLLAMA_CONTEXT_LENGTH: "4096"
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s

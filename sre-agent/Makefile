@@ -12,7 +12,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 CLUSTER := poc
 KUBECONFIG_FILE := ./.kube/config
-OLLAMA_CHAT_MODEL := qwen2.5:3b-instruct-q4_K_M
+OLLAMA_CHAT_MODEL := qwen2.5:7b-instruct-q4_K_M
 OLLAMA_EMBED_MODEL := nomic-embed-text
 
 # Many Linux distros (Ubuntu, Debian, RHEL 9+) ship only `python3` — no
@@ -20,7 +20,7 @@ OLLAMA_EMBED_MODEL := nomic-embed-text
 # python3, fall back to python only if python3 is missing.
 PYTHON ?= $(shell command -v python3 2>/dev/null || command -v python 2>/dev/null || echo python3)
 
-.PHONY: help install doctor up up-gpu down restart rebuild rebuild-nocache rebuild-full logs ps seed pull-models cluster cluster-down \
+.PHONY: help install doctor up up-gpu up-cpu down restart rebuild rebuild-nocache rebuild-full logs ps seed pull-models cluster cluster-down \
         kubeconfig test test-policy demo demo-ui clean \
         lint lint-python lint-frontend format typecheck typecheck-python typecheck-frontend coverage \
         docs-install docs-dev docs-build docs-serve docs-clean
@@ -160,6 +160,11 @@ docs-serve:
 docs-clean:
 	@cd website && npm run clear && rm -rf build/
 
+# `up` auto-detects an NVIDIA GPU. If `nvidia-smi -L` succeeds in a
+# privileged CUDA probe container, the GPU overlay is layered on top of
+# the base compose file automatically. If no GPU is available (or
+# Docker GPU support is disabled), falls back to CPU-only compose
+# silently. Use `make up-cpu` to force CPU even on a GPU host.
 up: .env.local
 	@# Seed empty kubeconfig placeholder files so Docker bind-mounts them as
 	@# files, not directories. Without this, when `up` runs before `cluster`
@@ -170,21 +175,18 @@ up: .env.local
 	@mkdir -p .kube
 	@[ -e .kube/config ] || touch .kube/config
 	@[ -e .kube/config-container ] || touch .kube/config-container
-	@$(COMPOSE) up -d
+	@bash -c 'if docker run --rm --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi -L >/dev/null 2>&1; then \
+		echo "GPU detected — using GPU overlay for ollama (~50x faster LLM)."; \
+		$(COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml up -d; \
+	else \
+		echo "No GPU detected — using CPU. (\`make up-cpu\` forces CPU; \`make up-gpu\` requires GPU.)"; \
+		$(COMPOSE) up -d; \
+	fi'
 	@echo "Compose stack starting. Use 'make ps' to see health."
 
-# GPU-accelerated variant. Layers docker-compose.gpu.yml on top of the base
-# file so the Ollama container claims all visible NVIDIA GPUs + raises
-# OLLAMA_KEEP_ALIVE so the model stays loaded between scenarios.
-#
-# Drops LLM latency from ~60 s/call on CPU to ~2 s/call on an RTX 3070.
-# Requires Docker Desktop with GPU support + an NVIDIA driver R535+ on
-# the host. Smoke-test before running:
-#
-#   docker run --rm --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi
-#
-# If that prints the GPU, you're good. If not, see
-# docs/operations/gpu-inference.md for setup.
+# Force GPU mode. Fails fast (with a pointer to the docs) if GPU
+# passthrough isn't working — useful when an operator EXPECTS GPU and
+# wants `make` to be loud about the misconfiguration.
 up-gpu: .env.local
 	@mkdir -p .kube
 	@[ -e .kube/config ] || touch .kube/config
@@ -194,7 +196,15 @@ up-gpu: .env.local
 	  (echo "GPU passthrough failed. See docs/operations/gpu-inference.md." && exit 1)
 	@$(COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml up -d
 	@echo "Compose stack starting with GPU acceleration on ollama."
-	@echo "First scenario should complete in ~10s (vs ~5m on CPU)."
+
+# Force CPU mode (skip the GPU probe even when a card is present).
+# Useful for benchmarking, or when the GPU is busy doing something else.
+up-cpu: .env.local
+	@mkdir -p .kube
+	@[ -e .kube/config ] || touch .kube/config
+	@[ -e .kube/config-container ] || touch .kube/config-container
+	@$(COMPOSE) up -d
+	@echo "Compose stack starting with CPU-only ollama."
 
 # Generate a stable bearer token on first `up` so the SPA can read it.
 # Atomic write — if $(PYTHON) errors mid-recipe, .env.local is NOT overwritten

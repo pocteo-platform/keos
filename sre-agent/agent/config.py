@@ -32,7 +32,12 @@ class Settings:
     nats_url: str = _env("NATS_URL", "nats://localhost:4222")
     opa_url: str = _env("OPA_URL", "http://localhost:8181")
 
-    chat_model: str = _env("OLLAMA_CHAT_MODEL", "qwen2.5:3b-instruct-q4_K_M")
+    # qwen2.5:7b-instruct-q4_K_M is ~4.4 GB resident — fits in ≥ 8 GB
+    # VRAM with room for the embed model + KV cache. Expected confidence
+    # lift over 3b: +3-5 percentage points (per Phase 12 measurements).
+    # Set OLLAMA_CHAT_MODEL=qwen2.5:3b-instruct-q4_K_M to roll back on
+    # cards with < 8 GB VRAM or CPU-only hosts (~5× faster on CPU).
+    chat_model: str = _env("OLLAMA_CHAT_MODEL", "qwen2.5:7b-instruct-q4_K_M")
     embed_model: str = _env("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
     kubeconfig: str = _env("KUBECONFIG", str(_REPO_ROOT / ".kube" / "config"))

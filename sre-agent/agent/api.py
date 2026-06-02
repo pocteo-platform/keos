@@ -65,13 +65,19 @@ from agent.api_models import (
     UseCase,
     UseCaseRunResponse,
 )
-from agent.audit import verify_audit_log
+from agent.audit import AuditLogger, verify_audit_log
 from agent.config import settings
 from agent.mode_store import mode_store
 from agent.pipeline_trace import bus as trace_bus
 from agent.ws_bridge import WSConnection
 
 log = logging.getLogger(__name__)
+
+# Module-level audit logger singleton. Writes go to settings.audit_log_path;
+# the HMAC chain is per-line and idempotent, so creating a second logger
+# here (in addition to the one in agent/graph.py) is safe — they write to
+# the same file from different code paths.
+_audit = AuditLogger()
 
 
 app = FastAPI(
@@ -1019,7 +1025,7 @@ async def _publish_event(subject: str, payload: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _rule_stats_to_model(stats: Any) -> "CalibrationRule":
+def _rule_stats_to_model(stats: Any) -> CalibrationRule:
     """Project a `RuleStats` dataclass into the public API model."""
     return CalibrationRule(
         rule_id=stats.rule_id,
@@ -1090,16 +1096,14 @@ def get_calibration_rule(rule_id: str) -> CalibrationRule:
     response_model=CalibrationRule,
     dependencies=[Depends(require_bearer)],
 )
-def set_calibration_threshold(
-    rule_id: str, req: CalibrationThresholdRequest
-) -> CalibrationRule:
+def set_calibration_threshold(rule_id: str, req: CalibrationThresholdRequest) -> CalibrationRule:
     """Pin (or clear, with `threshold=null`) the operator override for a
     rule. Persisted to the SQLite store; survives agent restart."""
     from agent.calibration import get_default_store
 
     store = get_default_store()
     store.set_threshold_override(rule_id, req.threshold)
-    audit.emit(
+    _audit.emit(
         f"calibration-{rule_id}",
         "calibration.threshold_override",
         {
