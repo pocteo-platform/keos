@@ -122,6 +122,23 @@ function Invoke-Up {
     Ok "Compose stack starting. Run '.\make.ps1 ps' to see health."
 }
 
+# GPU-accelerated variant — layers docker-compose.gpu.yml on top of the
+# base compose file so the Ollama container claims the NVIDIA GPU.
+# Smoke-tests passthrough first so failures fail fast with a clear msg.
+function Invoke-UpGpu {
+    Ensure-EnvLocalToken
+    Ensure-KubeconfigPlaceholders
+    Info "Smoke-testing GPU passthrough..."
+    docker run --rm --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi -L
+    if ($LASTEXITCODE -ne 0) {
+        Fail "GPU passthrough failed. See docs/operations/gpu-inference.md."
+    }
+    docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+    Need-Exit $LASTEXITCODE "docker compose up (gpu overlay) failed"
+    Ok "Compose stack starting with GPU acceleration on ollama."
+    Ok "First scenario should complete in ~10s (vs ~5m on CPU)."
+}
+
 function Invoke-Down {
     docker compose down
     if (Cmd-Exists 'k3d') {
@@ -439,6 +456,7 @@ switch ($Target.ToLower()) {
     'help'         { Invoke-Help }
     'install'      { Invoke-Install }
     'up'           { Invoke-Up }
+    'up-gpu'       { Invoke-UpGpu }
     'down'         { Invoke-Down }
     'restart'      { Invoke-Restart }
     'rebuild'      { Invoke-Rebuild }
