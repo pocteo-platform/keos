@@ -7,7 +7,6 @@ graph's `_route_after_diagnose`.
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -19,7 +18,6 @@ from agent.calibration.store import (
     RuleStats,
     _quantile,
 )
-
 
 # ─── Store: schema, CRUD, idempotency ────────────────────────────────────
 
@@ -152,10 +150,7 @@ def test_classify_stale_resolved() -> None:
 
 
 def test_classify_human_override_via_action_result() -> None:
-    assert (
-        _classify({"rule": "x", "action_result": {"human_override": True}})
-        == "override"
-    )
+    assert _classify({"rule": "x", "action_result": {"human_override": True}}) == "override"
 
 
 def test_classify_human_override_via_top_level_flag() -> None:

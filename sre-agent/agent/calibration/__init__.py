@@ -23,12 +23,12 @@ The store is local SQLite (stdlib, no new deps). One row per rule_id.
 Tracks rolling stats over the last N incidents (N configurable).
 """
 
+from agent.calibration.grader import grade_outcome, record_diagnose
 from agent.calibration.store import (
     CalibrationStore,
     RuleStats,
     get_default_store,
 )
-from agent.calibration.grader import grade_outcome, record_diagnose
 
 __all__ = [
     "CalibrationStore",

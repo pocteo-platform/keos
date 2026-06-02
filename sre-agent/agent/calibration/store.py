@@ -19,10 +19,10 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
 
 from agent.config import settings
 
@@ -175,9 +175,7 @@ class CalibrationStore:
         import json
 
         with self._connect() as cx:
-            row = cx.execute(
-                "SELECT * FROM rule_stats WHERE rule_id = ?", (rule_id,)
-            ).fetchone()
+            row = cx.execute("SELECT * FROM rule_stats WHERE rule_id = ?", (rule_id,)).fetchone()
         if row is None:
             return RuleStats(rule_id=rule_id)
         samples = json.loads(row["samples_json"])
@@ -201,9 +199,7 @@ class CalibrationStore:
     def list_all(self) -> list[RuleStats]:
         """All known rules. Used by the operator UI."""
         with self._connect() as cx:
-            rows = cx.execute(
-                "SELECT rule_id FROM rule_stats ORDER BY rule_id"
-            ).fetchall()
+            rows = cx.execute("SELECT rule_id FROM rule_stats ORDER BY rule_id").fetchall()
         return [self.get(r["rule_id"]) for r in rows]
 
     def record_diagnose(self, rule_id: str, confidence: float) -> None:
