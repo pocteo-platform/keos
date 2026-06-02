@@ -331,6 +331,26 @@ async def _async_main(host: str, port: int) -> None:
     # kubeconfig or NATS.
     from agent.chaos_observer import observer as chaos_observer
 
+    # Phase 13 — baseline learner. Disabled when PROMETHEUS_URL is
+    # empty so an operator can run the agent without Prometheus
+    # without seeing a noisy "scrape failed" log every 60 s. Started
+    # as a background asyncio task that the gather doesn't wait on,
+    # so its lifecycle is independent of the consumer + API.
+    if settings.prometheus_url:
+        try:
+            from agent.baselines.learner import Learner
+
+            _baseline_learner = Learner(
+                prometheus_url=settings.prometheus_url,
+                scrape_interval_s=settings.baseline_scrape_interval_s,
+                fit_interval_s=settings.baseline_fit_interval_s,
+            )
+            await _baseline_learner.start()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("baselines: learner failed to start (%s); continuing", exc)
+    else:
+        log.info("baselines: PROMETHEUS_URL empty — learner disabled")
+
     await asyncio.gather(
         _serve(host, port),
         _nats_consumer(),

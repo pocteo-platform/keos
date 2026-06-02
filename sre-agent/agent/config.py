@@ -51,5 +51,14 @@ class Settings:
     qdrant_collection: str = _env("QDRANT_COLLECTION", "runbooks")
     agent_mode_name: str = _env("AGENT_MODE_NAME", "default")
 
+    # Phase 13 — Prometheus URL the baseline learner polls. Empty
+    # string disables the learner entirely (the graph's enrich node
+    # then returns no snapshots and the diagnose prompt falls back to
+    # raw values). Leaving the laptop-default in place so `make up`
+    # autodetects when the Prometheus service is in the stack.
+    prometheus_url: str = _env("PROMETHEUS_URL", "http://localhost:9090")
+    baseline_scrape_interval_s: int = int(_env("BASELINE_SCRAPE_INTERVAL_S", "60"))
+    baseline_fit_interval_s: int = int(_env("BASELINE_FIT_INTERVAL_S", "600"))
+
 
 settings = Settings()

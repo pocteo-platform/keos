@@ -43,6 +43,8 @@ from agent.api_models import (
     AuditList,
     AuditRecord,
     AuditVerifyResponse,
+    BaselineList,
+    BaselineSnapshotModel,
     CalibrationList,
     CalibrationRule,
     CalibrationThresholdRequest,
@@ -1113,6 +1115,69 @@ def set_calibration_threshold(rule_id: str, req: CalibrationThresholdRequest) ->
         },
     )
     return _rule_stats_to_model(store.get(rule_id))
+
+
+# ---------------------------------------------------------------------------
+# Baselines (Phase 13) — per-pod / per-metric snapshots for the SPA + scripts.
+# ---------------------------------------------------------------------------
+
+
+def _snapshot_to_model(s: dict) -> BaselineSnapshotModel:
+    """Pure dict → pydantic projection. Kept tiny so callers compose."""
+    return BaselineSnapshotModel(
+        metric=str(s.get("metric", "")),
+        namespace=str(s.get("namespace", "")),
+        scope=str(s.get("scope", "")),
+        status=str(s.get("status", "missing")),
+        current=s.get("current"),
+        mean=s.get("mean"),
+        std=s.get("std"),
+        sigma_above=s.get("sigma_above"),
+        seasonal_residual=s.get("seasonal_residual"),
+        n_samples=int(s.get("n_samples", 0)),
+    )
+
+
+@app.get(
+    "/api/baselines",
+    response_model=BaselineList,
+    dependencies=[Depends(require_bearer)],
+)
+def list_baselines(
+    ns: str | None = Query(None, description="Namespace filter; required when pod is set."),
+    pod: str | None = Query(None, description="Pod name; returns the diagnose-time snapshot list."),
+) -> BaselineList:
+    """Read view over the baselines store.
+
+    With both `ns` and `pod` set, returns the same top-N snapshots the
+    `enrich_with_baselines` node would inject into the diagnose prompt.
+    Without filters, returns every known key as a `status=missing`
+    placeholder (the SPA's "what is the learner seeing?" page).
+    """
+    from agent.baselines import get_default_store, snapshot_for_pod
+    from agent.baselines.snapshot import snapshot_one
+
+    store = get_default_store()
+    if ns and pod:
+        snaps = snapshot_for_pod(ns, pod, store=store)
+        items = [_snapshot_to_model(s.to_dict()) for s in snaps]
+    else:
+        # Enumerate every known key. Cheap because list_keys returns
+        # at most a few hundred rows on edge clusters.
+        keys = store.list_keys()
+        items = []
+        for key in keys:
+            recent = store.recent_samples(key, limit=1)
+            current = recent[-1].value if recent else None
+            fit = store.get_fit(key)
+            snap = snapshot_one(key, current, fit)
+            items.append(_snapshot_to_model(snap.to_dict()))
+    return BaselineList(
+        total=len(items),
+        items=items,
+        total_samples=store.count_samples(),
+        keys_known=len(store.list_keys()),
+    )
 
 
 # ---------------------------------------------------------------------------

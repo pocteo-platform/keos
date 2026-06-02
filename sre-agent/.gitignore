@@ -17,6 +17,16 @@ agent/traces/
 agent/incidents/
 agent/approvals/
 
+# Phase 12 / 13 — local SQLite stores written by the agent at runtime.
+# Default path derives from the audit-log location (agent/), so we
+# ignore the agent/ + data/ locations both.
+agent/*.db
+agent/*.db-wal
+agent/*.db-shm
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
 # Python
 __pycache__/
 *.pyc
