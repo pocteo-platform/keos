@@ -20,7 +20,7 @@ OLLAMA_EMBED_MODEL := nomic-embed-text
 # python3, fall back to python only if python3 is missing.
 PYTHON ?= $(shell command -v python3 2>/dev/null || command -v python 2>/dev/null || echo python3)
 
-.PHONY: help install doctor up down restart rebuild rebuild-nocache rebuild-full logs ps seed pull-models cluster cluster-down \
+.PHONY: help install doctor up up-gpu down restart rebuild rebuild-nocache rebuild-full logs ps seed pull-models cluster cluster-down \
         kubeconfig test test-policy demo demo-ui clean \
         lint lint-python lint-frontend format typecheck typecheck-python typecheck-frontend coverage \
         docs-install docs-dev docs-build docs-serve docs-clean
@@ -172,6 +172,29 @@ up: .env.local
 	@[ -e .kube/config-container ] || touch .kube/config-container
 	@$(COMPOSE) up -d
 	@echo "Compose stack starting. Use 'make ps' to see health."
+
+# GPU-accelerated variant. Layers docker-compose.gpu.yml on top of the base
+# file so the Ollama container claims all visible NVIDIA GPUs + raises
+# OLLAMA_KEEP_ALIVE so the model stays loaded between scenarios.
+#
+# Drops LLM latency from ~60 s/call on CPU to ~2 s/call on an RTX 3070.
+# Requires Docker Desktop with GPU support + an NVIDIA driver R535+ on
+# the host. Smoke-test before running:
+#
+#   docker run --rm --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi
+#
+# If that prints the GPU, you're good. If not, see
+# docs/operations/gpu-inference.md for setup.
+up-gpu: .env.local
+	@mkdir -p .kube
+	@[ -e .kube/config ] || touch .kube/config
+	@[ -e .kube/config-container ] || touch .kube/config-container
+	@echo "Smoke-testing GPU passthrough..."
+	@docker run --rm --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi -L || \
+	  (echo "GPU passthrough failed. See docs/operations/gpu-inference.md." && exit 1)
+	@$(COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml up -d
+	@echo "Compose stack starting with GPU acceleration on ollama."
+	@echo "First scenario should complete in ~10s (vs ~5m on CPU)."
 
 # Generate a stable bearer token on first `up` so the SPA can read it.
 # Atomic write — if $(PYTHON) errors mid-recipe, .env.local is NOT overwritten

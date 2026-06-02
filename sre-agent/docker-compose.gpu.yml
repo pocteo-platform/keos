@@ -1,0 +1,57 @@
+# GPU overlay for the laptop demo.
+#
+# Bring the stack up with both files:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# OR via the Make shortcut:
+#
+#   make up-gpu          # (Linux / macOS / WSL)
+#   .\make.ps1 up-gpu    # (Windows PowerShell)
+#
+# What changes:
+#   • The ollama container reserves all visible NVIDIA GPUs. The Ollama
+#     runtime detects them automatically — no app config change. Inference
+#     drops from ~60 s/call on CPU to ~2 s/call on an RTX 3070-class card.
+#   • OLLAMA_KEEP_ALIVE is bumped from the default 5 min to 30 min so
+#     the model stays loaded between scenarios (otherwise the first call
+#     after idle pays a ~5 s reload cost).
+#   • OLLAMA_NUM_PARALLEL lets the diagnose + plan_action calls overlap
+#     when the agent processes two events back-to-back.
+#
+# Prerequisites (already satisfied if `docker info | grep nvidia` shows
+# the runtime):
+#   • Docker Desktop with WSL2 backend + GPU support enabled
+#     (Settings → Resources → "Enable GPU support" — default on on
+#     Windows 11 with a supported driver).
+#   • NVIDIA driver R535+ on the host (the Ollama image bundles its
+#     own CUDA runtime; the host just needs the driver).
+#   • `docker run --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi`
+#     prints the GPU. (This is the laptop's smoke test.)
+#
+# The base compose file (docker-compose.yml) is unchanged. Removing this
+# overlay reverts to CPU-only inference.
+
+services:
+  ollama:
+    # Pull a slightly newer Ollama if you want the latest CUDA fixes. The
+    # 0.4.7 we pin in the base file is fine on a 3070; cap the kernels
+    # to the GPU and you're done.
+    environment:
+      # Stay loaded between calls. Default is 5 min; 30 min matches the
+      # SPA's typical session length for the demo.
+      OLLAMA_KEEP_ALIVE: "30m"
+      # Allow concurrent diagnose + plan_action evaluations. 2 is plenty
+      # for the agent's burst pattern; raise if you parallelise scenarios.
+      OLLAMA_NUM_PARALLEL: "2"
+      # The chat-model context window. qwen2.5:3b-instruct supports 32k
+      # but we only use a few thousand tokens; bumping to 4k saves VRAM
+      # vs the default 8k while keeping headroom for the diagnose prompt.
+      OLLAMA_CONTEXT_LENGTH: "4096"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
