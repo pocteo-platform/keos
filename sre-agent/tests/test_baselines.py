@@ -490,6 +490,59 @@ def test_parse_prom_response_returns_empty_on_non_success() -> None:
     assert parse_prom_response(Query(metric="m", promql="x"), {"status": "error"}) == []
 
 
+# ─── Query-profile selection ───────────────────────────────────────────
+
+
+def test_queries_for_profile_k8s_returns_kubelet_catalog() -> None:
+    from agent.baselines.learner import KUBELET_QUERIES, _queries_for_profile
+
+    assert _queries_for_profile("k8s") == KUBELET_QUERIES
+    assert _queries_for_profile("kubelet") == KUBELET_QUERIES
+    # Empty string maps to default k8s profile.
+    assert _queries_for_profile("") == KUBELET_QUERIES
+
+
+def test_queries_for_profile_docker_returns_cadvisor_catalog() -> None:
+    from agent.baselines.learner import DOCKER_QUERIES, _queries_for_profile
+
+    assert _queries_for_profile("docker") == DOCKER_QUERIES
+    # Case-insensitive.
+    assert _queries_for_profile("DOCKER") == DOCKER_QUERIES
+
+
+def test_queries_for_profile_unknown_falls_back_to_k8s() -> None:
+    from agent.baselines.learner import KUBELET_QUERIES, _queries_for_profile
+
+    # Typo must NOT silently disable the learner — fall back to k8s
+    # so production deployments keep collecting samples.
+    assert _queries_for_profile("k8z") == KUBELET_QUERIES
+
+
+def test_learner_class_exposes_refit_method() -> None:
+    """Regression guard: `_refit_all` MUST be a method on Learner, not
+    an orphaned module-level function. The fit branch is triggered on
+    every tick where `now - last_fit_at >= fit_interval_s` — if it's
+    missing, the wide try/except swallows the AttributeError silently
+    and baselines never get fitted, but the bug isn't visible in tests
+    that don't actually call refit."""
+    from agent.baselines.learner import Learner
+
+    assert hasattr(Learner, "_refit_all"), (
+        "_refit_all must be a Learner method; otherwise tick_once's "
+        "fit branch silently fails on every cycle"
+    )
+
+
+def test_docker_profile_targets_name_label() -> None:
+    """Sanity check that the docker profile sets `scope_label="name"`
+    so the learner extracts the container name from cAdvisor's labels."""
+    from agent.baselines.learner import DOCKER_QUERIES
+
+    for q in DOCKER_QUERIES:
+        assert q.scope_label == "name", f"{q.metric} should target the `name` label"
+        assert q.namespace_label == ""
+
+
 # ─── Graph node integration ─────────────────────────────────────────────
 
 

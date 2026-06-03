@@ -74,10 +74,47 @@ class Query:
     scope_label: str = "pod"
 
 
-# Default catalog — covers the seven runbooks shipped today.
-# Each query is intentionally a simple selector + aggregation so it
-# returns one series per pod / node. Operators extend via env.
-DEFAULT_QUERIES: tuple[Query, ...] = (
+# Query catalogs by profile. `k8s` (default) targets a Prometheus
+# scraping kubelet + kube-state-metrics inside a cluster — the
+# production shape. `docker` targets a Prometheus scraping cAdvisor
+# against the Docker socket — the laptop-demo shape. Switch via
+# `BASELINE_QUERY_PROFILE`. Each profile feeds the same store +
+# snapshot reader; the only difference is the label that names the
+# scope (pod vs container).
+
+# `docker` profile — cAdvisor-shaped series, scope = container name.
+DOCKER_QUERIES: tuple[Query, ...] = (
+    Query(
+        metric="container_memory_rss_bytes",
+        promql='sum by (name) (container_memory_rss{name!=""})',
+        namespace_label="",
+        scope_label="name",
+    ),
+    Query(
+        metric="container_cpu_rate_5m",
+        promql=('sum by (name) (rate(container_cpu_usage_seconds_total{name!=""}[5m]))'),
+        namespace_label="",
+        scope_label="name",
+    ),
+    Query(
+        metric="container_memory_working_set_bytes",
+        promql='sum by (name) (container_memory_working_set_bytes{name!=""})',
+        namespace_label="",
+        scope_label="name",
+    ),
+    Query(
+        metric="container_network_rx_rate_5m",
+        promql='sum by (name) (rate(container_network_receive_bytes_total{name!=""}[5m]))',
+        namespace_label="",
+        scope_label="name",
+    ),
+)
+
+
+# `k8s` profile — kubelet/cAdvisor + kube-state-metrics shape.
+# Each query returns one series per pod (or node). This is the
+# production catalog; covers the seven runbooks shipped today.
+KUBELET_QUERIES: tuple[Query, ...] = (
     # Container memory + cpu — primary signals for OOM / hot pods.
     Query(
         metric="container_memory_rss_bytes",
@@ -119,6 +156,24 @@ DEFAULT_QUERIES: tuple[Query, ...] = (
 )
 
 
+# Back-compat alias — earlier Phase 13 code (and tests) imported this
+# name. Resolves to the k8s profile, matching the previous default.
+DEFAULT_QUERIES: tuple[Query, ...] = KUBELET_QUERIES
+
+
+def _queries_for_profile(profile: str) -> tuple[Query, ...]:
+    """Resolve `BASELINE_QUERY_PROFILE` to a catalog. Unknown values
+    fall back to `k8s` with a WARNING so a typo doesn't silently
+    disable the learner."""
+    p = (profile or "").strip().lower()
+    if p == "docker":
+        return DOCKER_QUERIES
+    if p in ("", "k8s", "kubelet"):
+        return KUBELET_QUERIES
+    log.warning("BASELINE_QUERY_PROFILE=%r unknown; falling back to k8s profile", profile)
+    return KUBELET_QUERIES
+
+
 def _queries_from_env() -> tuple[Query, ...]:
     """Override / extend the default catalog at deploy time.
 
@@ -126,9 +181,11 @@ def _queries_from_env() -> tuple[Query, ...]:
     `{metric, promql, namespace_label?, scope_label?}` objects.
     Invalid JSON falls back to the defaults with a WARNING.
     """
+    profile = os.environ.get("BASELINE_QUERY_PROFILE", "k8s")
+    base = _queries_for_profile(profile)
     raw = os.environ.get("BASELINE_EXTRA_QUERIES_JSON", "").strip()
     if not raw:
-        return DEFAULT_QUERIES
+        return base
     try:
         items = json.loads(raw)
         extras = tuple(
@@ -141,10 +198,10 @@ def _queries_from_env() -> tuple[Query, ...]:
             for it in items
         )
         log.info("baselines: %d extra queries loaded from env", len(extras))
-        return DEFAULT_QUERIES + extras
+        return base + extras
     except (ValueError, KeyError, TypeError) as exc:
-        log.warning("BASELINE_EXTRA_QUERIES_JSON invalid (%s); using defaults", exc)
-        return DEFAULT_QUERIES
+        log.warning("BASELINE_EXTRA_QUERIES_JSON invalid (%s); using profile defaults", exc)
+        return base
 
 
 class Learner:
@@ -260,6 +317,14 @@ class Learner:
             return []
         return parse_prom_response(q, resp.json())
 
+    def _refit_all(self) -> None:
+        """Recompute baselines for every known key from the underlying
+        sample buffer. Idempotent — `upsert_fit` overwrites in place."""
+        for key in self.store.list_keys():
+            fit = self.store.fit_from_samples(key)
+            if fit is not None:
+                self.store.upsert_fit(fit)
+
 
 def parse_prom_response(q: Query, body: dict) -> list[Sample]:
     """Pure helper: turn one Prometheus `/api/v1/query` response into
@@ -296,9 +361,3 @@ def parse_prom_response(q: Query, body: dict) -> list[Sample]:
             )
         )
     return out
-
-    def _refit_all(self) -> None:
-        for key in self.store.list_keys():
-            fit = self.store.fit_from_samples(key)
-            if fit is not None:
-                self.store.upsert_fit(fit)
