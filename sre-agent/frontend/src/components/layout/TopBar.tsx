@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useLocation, useMatches } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   ChevronRight,
   LogOut,
@@ -94,8 +94,6 @@ export function TopBar() {
   const { t } = useTranslation();
   const { token, setToken, theme, setTheme, locale, setLocale, setMobileNavOpen } = useApp();
   const location = useLocation();
-  // Touch useMatches so React Router re-renders us on route change reliably.
-  useMatches();
   const wsStatus = useWsStatus();
 
   const modeQ = useQuery({
