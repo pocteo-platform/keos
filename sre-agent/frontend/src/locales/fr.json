@@ -454,6 +454,10 @@
       "unhealthyServices": "Pods en panne",
       "activeIncidents": "Incidents actifs",
       "forecastedBreaches": "Dépassements prévus",
+      "driftIncidents": "Dérive GitOps",
+      "driftNone": "Synchronisé avec la SoT",
+      "driftHint_one": "{{count}} divergence (7j)",
+      "driftHint_other": "{{count}} divergences (7j)",
       "podRestarts": "Pods redémarrés",
       "nodesNotReady": "Nœuds non prêts",
       "nodesWithPressure": "Nœuds sous pression",
@@ -514,6 +518,7 @@
       "calibration": "Calibration",
       "forecasting": "Prédiction",
       "baselines": "Baselines",
+      "drift": "Dérive",
       "notifications": "Notifications",
       "audit": "Audit",
       "about": "À propos"

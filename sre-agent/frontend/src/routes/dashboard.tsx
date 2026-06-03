@@ -4,6 +4,7 @@ import { ActiveIncidentsCard } from "@/components/dashboard/ActiveIncidentsCard"
 import { RecentOutcomesCard } from "@/components/dashboard/RecentOutcomesCard";
 import { ForecastWatchlist } from "@/components/dashboard/ForecastWatchlist";
 import { NamespaceProblemMap } from "@/components/dashboard/NamespaceProblemMap";
+import { LiveActivityRibbon } from "@/components/dashboard/LiveActivityRibbon";
 import { useApp } from "@/lib/store";
 
 /**
@@ -46,6 +47,8 @@ export default function DashboardPage() {
       </header>
 
       <HeroStats />
+
+      <LiveActivityRibbon />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <ActiveIncidentsCard />

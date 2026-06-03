@@ -5,6 +5,7 @@ import {
   AlertOctagon,
   Briefcase,
   Database,
+  GitBranch,
   HeartPulse,
   Layers,
   Server,
@@ -81,6 +82,21 @@ export default function ReliabilityPage() {
 
   // ----- Workload risks (severity-bucketed from incident history) -----
   const incidents = incidentsQ.data?.items ?? [];
+  // Phase 15 — count drift-driven incidents in the last 7 days. The
+  // drift detector tags its events with rule starting "GitOps drift",
+  // which `triage` carries through to IncidentSummary.rule.
+  const driftIncidents7d = useMemo(() => {
+    const cutoff = Date.now() - 7 * 86400 * 1000;
+    return incidents.filter((i) => {
+      const ts = new Date(i.ts).getTime();
+      const rule = (i.rule ?? "").toLowerCase();
+      return (
+        Number.isFinite(ts) &&
+        ts >= cutoff &&
+        (rule.includes("drift") || rule.includes("gitops"))
+      );
+    });
+  }, [incidents]);
   const last7d = useMemo(() => {
     const cutoff = Date.now() - 7 * 86400 * 1000;
     return incidents.filter((i) => {
@@ -175,6 +191,21 @@ export default function ReliabilityPage() {
         forecastedBreaches === 0
           ? t("reliability.tiles.noSurge", { defaultValue: "No surge predicted" })
           : t("reliability.tiles.surgeWindow", { defaultValue: "5-min horizon" }),
+    },
+    {
+      key: "driftIncidents",
+      defaultLabel: "GitOps drift",
+      value: driftIncidents7d.length,
+      icon: <GitBranch className="h-4 w-4" />,
+      variant: driftIncidents7d.length === 0 ? "ok" : "warn",
+      hint:
+        driftIncidents7d.length === 0
+          ? t("reliability.tiles.driftNone", { defaultValue: "In sync with SoT" })
+          : t("reliability.tiles.driftHint", {
+              count: driftIncidents7d.length,
+              defaultValue_one: "{{count}} divergence (7d)",
+              defaultValue_other: "{{count}} divergences (7d)",
+            }),
     },
     {
       key: "podRestarts",

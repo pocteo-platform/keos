@@ -3,7 +3,12 @@ import { useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AgentTab } from "@/components/settings/AgentTab";
 import { CalibrationTab } from "@/components/settings/CalibrationTab";
-import { ForecastingTab, BaselinesTab, NotificationsTab } from "@/components/settings/RuntimeKnobsTab";
+import {
+  ForecastingTab,
+  BaselinesTab,
+  NotificationsTab,
+  DriftTab,
+} from "@/components/settings/RuntimeKnobsTab";
 import { AboutTab } from "@/components/settings/AboutTab";
 import { AuditTable } from "@/components/audit/AuditTable";
 import { Card, CardContent } from "@/components/ui/card";
@@ -74,6 +79,9 @@ export default function SettingsPage() {
           <TabsTrigger value="baselines">
             {t("settings.tabs.baselines", { defaultValue: "Baselines" })}
           </TabsTrigger>
+          <TabsTrigger value="drift">
+            {t("settings.tabs.drift", { defaultValue: "Drift" })}
+          </TabsTrigger>
           <TabsTrigger value="notifications">
             {t("settings.tabs.notifications", { defaultValue: "Notifications" })}
           </TabsTrigger>
@@ -96,6 +104,9 @@ export default function SettingsPage() {
         </TabsContent>
         <TabsContent value="baselines" className="mt-4">
           <BaselinesTab />
+        </TabsContent>
+        <TabsContent value="drift" className="mt-4">
+          <DriftTab />
         </TabsContent>
         <TabsContent value="notifications" className="mt-4">
           <NotificationsTab />

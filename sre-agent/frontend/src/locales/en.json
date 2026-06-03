@@ -442,6 +442,10 @@
       "unhealthyServices": "Unhealthy pods",
       "activeIncidents": "Active incidents",
       "forecastedBreaches": "Forecasted breaches",
+      "driftIncidents": "GitOps drift",
+      "driftNone": "In sync with SoT",
+      "driftHint_one": "{{count}} divergence (7d)",
+      "driftHint_other": "{{count}} divergences (7d)",
       "podRestarts": "Pods restarted",
       "nodesNotReady": "Nodes not Ready",
       "nodesWithPressure": "Nodes with pressure",
@@ -502,6 +506,7 @@
       "calibration": "Calibration",
       "forecasting": "Forecasting",
       "baselines": "Baselines",
+      "drift": "Drift",
       "notifications": "Notifications",
       "audit": "Audit",
       "about": "About"
