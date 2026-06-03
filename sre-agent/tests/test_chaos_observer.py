@@ -31,6 +31,12 @@ from agent.chaos_observer import (
     ChaosObserver,
 )
 
+# Each handle-based test takes the `monkeypatch` fixture so the
+# asyncio.run_coroutine_threadsafe shim is auto-reverted between tests.
+# (The previous global monkeypatching leaked across tests and broke
+# CI ordering — local was lucky.)
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+
 
 # ---------------------------------------------------------------------------
 # Reason map
@@ -112,32 +118,36 @@ class _FakeJetStream:
         self.publishes.append((subject, payload))
 
 
-def _wire(observer: ChaosObserver) -> _FakeJetStream:
+def _wire(observer: ChaosObserver, monkeypatch: pytest.MonkeyPatch) -> _FakeJetStream:
     """Bypass the real asyncio.run_coroutine_threadsafe + main-loop
     capture by stubbing the publish path. The observer thinks it's
-    publishing; we record what it would have sent."""
+    publishing; we record what it would have sent.
+
+    monkeypatch.setattr is used so the asyncio module's namespace is
+    restored between tests — previously a global assignment leaked
+    across tests, breaking CI ordering."""
     js = _FakeJetStream()
     # Loop captured so _handle's `loop is None` check passes.
     observer._loop = SimpleNamespace(_dummy=True)  # type: ignore[assignment]
 
-    import asyncio as _asyncio
-
-    captured: list[tuple[str, bytes]] = []
+    # chaos_observer.py uses `asyncio.run_coroutine_threadsafe(...)`
+    # via the imported `asyncio` module. Patch on `agent.chaos_observer.asyncio`
+    # (the module-level binding seen by the caller) so we don't
+    # touch the global asyncio module.
+    from agent import chaos_observer as _co
 
     def _fake_run_coro_threadsafe(coro, _loop):  # noqa: ANN001
-        """Synchronously consume the coroutine, capture the publish args,
-        then return an object that satisfies the .result() interface."""
-        # Drain the coroutine: it's `js.publish(subject, payload)`.
-        # asyncio.run is heavy; just step the coroutine once — the
-        # first send drives it into the publish() body which appends.
+        """Synchronously consume the coroutine. js.publish() is a
+        simple `async def` that does `self.publishes.append(...)` and
+        returns — stepping with `coro.send(None)` runs its body to
+        completion (StopIteration with .value = return value)."""
         try:
             coro.send(None)
         except StopIteration:
             pass
         return SimpleNamespace(result=lambda timeout: None)
 
-    _asyncio.run_coroutine_threadsafe = _fake_run_coro_threadsafe  # type: ignore[assignment]
-    js.publishes = captured  # type: ignore[assignment]
+    monkeypatch.setattr(_co.asyncio, "run_coroutine_threadsafe", _fake_run_coro_threadsafe)
     return js
 
 
@@ -146,10 +156,10 @@ def _wire(observer: ChaosObserver) -> _FakeJetStream:
 # ---------------------------------------------------------------------------
 
 
-def test_handle_publishes_for_known_reason() -> None:
+def test_handle_publishes_for_known_reason(monkeypatch: pytest.MonkeyPatch) -> None:
     obs = ChaosObserver()
     obs._allow_ns = None  # deny-list mode  # type: ignore[attr-defined]
-    js = _wire(obs)
+    js = _wire(obs, monkeypatch)
     obs._handle(_fake_event(reason="OOMKilled", namespace="workloads"), js)
     assert len(js.publishes) == 1
     subject, payload = js.publishes[0]
@@ -162,40 +172,46 @@ def test_handle_publishes_for_known_reason() -> None:
     assert body["output_fields"]["k8s.ns.name"] == "workloads"
 
 
-def test_handle_ignores_unmapped_reason() -> None:
+def test_handle_ignores_unmapped_reason(monkeypatch: pytest.MonkeyPatch) -> None:
     obs = ChaosObserver()
     obs._allow_ns = None  # type: ignore[attr-defined]
-    js = _wire(obs)
+    js = _wire(obs, monkeypatch)
     obs._handle(_fake_event(reason="Created"), js)
     obs._handle(_fake_event(reason="Pulled"), js)
     assert js.publishes == []
 
 
-def test_handle_skips_system_namespaces_in_denylist_mode() -> None:
+def test_handle_skips_system_namespaces_in_denylist_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     obs = ChaosObserver()
     obs._allow_ns = None  # deny-list mode  # type: ignore[attr-defined]
-    js = _wire(obs)
+    js = _wire(obs, monkeypatch)
     for ns in ("kube-system", "kube-public", "chaos-mesh"):
         obs._handle(_fake_event(namespace=ns), js)
     assert js.publishes == []
 
 
-def test_handle_allowlist_mode_only_publishes_for_listed_ns() -> None:
+def test_handle_allowlist_mode_only_publishes_for_listed_ns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     obs = ChaosObserver()
     obs._allow_ns = {"workloads"}  # type: ignore[attr-defined]
-    js = _wire(obs)
+    js = _wire(obs, monkeypatch)
     obs._handle(_fake_event(namespace="workloads"), js)
     obs._handle(_fake_event(namespace="production"), js)
     obs._handle(_fake_event(namespace="staging"), js)
     assert len(js.publishes) == 1
 
 
-def test_handle_node_events_pass_through_regardless_of_ns() -> None:
+def test_handle_node_events_pass_through_regardless_of_ns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """NodeNotReady etc. arrive with empty involved_object.namespace
     — they're cluster-scoped. The deny-list shouldn't drop them."""
     obs = ChaosObserver()
     obs._allow_ns = None  # type: ignore[attr-defined]
-    js = _wire(obs)
+    js = _wire(obs, monkeypatch)
     obs._handle(
         _fake_event(reason="NodeNotReady", kind="Node", name="k3d-poc-server-0", namespace=""),
         js,
@@ -204,10 +220,12 @@ def test_handle_node_events_pass_through_regardless_of_ns() -> None:
     assert js.publishes[0][0] == "infra.events.node_not_ready"
 
 
-def test_handle_missing_involved_object_is_silently_skipped() -> None:
+def test_handle_missing_involved_object_is_silently_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     obs = ChaosObserver()
     obs._allow_ns = None  # type: ignore[attr-defined]
-    js = _wire(obs)
+    js = _wire(obs, monkeypatch)
     bad = SimpleNamespace(reason="OOMKilled", message="", involved_object=None, metadata=None)
     obs._handle(bad, js)
     assert js.publishes == []
@@ -218,11 +236,11 @@ def test_handle_missing_involved_object_is_silently_skipped() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_debounce_drops_repeat_within_window() -> None:
+def test_debounce_drops_repeat_within_window(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two identical events fired immediately produce ONE publish."""
     obs = ChaosObserver()
     obs._allow_ns = None  # type: ignore[attr-defined]
-    js = _wire(obs)
+    js = _wire(obs, monkeypatch)
     ev = _fake_event()
     obs._handle(ev, js)
     obs._handle(ev, js)  # same (ns, kind, name, reason) — debounced
@@ -236,20 +254,20 @@ def test_debounce_window_constant_is_documented() -> None:
     assert DEBOUNCE_S == 60.0
 
 
-def test_debounce_distinct_keys_dont_block_each_other() -> None:
+def test_debounce_distinct_keys_dont_block_each_other(monkeypatch: pytest.MonkeyPatch) -> None:
     obs = ChaosObserver()
     obs._allow_ns = None  # type: ignore[attr-defined]
-    js = _wire(obs)
+    js = _wire(obs, monkeypatch)
     obs._handle(_fake_event(name="pod-a"), js)
     obs._handle(_fake_event(name="pod-b"), js)
     obs._handle(_fake_event(reason="Unhealthy"), js)  # different reason
     assert len(js.publishes) == 3
 
 
-def test_debounce_expires_after_window() -> None:
+def test_debounce_expires_after_window(monkeypatch: pytest.MonkeyPatch) -> None:
     obs = ChaosObserver()
     obs._allow_ns = None  # type: ignore[attr-defined]
-    js = _wire(obs)
+    js = _wire(obs, monkeypatch)
     ev = _fake_event()
     obs._handle(ev, js)
     # Rewind the last-emit timestamp past the debounce window.
