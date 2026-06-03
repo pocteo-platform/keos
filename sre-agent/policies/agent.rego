@@ -32,6 +32,13 @@ levels := {
 	# state and the agent should be able to recover it autonomously.
 	"uncordon_node":     {"low": 1, "medium": 1, "high": 1, "critical": 1},
 	"drain_node":        {"low": 4, "medium": 3, "high": 2, "critical": 1},
+	# Phase 14 — predictive / rightsizing tools. Matrix is biased toward
+	# operator approval at low severity (these can be disruptive when the
+	# forecast is wrong) and toward autonomy at high/critical (the forecast
+	# has high confidence and the operator wants the agent to act).
+	"tune_hpa":          {"low": 3, "medium": 2, "high": 1, "critical": 1},
+	"set_resources":     {"low": 3, "medium": 2, "high": 1, "critical": 1},
+	"evict_workload":    {"low": 4, "medium": 3, "high": 2, "critical": 1},
 	"page_human":        {"low": 1, "medium": 1, "high": 1, "critical": 1},
 }
 

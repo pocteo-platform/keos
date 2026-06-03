@@ -258,6 +258,221 @@ def scale_deployment(
     )
 
 
+def tune_hpa(
+    hpa_name: str,
+    namespace: str,
+    min_replicas: int | None = None,
+    max_replicas: int | None = None,
+    target_cpu: int | None = None,
+    dry_run: bool = False,
+) -> ActionResult:
+    """Phase 14 — adjust a HorizontalPodAutoscaler's bounds + target.
+
+    Used by the rightsizing + traffic-forecast paths: when the
+    forecaster predicts a load ramp at t+5 min, the agent can widen
+    the HPA's max BEFORE the reactive scaling threshold trips,
+    avoiding the "stampede" failure mode (HPA scales too slowly →
+    pods OOM → restarts → cascading failure).
+
+    All three knobs are optional so the agent can adjust just one
+    axis without disturbing the others. At least one MUST be set;
+    the function returns a failed ActionResult otherwise."""
+    args = {
+        "hpa_name": hpa_name,
+        "namespace": namespace,
+        "min_replicas": min_replicas,
+        "max_replicas": max_replicas,
+        "target_cpu": target_cpu,
+    }
+    if min_replicas is None and max_replicas is None and target_cpu is None:
+        return ActionResult(
+            tool="tune_hpa",
+            args=args,
+            dry_run=dry_run,
+            success=False,
+            error="tune_hpa needs at least one of min_replicas / max_replicas / target_cpu",
+        )
+    # Build the JSON Merge Patch. `spec.minReplicas` + `spec.maxReplicas`
+    # are top-level; CPU target lives under metrics[] (autoscaling/v2).
+    # We use the simpler `spec.targetCPUUtilizationPercentage` path
+    # (autoscaling/v1 compatibility) — k3d ships v2 controllers that
+    # honour both. Operators on v2-only setups can re-target via the
+    # native metrics[] block by extending this function.
+    patch: dict[str, Any] = {"spec": {}}
+    if min_replicas is not None:
+        patch["spec"]["minReplicas"] = int(min_replicas)
+    if max_replicas is not None:
+        patch["spec"]["maxReplicas"] = int(max_replicas)
+    if target_cpu is not None:
+        patch["spec"]["targetCPUUtilizationPercentage"] = int(target_cpu)
+    if dry_run:
+        return ActionResult(
+            tool="tune_hpa",
+            args=args,
+            dry_run=True,
+            success=True,
+            stdout=f"(dry-run) would: kubectl patch hpa/{hpa_name} -n {namespace} --type=merge -p {patch!r}",
+        )
+    import json as _json
+
+    code, out, err = _kubectl(
+        [
+            "patch",
+            f"hpa/{hpa_name}",
+            "-n",
+            namespace,
+            "--type=merge",
+            "-p",
+            _json.dumps(patch),
+        ]
+    )
+    return ActionResult(
+        tool="tune_hpa",
+        args=args,
+        dry_run=False,
+        success=(code == 0),
+        stdout=out.strip(),
+        stderr=err.strip(),
+        error=None if code == 0 else f"kubectl exit {code}",
+    )
+
+
+def set_resources(
+    deployment_name: str,
+    namespace: str,
+    container: str,
+    requests: dict[str, str] | None = None,
+    limits: dict[str, str] | None = None,
+    dry_run: bool = False,
+) -> ActionResult:
+    """Phase 14 — patch a Deployment container's resource requests/limits.
+
+    Driven by the forecasted-OOM path (raise memory limits before the
+    kubelet evicts) and the rightsizing path (cut over-provisioned
+    requests reclaimed during baseline analysis). The agent only ever
+    moves limits UP (avoid pulling the rug from a hot pod) and moves
+    requests DOWN (free up scheduler capacity). The runbook decides
+    direction; this function just applies the patch.
+
+    `requests` / `limits` are dicts like `{"memory": "512Mi"}` or
+    `{"cpu": "200m", "memory": "1Gi"}`. K8s resource-quantity syntax
+    is enforced by the API server, not by this function."""
+    args = {
+        "deployment_name": deployment_name,
+        "namespace": namespace,
+        "container": container,
+        "requests": requests,
+        "limits": limits,
+    }
+    if not requests and not limits:
+        return ActionResult(
+            tool="set_resources",
+            args=args,
+            dry_run=dry_run,
+            success=False,
+            error="set_resources needs at least one of requests / limits",
+        )
+    resources: dict[str, Any] = {}
+    if requests:
+        resources["requests"] = requests
+    if limits:
+        resources["limits"] = limits
+    # Strategic-merge patch on the Deployment's pod template. Container
+    # match-by-name preserves the rest of the pod spec (env, volumeMounts,
+    # securityContext, …) — anything we don't mention is untouched.
+    patch = {
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [
+                        {"name": container, "resources": resources},
+                    ]
+                }
+            }
+        }
+    }
+    if dry_run:
+        return ActionResult(
+            tool="set_resources",
+            args=args,
+            dry_run=True,
+            success=True,
+            stdout=(
+                f"(dry-run) would: kubectl patch deploy/{deployment_name} -n {namespace} "
+                f"-p {patch!r}"
+            ),
+        )
+    import json as _json
+
+    code, out, err = _kubectl(
+        [
+            "patch",
+            f"deployment/{deployment_name}",
+            "-n",
+            namespace,
+            "--type=strategic",
+            "-p",
+            _json.dumps(patch),
+        ]
+    )
+    return ActionResult(
+        tool="set_resources",
+        args=args,
+        dry_run=False,
+        success=(code == 0),
+        stdout=out.strip(),
+        stderr=err.strip(),
+        error=None if code == 0 else f"kubectl exit {code}",
+    )
+
+
+def evict_workload(
+    namespace: str,
+    label_selector: str,
+    dry_run: bool = False,
+) -> ActionResult:
+    """Phase 14 — delete every pod matching a label selector.
+
+    The scheduler reschedules them, which is the intended "soft
+    restart" for a hot pod or noisy-neighbour scenario. NOT a node
+    drain — pods land back on the same node unless the operator has
+    set anti-affinity, cordoned the node, or paired this call with
+    a separate cordon_node. The label-selector contract keeps this
+    blast-radius-bounded: an empty selector is rejected so the
+    agent can't accidentally evict every pod in a namespace.
+
+    Reversible only in the loosest sense — the new pods are
+    different identities. Use for stateless workloads; the policy
+    matrix gates this aggressively at low severity."""
+    args = {"namespace": namespace, "label_selector": label_selector}
+    if not label_selector or not label_selector.strip():
+        return ActionResult(
+            tool="evict_workload",
+            args=args,
+            dry_run=dry_run,
+            success=False,
+            error="evict_workload requires a non-empty label_selector",
+        )
+    if dry_run:
+        return ActionResult(
+            tool="evict_workload",
+            args=args,
+            dry_run=True,
+            success=True,
+            stdout=(f"(dry-run) would: kubectl delete pods -n {namespace} -l {label_selector}"),
+        )
+    code, out, err = _kubectl(["delete", "pods", "-n", namespace, "-l", label_selector])
+    return ActionResult(
+        tool="evict_workload",
+        args=args,
+        dry_run=False,
+        success=(code == 0),
+        stdout=out.strip(),
+        stderr=err.strip(),
+        error=None if code == 0 else f"kubectl exit {code}",
+    )
+
+
 def cordon_node(node_name: str, dry_run: bool = False) -> ActionResult:
     """Mark a node unschedulable. Reversible via `kubectl uncordon`. Does
     not evict existing pods — pair with drain_node when full evacuation is

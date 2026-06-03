@@ -88,6 +88,9 @@ Catalog (tool name and required args):
   cordon_node        {"node_name": str}
   uncordon_node      {"node_name": str}
   drain_node         {"node_name": str, "grace_period_s": int}
+  tune_hpa           {"hpa_name": str, "namespace": str, "min_replicas"?: int, "max_replicas"?: int, "target_cpu"?: int}
+  set_resources      {"deployment_name": str, "namespace": str, "container": str, "requests"?: {"memory": str, "cpu": str}, "limits"?: {"memory": str, "cpu": str}}
+  evict_workload     {"namespace": str, "label_selector": str}
   page_human         {"reason": str}
 
 Output schema (exactly these five keys, in any order):
@@ -104,10 +107,18 @@ Hard rules:
   - NEVER target namespaces kube-system or kube-public.
   - When the runbook says "page_human" or you are unsure, choose "page_human".
   - restart_pod, rollout_undo, scale_deployment, cordon_node, uncordon_node,
-    drain_node are all reversible.
+    drain_node, tune_hpa, set_resources are all reversible.
+    evict_workload is reversible only in the loosest sense (new pod
+    identities) — prefer restart_pod for stateful workloads.
   - FailedScheduling with reason "nodes are unschedulable" almost always
     means a node is cordoned. The right remediation is uncordon_node on
     that node.
+  - For FORECASTED incidents (rule starts with "Forecasted "), prefer
+    proactive tools that adjust capacity BEFORE the breach: tune_hpa
+    (raise max replicas), set_resources (raise memory limits), or
+    scale_deployment (manual headroom). Reactive tools (restart_pod,
+    rollout_undo) don't help — the predicted breach hasn't happened
+    yet and there's nothing to restart.
   - Return ONLY the JSON object. No prose. No markdown. No code fences.
 """
 

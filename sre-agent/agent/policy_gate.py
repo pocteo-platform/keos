@@ -46,6 +46,8 @@ def _target_for(action: ProposedAction, namespace: str | None) -> dict[str, Any]
         args.get("pod_name")
         or args.get("node_name")
         or args.get("deployment_name")
+        or args.get("hpa_name")  # Phase 14 — tune_hpa
+        or args.get("label_selector")  # Phase 14 — evict_workload
         or args.get("deploy")
         or args.get("name")
         or "n/a"
