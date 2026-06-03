@@ -153,7 +153,9 @@ export default function ReliabilityPage() {
         unhealthyPods.length === 0
           ? t("reliability.tiles.allHealthy", { defaultValue: "All running" })
           : t("reliability.tiles.unhealthyHint", {
-              defaultValue: `across ${new Set(unhealthyPods.map((p) => p.namespace)).size} ns`,
+              count: new Set(unhealthyPods.map((p) => p.namespace)).size,
+              defaultValue_one: "across {{count}} namespace",
+              defaultValue_other: "across {{count}} namespaces",
             }),
     },
     {

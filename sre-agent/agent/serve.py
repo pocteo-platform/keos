@@ -363,6 +363,23 @@ async def _async_main(host: str, port: int) -> None:
     else:
         log.info("baselines: PROMETHEUS_URL empty — learner + forecaster disabled")
 
+    # Phase 15 — GitOps drift detector. Independent of Prometheus;
+    # gated on `DRIFT_SOURCE_TYPE` (default `manifests`). Empty /
+    # `none` disables the detector cleanly. Failure modes inside
+    # the detector are all soft — a missing SoT, unreachable K8s
+    # API, or NATS down each become a single WARNING log and the
+    # loop keeps going.
+    try:
+        from agent.drift import detector_from_env
+
+        _drift_detector = detector_from_env()
+        if _drift_detector is not None:
+            await _drift_detector.start()
+        else:
+            log.info("drift: DRIFT_SOURCE_TYPE=none — detector disabled")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("drift: detector failed to start (%s); continuing", exc)
+
     await asyncio.gather(
         _serve(host, port),
         _nats_consumer(),

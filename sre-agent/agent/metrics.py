@@ -177,6 +177,25 @@ forecast_r2 = Histogram(
 
 
 # ---------------------------------------------------------------------------
+# GitOps drift — Phase 15. One counter per K8s kind so dashboards can
+# tell at a glance whether drift is concentrated in one resource type
+# (frequent restarts on a CronJob, a hot ConfigMap operators keep
+# editing live, etc.). Cardinality is bounded by the kinds the SoT
+# tracks — single-digit on most clusters.
+# ---------------------------------------------------------------------------
+
+drift_events_total = Counter(
+    "keos_drift_events_total",
+    "Drift events published by the detector, partitioned by K8s kind. "
+    "A flat counter in the presence of known drift means the detector "
+    "isn't reaching the cluster or its SoT — check DRIFT_SOURCE_TYPE / "
+    "DRIFT_SOURCE_PATH and kubeconfig wiring.",
+    labelnames=("kind",),
+    registry=REGISTRY,
+)
+
+
+# ---------------------------------------------------------------------------
 # Policy + safety mesh counters.
 # ---------------------------------------------------------------------------
 
@@ -285,6 +304,7 @@ __all__ = [
     "forecast_events_total",
     "forecast_sigma_above",
     "forecast_r2",
+    "drift_events_total",
     "policy_decisions_total",
     "escalations_total",
     "pending_approvals",

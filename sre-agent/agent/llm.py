@@ -91,6 +91,7 @@ Catalog (tool name and required args):
   tune_hpa           {"hpa_name": str, "namespace": str, "min_replicas"?: int, "max_replicas"?: int, "target_cpu"?: int}
   set_resources      {"deployment_name": str, "namespace": str, "container": str, "requests"?: {"memory": str, "cpu": str}, "limits"?: {"memory": str, "cpu": str}}
   evict_workload     {"namespace": str, "label_selector": str}
+  revert_drift       {"kind": str, "namespace": str, "name": str, "sot_source": str}
   page_human         {"reason": str}
 
 Output schema (exactly these five keys, in any order):
@@ -119,6 +120,13 @@ Hard rules:
     scale_deployment (manual headroom). Reactive tools (restart_pod,
     rollout_undo) don't help — the predicted breach hasn't happened
     yet and there's nothing to restart.
+  - For DRIFT incidents (rule starts with "GitOps drift"), prefer
+    `revert_drift` with the kind/namespace/name/sot_source carried
+    in `output_fields`. The agent's drift detector packaged these
+    into the event payload, so the args are deterministic — copy
+    them through. Choose `page_human` only when the drift looks
+    intentional (e.g. an annotation an operator clearly added)
+    or when the namespace is protected.
   - Return ONLY the JSON object. No prose. No markdown. No code fences.
 """
 

@@ -49,7 +49,7 @@ def _target_for(action: ProposedAction, namespace: str | None) -> dict[str, Any]
         or args.get("hpa_name")  # Phase 14 — tune_hpa
         or args.get("label_selector")  # Phase 14 — evict_workload
         or args.get("deploy")
-        or args.get("name")
+        or args.get("name")  # Phase 15 — revert_drift uses bare `name`
         or "n/a"
     )
     # Node-scoped actions don't carry a namespace — clear it so the audit

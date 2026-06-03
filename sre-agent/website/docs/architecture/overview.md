@@ -59,7 +59,9 @@ Ollama, NATS, OPA, K8sGPT) are read-only or stateful storage.
 
 ## The decision loop
 
-A single incident drives the LangGraph state machine through 8 nodes.
+A single incident drives the LangGraph state machine through nine
+nodes (Phase 13 inserted `enrich_with_baselines` between
+`k8sgpt_analyze` and `diagnose`).
 
 ```text title="Mermaid diagram (paste into https://mermaid.live to render)"
 stateDiagram-v2
@@ -68,7 +70,8 @@ stateDiagram-v2
     triage --> retrieve_context: ok
     triage --> escalate: stale_resolved
     retrieve_context --> k8sgpt_analyze
-    k8sgpt_analyze --> diagnose
+    k8sgpt_analyze --> enrich_with_baselines
+    enrich_with_baselines --> diagnose
     diagnose --> plan_action: conf >= 0.6
     diagnose --> escalate: conf < 0.6
     plan_action --> policy_gate
@@ -85,6 +88,21 @@ stateDiagram-v2
 Each node is a pure async function with one job. The conditional edges
 keep the routing observable from the audit chain — there's no hidden
 state outside `IncidentState`.
+
+### Three classes of events
+
+The graph runs the same way for every event, but events themselves
+come from three different sources:
+
+| Event class | Source | Subject | Trigger |
+|---|---|---|---|
+| **Reactive** | `chaos_observer` watching K8s `core/v1/Event` | `infra.events.<reason>` (e.g. `crashloop`, `oom_killed`) | Something already failed on a Pod — kubelet emitted the event. |
+| **Predictive** (Phase 14) | `agent/forecasting/scheduler.py` tick (60 s) | `infra.events.forecasted_<kind>` | A linear-regression forecast over the Phase 13 baseline samples crosses a danger threshold within a 5/15/60 min horizon. Fires *before* the reactive symptom. |
+| **Drift** (Phase 15) | `agent/drift/detector.py` tick (120 s) | `infra.events.drift.<kind>` | Live cluster state diverged from the source-of-truth manifest set. Operator-driven `kubectl edit`, controller writeback, stale GitOps repo. |
+
+All three flow through the same NATS subjects, the same OBSERVER lane,
+the same LangGraph. The plan-action LLM picks the right tool from the
+catalog based on the event's `rule` and `output_fields`.
 
 ## The safety mesh
 
@@ -241,8 +259,28 @@ sequenceDiagram
     G->>N: ack
 ```
 
+## Continuous intelligence layers
+
+Four background loops run alongside the reactive graph. Each lifts the
+agent's median confidence and broadens the set of incidents it can act
+on without operator intervention.
+
+| Loop | Phase | What it does | Where it shows up |
+|---|---|---|---|
+| **Per-rule calibration** | 12 | Tracks each rule's diagnose-confidence distribution + accuracy; learns a per-rule threshold so noisy rules escalate sooner and well-calibrated rules act on lower confidence. | `agent/calibration/`, `/api/calibration`, Settings → Calibration tab in the SPA. |
+| **ML baselines** | 13 | Pulls per-(metric, namespace, pod) samples from Prometheus on a 60 s tick, fits an EWMA + per-hour-of-day median; the `enrich_with_baselines` node injects "N σ above baseline" context into the diagnose prompt. | `agent/baselines/`, `/api/baselines/*`. |
+| **Predictive forecasting** | 14 | Linear regression over baseline samples; fires `infra.events.forecasted_<kind>` events 5/15/60 min ahead of the reactive symptom. Three new action tools — `tune_hpa`, `set_resources`, `evict_workload` — let the agent act preemptively. | `agent/forecasting/`, [Predictive forecasting](forecasting). |
+| **GitOps drift detection** | 15 | Polls a source-of-truth manifest set every 120 s, diffs against live cluster state with a field whitelist, fires `infra.events.drift.<kind>` for unauthorised divergence. New `revert_drift` action re-applies the SoT. | `agent/drift/`, [GitOps drift detection](gitops-drift). |
+
+All four are soft-fail: a missing dependency (Prometheus down,
+SoT path empty, calibration DB missing) downgrades to a logged
+WARNING and the reactive layer keeps running unchanged.
+
 ## Next
 
 - [The loop](the-loop) — node-by-node deep-dive
 - [Safety model](safety-model) — the three guards in detail
 - [Audit chain](audit-chain) — HMAC verification + forensic recovery
+- [ML baselines](ml-baselines) — Phase 13's metric grounding
+- [Predictive forecasting](forecasting) — Phase 14's proactive events + tools
+- [GitOps drift detection](gitops-drift) — Phase 15's drift event source

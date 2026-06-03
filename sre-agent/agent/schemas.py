@@ -28,6 +28,8 @@ ToolName = Literal[
     "tune_hpa",
     "set_resources",
     "evict_workload",
+    # Phase 15 — GitOps drift revert.
+    "revert_drift",
     "page_human",
 ]
 

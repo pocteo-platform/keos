@@ -5,7 +5,7 @@ understand the system, then **USER_GUIDE** for day-to-day operations.
 
 | File | What's in it |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | **The bible.** Macro + per-part Mermaid diagrams, the LangGraph loop, the safety mesh, the data planes, deployment shapes, and one end-to-end request lifecycle. |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | **The bible.** Macro + per-part Mermaid diagrams, the LangGraph loop (10 nodes), the safety mesh, the data planes, deployment shapes, one end-to-end request lifecycle, and the §8 *Continuous intelligence* layer covering Phases 12-15 (calibration, ML baselines, predictive forecasting, GitOps drift detection). |
 | [USER_GUIDE.md](USER_GUIDE.md) | Architecture overview, install paths, config reference, day-2 ops, troubleshooting, security model, audit verification, FAQ. |
 | [INSTALL.md](INSTALL.md) | Installation matrix: Docker Desktop (laptop demo), generic K8s, k3s on Jetson, **Talos**, air-gapped. |
 | [TALOS.md](TALOS.md) | Talos-specific notes: containerd socket path, machine config, air-gapped image cache, troubleshooting. |

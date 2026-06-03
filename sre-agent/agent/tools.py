@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 from typing import Any
 
@@ -464,6 +465,152 @@ def evict_workload(
     code, out, err = _kubectl(["delete", "pods", "-n", namespace, "-l", label_selector])
     return ActionResult(
         tool="evict_workload",
+        args=args,
+        dry_run=False,
+        success=(code == 0),
+        stdout=out.strip(),
+        stderr=err.strip(),
+        error=None if code == 0 else f"kubectl exit {code}",
+    )
+
+
+def revert_drift(
+    kind: str,
+    namespace: str | None,
+    name: str,
+    sot_source: str,
+    dry_run: bool = False,
+) -> ActionResult:
+    """Phase 15 — re-apply the source-of-truth manifest to the cluster.
+
+    `sot_source` is a pointer into the SoT provider's storage —
+    typically a filesystem path like `manifests/demo-workloads.yaml#1`.
+    The format must round-trip with `agent.drift.sources.ManifestsSource`,
+    which is the v1 provider; future ArgoCD/Flux providers will land
+    their own resolver here.
+
+    Reversible in the loosest sense — applying the SoT manifest
+    overwrites the drifted live state. The drift event payload
+    carries the deltas the diff produced, so an operator who wants
+    to see what's about to change can read it from the audit chain
+    before approving.
+
+    On a single-document file, `sot_source` is just the path.
+    On a multi-doc file we encode the doc index as `path#N`.
+    """
+    args = {
+        "kind": kind,
+        "namespace": namespace,
+        "name": name,
+        "sot_source": sot_source,
+    }
+    # Parse path[#N] back to (path, doc_index).
+    if "#" in sot_source:
+        raw_path, raw_idx = sot_source.rsplit("#", 1)
+        try:
+            doc_index = int(raw_idx)
+        except ValueError:
+            return ActionResult(
+                tool="revert_drift",
+                args=args,
+                dry_run=dry_run,
+                success=False,
+                error=f"sot_source has non-integer doc index: {sot_source!r}",
+            )
+    else:
+        raw_path, doc_index = sot_source, 0
+    if not raw_path:
+        return ActionResult(
+            tool="revert_drift",
+            args=args,
+            dry_run=dry_run,
+            success=False,
+            error="revert_drift needs a non-empty sot_source",
+        )
+    # When asked to dry-run we don't even read the file (the agent
+    # may be running with no SoT mount); just synthesise the
+    # planned kubectl command.
+    if dry_run:
+        return ActionResult(
+            tool="revert_drift",
+            args=args,
+            dry_run=True,
+            success=True,
+            stdout=f"(dry-run) would: kubectl apply -f {raw_path} (doc {doc_index})",
+        )
+    # Read the manifest document. We extract just the target
+    # document to avoid re-applying every doc in the file (which
+    # could blast other drifted resources unexpectedly).
+    try:
+        import yaml as _yaml
+
+        with open(raw_path, encoding="utf-8") as fh:
+            docs = list(_yaml.safe_load_all(fh))
+    except FileNotFoundError:
+        return ActionResult(
+            tool="revert_drift",
+            args=args,
+            dry_run=False,
+            success=False,
+            error=f"sot_source not found: {raw_path!r}",
+        )
+    except _yaml.YAMLError as exc:
+        return ActionResult(
+            tool="revert_drift",
+            args=args,
+            dry_run=False,
+            success=False,
+            error=f"cannot parse {raw_path!r}: {exc}",
+        )
+    if doc_index >= len(docs):
+        return ActionResult(
+            tool="revert_drift",
+            args=args,
+            dry_run=False,
+            success=False,
+            error=f"doc index {doc_index} out of range for {raw_path!r}",
+        )
+    doc = docs[doc_index]
+    if not isinstance(doc, dict):
+        return ActionResult(
+            tool="revert_drift",
+            args=args,
+            dry_run=False,
+            success=False,
+            error=f"{raw_path}#{doc_index} is not a mapping",
+        )
+    # Defensive guard: refuse to apply the wrong kind/name/ns. The
+    # drift detector populates these from the same file we just read,
+    # but a stale audit-driven re-run might point at a different
+    # manifest that's been swapped on disk.
+    if doc.get("kind") != kind or (doc.get("metadata") or {}).get("name") != name:
+        return ActionResult(
+            tool="revert_drift",
+            args=args,
+            dry_run=False,
+            success=False,
+            error=(
+                f"sot_source {raw_path}#{doc_index} does not match requested target {kind}/{name}"
+            ),
+        )
+    # Write the single doc to a temp file kubectl can read. Tempdir
+    # cleanup is automatic at process exit; we use named-tmp so
+    # `kubectl apply -f <path>` works on every platform.
+    import json as _json
+    import tempfile
+
+    fd, tmp_path = tempfile.mkstemp(prefix="keos-revert-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            _json.dump(doc, fh)
+        code, out, err = _kubectl(["apply", "-f", tmp_path])
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+    return ActionResult(
+        tool="revert_drift",
         args=args,
         dry_run=False,
         success=(code == 0),

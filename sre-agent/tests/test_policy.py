@@ -275,7 +275,43 @@ CASES: list[tuple[str, dict, bool, str | None]] = [
         True,
         None,
     ),
-    # 21 — Multiple gate violations stack reasons (kube-public + observe-only + L3).
+    # 21 — Phase 15: revert_drift at low → L3 → deny (operator approval).
+    (
+        "revert_drift_low_blocked",
+        {
+            "action": "revert_drift",
+            "severity": "low",
+            "agent_mode": "active",
+            "target": _target(kind="Deployment", name="nginx-demo"),
+        },
+        False,
+        "L3",
+    ),
+    # 22 — Phase 15: revert_drift at high → L1 → allow.
+    (
+        "revert_drift_high_allowed",
+        {
+            "action": "revert_drift",
+            "severity": "high",
+            "agent_mode": "active",
+            "target": _target(kind="Deployment", name="nginx-demo"),
+        },
+        True,
+        None,
+    ),
+    # 23 — Phase 15: revert_drift at critical in protected ns → deny by namespace.
+    (
+        "revert_drift_kubesystem_blocked",
+        {
+            "action": "revert_drift",
+            "severity": "critical",
+            "agent_mode": "active",
+            "target": _target(namespace="kube-system", kind="Deployment", name="coredns"),
+        },
+        False,
+        "protected",
+    ),
+    # 24 — Multiple gate violations stack reasons (kube-public + observe-only + L3).
     (
         "multiple_reasons_aggregated",
         {
