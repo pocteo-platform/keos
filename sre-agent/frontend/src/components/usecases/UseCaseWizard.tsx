@@ -5,16 +5,15 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Steps } from "@/components/ui/steps";
-import { Step1Context, isStep1Valid } from "./Step1Context";
-import { Step2Target, isStep2Valid } from "./Step2Target";
-import { Step3FalcoTemplate, isStep3Valid } from "./Step3FalcoTemplate";
-import { Step4Expected, isStep4Valid } from "./Step4Expected";
-import { Step5Runbook, isStep5Valid } from "./Step5Runbook";
+import { Step1Context } from "./Step1Context";
+import { Step2Target } from "./Step2Target";
+import { Step3FalcoTemplate } from "./Step3FalcoTemplate";
+import { Step4Expected } from "./Step4Expected";
+import { Step5Runbook } from "./Step5Runbook";
 import { Step6Review } from "./Step6Review";
+import { VALIDATORS } from "./step-validators";
 import { emptyDraft, type Draft } from "./types";
 import { api } from "@/lib/api";
-
-const VALIDATORS = [isStep1Valid, isStep2Valid, isStep3Valid, isStep4Valid, isStep5Valid];
 
 interface Props {
   initial?: Draft;

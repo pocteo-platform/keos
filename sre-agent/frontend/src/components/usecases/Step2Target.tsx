@@ -193,8 +193,4 @@ export function Step2Target({ draft, setDraft }: Props) {
   );
 }
 
-export const isStep2Valid = (d: Draft) => {
-  if (!d.target.namespace) return false;
-  if (d.target.pod_name) return true;
-  return Object.keys(d.target.pod_label_selector ?? {}).length > 0;
-};
+// Validator moved to `./step-validators.ts`.

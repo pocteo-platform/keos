@@ -264,5 +264,4 @@ export function Step3FalcoTemplate({ draft, setDraft }: Props) {
   );
 }
 
-export const isStep3Valid = (d: Draft) =>
-  d.falco.rule.trim().length > 0 && d.falco.output_template.trim().length > 0;
+// Validator moved to `./step-validators.ts`.

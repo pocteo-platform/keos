@@ -55,7 +55,7 @@ export function WorkloadHeaderCard({
   let replicasLabel: string | null = null;
   let image: string | null = null;
   let ageSeconds: number | null = null;
-  let node: string | null = null;
+  const node: string | null = null;
   let restarts: number | null = null;
 
   if (kind === "Pod" && pod) {

@@ -91,6 +91,5 @@ export function Step1Context({ draft, setDraft }: Props) {
   );
 }
 
-export const isStep1Valid = (d: Draft) =>
-  d.name.trim().length > 0 &&
-  (d.description_en.trim().length > 0 || d.description_fr.trim().length > 0);
+// Validator moved to `./step-validators.ts` so this file stays
+// components-only (React Fast Refresh requirement).

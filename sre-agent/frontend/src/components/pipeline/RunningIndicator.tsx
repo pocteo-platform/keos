@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { Eye, Brain, Hammer, GraduationCap, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { LOOP_PHASES, PHASE_BY_NODE, type LoopPhase } from "@/lib/branding";
+import { LOOP_PHASES, type LoopPhase } from "@/lib/branding";
+import type { PhaseState } from "./computePhaseStates";
 
 /** Pro loader shown while the agent processes an incident.
  *
@@ -29,8 +30,6 @@ const ICONS: Record<LoopPhase, typeof Eye> = {
   learn: GraduationCap,
 };
 
-export type PhaseState = "pending" | "active" | "done";
-
 export interface RunningIndicatorProps {
   /** Per-phase state. Parent computes this from WS trace events. */
   phases?: Record<LoopPhase, PhaseState>;
@@ -38,41 +37,6 @@ export interface RunningIndicatorProps {
    *  Shown under the title so the user sees real-time progress. */
   currentNode?: string | null;
   subtitle?: string;
-}
-
-export function computePhaseStates(
-  seenNodes: { kind: string; phase: "start" | "end" }[],
-): Record<LoopPhase, PhaseState> {
-  // Walk the events in order. For each node, mark its phase as active on
-  // start, done on end. Any phase that comes after a later phase's first
-  // start is also done.
-  const phaseOrder: LoopPhase[] = [...LOOP_PHASES];
-  const out: Record<LoopPhase, PhaseState> = {
-    observe: "pending",
-    predict: "pending",
-    heal: "pending",
-    learn: "pending",
-  };
-  let maxStartedIdx = -1;
-  for (const ev of seenNodes) {
-    const phase = PHASE_BY_NODE[ev.kind];
-    if (!phase) continue;
-    const idx = phaseOrder.indexOf(phase);
-    if (idx < 0) continue;
-    if (ev.phase === "start") {
-      maxStartedIdx = Math.max(maxStartedIdx, idx);
-      if (out[phase] === "pending") out[phase] = "active";
-    } else {
-      out[phase] = "done";
-    }
-  }
-  // Phases strictly before the latest-started phase are done by inference.
-  for (let i = 0; i < maxStartedIdx; i++) {
-    if (out[phaseOrder[i]] === "active" || out[phaseOrder[i]] === "pending") {
-      out[phaseOrder[i]] = "done";
-    }
-  }
-  return out;
 }
 
 const DEFAULT_PHASES: Record<LoopPhase, PhaseState> = {
