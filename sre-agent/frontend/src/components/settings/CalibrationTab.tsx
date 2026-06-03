@@ -6,15 +6,26 @@
  * outside the tab.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck, TrendingUp, AlertTriangle } from "lucide-react";
+import {
+  ShieldCheck,
+  TrendingUp,
+  AlertTriangle,
+  ArrowUpDown,
+  ChevronUp,
+  ChevronDown,
+  Search,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, type CalibrationRule } from "@/lib/api";
+
+type SortKey = "rule" | "n" | "accuracy" | "p50" | "p90" | "threshold";
+type SortDir = "asc" | "desc";
 
 const NINETY_PCT_TARGET = 0.9;
 
@@ -48,6 +59,49 @@ export function CalibrationTab() {
     queryFn: api.listCalibration,
     refetchInterval: 10_000,
   });
+  const [filter, setFilter] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("n");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  function toggleSort(k: SortKey) {
+    if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(k);
+      setSortDir("desc");
+    }
+  }
+
+  const sortedRules = useMemo(() => {
+    const arr = (cal.data?.items ?? []).filter((r) => {
+      if (!filter.trim()) return true;
+      return r.rule_id.toLowerCase().includes(filter.toLowerCase());
+    });
+    arr.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "rule":
+          cmp = a.rule_id.localeCompare(b.rule_id);
+          break;
+        case "n":
+          cmp = a.n_graded - b.n_graded;
+          break;
+        case "accuracy":
+          cmp = (a.accuracy ?? -1) - (b.accuracy ?? -1);
+          break;
+        case "p50":
+          cmp = (a.p50_confidence ?? -1) - (b.p50_confidence ?? -1);
+          break;
+        case "p90":
+          cmp = (a.p90_confidence ?? -1) - (b.p90_confidence ?? -1);
+          break;
+        case "threshold":
+          cmp = (a.effective_threshold ?? -1) - (b.effective_threshold ?? -1);
+          break;
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [cal.data, filter, sortKey, sortDir]);
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -81,10 +135,26 @@ export function CalibrationTab() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-sm uppercase tracking-wider">
-            {t("settings.calibration.table.title", { defaultValue: "Per-rule calibration" })}
-          </CardTitle>
+        <CardHeader className="space-y-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm uppercase tracking-wider">
+              {t("settings.calibration.table.title", { defaultValue: "Per-rule calibration" })}
+            </CardTitle>
+            <Badge variant="secondary" className="font-mono text-[10px]">
+              {sortedRules.length} / {cal.data?.items?.length ?? 0}
+            </Badge>
+          </div>
+          {(cal.data?.items?.length ?? 0) > 0 ? (
+            <div className="relative max-w-sm">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder={t("common.search")}
+                className="h-8 pl-7 text-xs"
+              />
+            </div>
+          ) : null}
         </CardHeader>
         <CardContent>
           {cal.isLoading ? (
@@ -103,24 +173,60 @@ export function CalibrationTab() {
                 <thead>
                   <tr className="border-b border-border text-left text-muted-foreground">
                     <th className="px-2 py-2 font-medium uppercase tracking-wider">
-                      {t("settings.calibration.cols.rule", { defaultValue: "Rule" })}
+                      <SortHeaderInner
+                        active={sortKey === "rule"}
+                        dir={sortDir}
+                        onClick={() => toggleSort("rule")}
+                      >
+                        {t("settings.calibration.cols.rule", { defaultValue: "Rule" })}
+                      </SortHeaderInner>
                     </th>
                     <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
-                      {t("settings.calibration.cols.n", { defaultValue: "N" })}
+                      <SortHeaderInner
+                        active={sortKey === "n"}
+                        dir={sortDir}
+                        onClick={() => toggleSort("n")}
+                      >
+                        {t("settings.calibration.cols.n", { defaultValue: "N" })}
+                      </SortHeaderInner>
                     </th>
                     <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
-                      {t("settings.calibration.cols.accuracy", { defaultValue: "Accuracy" })}
+                      <SortHeaderInner
+                        active={sortKey === "accuracy"}
+                        dir={sortDir}
+                        onClick={() => toggleSort("accuracy")}
+                      >
+                        {t("settings.calibration.cols.accuracy", { defaultValue: "Accuracy" })}
+                      </SortHeaderInner>
                     </th>
                     <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
-                      {t("settings.calibration.cols.p50", { defaultValue: "p50" })}
+                      <SortHeaderInner
+                        active={sortKey === "p50"}
+                        dir={sortDir}
+                        onClick={() => toggleSort("p50")}
+                      >
+                        {t("settings.calibration.cols.p50", { defaultValue: "p50" })}
+                      </SortHeaderInner>
                     </th>
                     <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
-                      {t("settings.calibration.cols.p90", { defaultValue: "p90" })}
+                      <SortHeaderInner
+                        active={sortKey === "p90"}
+                        dir={sortDir}
+                        onClick={() => toggleSort("p90")}
+                      >
+                        {t("settings.calibration.cols.p90", { defaultValue: "p90" })}
+                      </SortHeaderInner>
                     </th>
                     <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
-                      {t("settings.calibration.cols.threshold", {
-                        defaultValue: "Effective threshold",
-                      })}
+                      <SortHeaderInner
+                        active={sortKey === "threshold"}
+                        dir={sortDir}
+                        onClick={() => toggleSort("threshold")}
+                      >
+                        {t("settings.calibration.cols.threshold", {
+                          defaultValue: "Effective threshold",
+                        })}
+                      </SortHeaderInner>
                     </th>
                     <th className="px-2 py-2 font-medium uppercase tracking-wider">
                       {t("settings.calibration.cols.source", { defaultValue: "Source" })}
@@ -131,9 +237,15 @@ export function CalibrationTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(cal.data?.items ?? []).map((r) => (
-                    <RuleRow key={r.rule_id} rule={r} />
-                  ))}
+                  {sortedRules.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-6 text-center text-muted-foreground">
+                        {t("common.empty")}
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedRules.map((r) => <RuleRow key={r.rule_id} rule={r} />)
+                  )}
                 </tbody>
               </table>
             </div>
@@ -141,6 +253,37 @@ export function CalibrationTab() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function SortHeaderInner({
+  active,
+  dir,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 hover:text-foreground"
+    >
+      {children}
+      {active ? (
+        dir === "asc" ? (
+          <ChevronUp className="h-3 w-3" />
+        ) : (
+          <ChevronDown className="h-3 w-3" />
+        )
+      ) : (
+        <ArrowUpDown className="h-3 w-3 opacity-50" />
+      )}
+    </button>
   );
 }
 

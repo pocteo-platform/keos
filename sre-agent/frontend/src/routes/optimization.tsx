@@ -1,13 +1,37 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Lightbulb, Minus, TrendingUp, Wallet } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronUp,
+  Lightbulb,
+  Minus,
+  Search,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+const PAGE = 25;
+type Direction = "over" | "under" | "ok";
+type SortKey = "workload" | "mean" | "current" | "sigma" | "headroom";
+type SortDir = "asc" | "desc";
 
 /**
  * Phase 14.6 — Optimization page.
@@ -120,6 +144,64 @@ export default function OptimizationPage() {
       ? 0
       : recommendations.reduce((sum, r) => sum + r.headroom, 0) / recommendations.length;
 
+  // ---- Filtering / sorting / pagination -----------------------------
+  const [filter, setFilter] = useState("");
+  const [directionFilter, setDirectionFilter] = useState<Direction | "all">("all");
+  const [sortKey, setSortKey] = useState<SortKey>("headroom");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [offset, setOffset] = useState(0);
+
+  const filtered = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    return recommendations.filter((r) => {
+      if (directionFilter !== "all" && r.direction !== directionFilter) return false;
+      if (!needle) return true;
+      return (
+        r.namespace.toLowerCase().includes(needle) || r.scope.toLowerCase().includes(needle)
+      );
+    });
+  }, [recommendations, filter, directionFilter]);
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "workload":
+          cmp = `${a.namespace}/${a.scope}`.localeCompare(`${b.namespace}/${b.scope}`);
+          break;
+        case "mean":
+          cmp = a.mean - b.mean;
+          break;
+        case "current":
+          cmp = a.current - b.current;
+          break;
+        case "sigma":
+          cmp = a.sigma_above - b.sigma_above;
+          break;
+        case "headroom":
+          cmp = a.headroom - b.headroom;
+          break;
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir]);
+
+  const total = sorted.length;
+  const page = sorted.slice(offset, offset + PAGE);
+  const pageNum = Math.floor(offset / PAGE);
+  const pageMax = Math.max(0, Math.ceil(total / PAGE) - 1);
+
+  function toggleSort(k: SortKey) {
+    if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(k);
+      setSortDir("desc");
+    }
+    setOffset(0);
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <header>
@@ -174,10 +256,58 @@ export default function OptimizationPage() {
 
       {/* Recommendations table */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-sm uppercase tracking-wider">
-            {t("optimization.table.title", { defaultValue: "Per-workload recommendations" })}
-          </CardTitle>
+        <CardHeader className="space-y-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm uppercase tracking-wider">
+              {t("optimization.table.title", { defaultValue: "Per-workload recommendations" })}
+            </CardTitle>
+            {recommendations.length > 0 ? (
+              <Badge variant="secondary" className="font-mono text-[10px]">
+                {total} / {recommendations.length}
+              </Badge>
+            ) : null}
+          </div>
+          {recommendations.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative max-w-xs flex-1">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={filter}
+                  onChange={(e) => {
+                    setFilter(e.target.value);
+                    setOffset(0);
+                  }}
+                  placeholder={t("common.search")}
+                  className="h-8 pl-7 text-xs"
+                />
+              </div>
+              <Select
+                value={directionFilter}
+                onValueChange={(v) => {
+                  setDirectionFilter(v as Direction | "all");
+                  setOffset(0);
+                }}
+              >
+                <SelectTrigger className="h-8 w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    {t("optimization.filter.all", { defaultValue: "All directions" })}
+                  </SelectItem>
+                  <SelectItem value="under">
+                    {t("optimization.filter.under", { defaultValue: "Under-provisioned" })}
+                  </SelectItem>
+                  <SelectItem value="over">
+                    {t("optimization.filter.over", { defaultValue: "Over-provisioned" })}
+                  </SelectItem>
+                  <SelectItem value="ok">
+                    {t("optimization.filter.ok", { defaultValue: "Well-sized" })}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
         </CardHeader>
         <CardContent>
           {recommendations.length === 0 ? (
@@ -198,65 +328,144 @@ export default function OptimizationPage() {
               </Button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="px-2 py-2 font-medium uppercase tracking-wider">
-                      {t("optimization.cols.workload", { defaultValue: "Workload" })}
-                    </th>
-                    <th className="px-2 py-2 font-medium uppercase tracking-wider">
-                      {t("optimization.cols.direction", { defaultValue: "Direction" })}
-                    </th>
-                    <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
-                      {t("optimization.cols.mean", { defaultValue: "Baseline mean" })}
-                    </th>
-                    <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
-                      {t("optimization.cols.current", { defaultValue: "Current" })}
-                    </th>
-                    <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
-                      {t("optimization.cols.sigma", { defaultValue: "σ above" })}
-                    </th>
-                    <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
-                      {t("optimization.cols.headroom", { defaultValue: "Headroom" })}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recommendations.map((r) => (
-                    <tr
-                      key={`${r.namespace}-${r.scope}-${r.metric}`}
-                      className={cn(
-                        "border-b border-border/60 hover:bg-accent/30",
-                        r.direction === "under" && "bg-danger/5",
-                        r.direction === "over" && "bg-warn/5",
-                      )}
-                    >
-                      <td className="px-2 py-2 font-mono">
-                        <Link
-                          to={`/workload/${encodeURIComponent(r.namespace)}/Pod/${encodeURIComponent(r.scope)}`}
-                          className="hover:underline"
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border text-left text-muted-foreground">
+                      <th className="px-2 py-2 font-medium uppercase tracking-wider">
+                        <SortHeader
+                          active={sortKey === "workload"}
+                          dir={sortDir}
+                          onClick={() => toggleSort("workload")}
                         >
-                          {r.namespace}/{r.scope}
-                        </Link>
-                      </td>
-                      <td className="px-2 py-2">
-                        <DirectionPill direction={r.direction} />
-                      </td>
-                      <td className="px-2 py-2 text-right font-mono">{fmtBytes(r.mean)}</td>
-                      <td className="px-2 py-2 text-right font-mono">{fmtBytes(r.current)}</td>
-                      <td className="px-2 py-2 text-right font-mono">
-                        {r.sigma_above >= 0 ? "+" : ""}
-                        {r.sigma_above.toFixed(1)}σ
-                      </td>
-                      <td className="px-2 py-2 text-right font-mono">
-                        {(r.headroom * 100).toFixed(0)}%
-                      </td>
+                          {t("optimization.cols.workload", { defaultValue: "Workload" })}
+                        </SortHeader>
+                      </th>
+                      <th className="px-2 py-2 font-medium uppercase tracking-wider">
+                        {t("optimization.cols.direction", { defaultValue: "Direction" })}
+                      </th>
+                      <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
+                        <SortHeader
+                          active={sortKey === "mean"}
+                          dir={sortDir}
+                          onClick={() => toggleSort("mean")}
+                        >
+                          {t("optimization.cols.mean", { defaultValue: "Baseline mean" })}
+                        </SortHeader>
+                      </th>
+                      <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
+                        <SortHeader
+                          active={sortKey === "current"}
+                          dir={sortDir}
+                          onClick={() => toggleSort("current")}
+                        >
+                          {t("optimization.cols.current", { defaultValue: "Current" })}
+                        </SortHeader>
+                      </th>
+                      <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
+                        <SortHeader
+                          active={sortKey === "sigma"}
+                          dir={sortDir}
+                          onClick={() => toggleSort("sigma")}
+                        >
+                          {t("optimization.cols.sigma", { defaultValue: "σ above" })}
+                        </SortHeader>
+                      </th>
+                      <th className="px-2 py-2 text-right font-medium uppercase tracking-wider">
+                        <SortHeader
+                          active={sortKey === "headroom"}
+                          dir={sortDir}
+                          onClick={() => toggleSort("headroom")}
+                        >
+                          {t("optimization.cols.headroom", { defaultValue: "Headroom" })}
+                        </SortHeader>
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {page.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-muted-foreground">
+                          {t("common.empty")}
+                        </td>
+                      </tr>
+                    ) : (
+                      page.map((r) => (
+                        <tr
+                          key={`${r.namespace}-${r.scope}-${r.metric}`}
+                          className={cn(
+                            "border-b border-border/60 hover:bg-accent/30",
+                            r.direction === "under" && "bg-danger/5",
+                            r.direction === "over" && "bg-warn/5",
+                          )}
+                        >
+                          <td className="px-2 py-2 font-mono">
+                            <Link
+                              to={`/workload/${encodeURIComponent(r.namespace)}/Pod/${encodeURIComponent(r.scope)}`}
+                              className="hover:underline"
+                            >
+                              {r.namespace}/{r.scope}
+                            </Link>
+                          </td>
+                          <td className="px-2 py-2">
+                            <DirectionPill direction={r.direction} />
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono">
+                            {fmtBytes(r.mean)}
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono">
+                            {fmtBytes(r.current)}
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono">
+                            {r.sigma_above >= 0 ? "+" : ""}
+                            {r.sigma_above.toFixed(1)}σ
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono">
+                            {(r.headroom * 100).toFixed(0)}%
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination footer */}
+              <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                <span>
+                  {t("incidents.pagination.showing", {
+                    from: total === 0 ? 0 : offset + 1,
+                    to: Math.min(offset + PAGE, total),
+                    total,
+                    defaultValue: `${total === 0 ? 0 : offset + 1}–${Math.min(offset + PAGE, total)} of ${total}`,
+                  })}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    disabled={pageNum <= 0}
+                    onClick={() => setOffset(Math.max(0, offset - PAGE))}
+                  >
+                    {t("incidents.pagination.prev", { defaultValue: "Prev" })}
+                  </Button>
+                  <span className="font-mono text-[11px]">
+                    {pageNum + 1}/{pageMax + 1}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    disabled={pageNum >= pageMax}
+                    onClick={() => setOffset(offset + PAGE)}
+                  >
+                    {t("incidents.pagination.next", { defaultValue: "Next" })}
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
           {recommendations.length > 0 ? (
             <div className="mt-3 text-[11px] text-muted-foreground">
@@ -309,6 +518,37 @@ function SummaryCard({ icon, label, value, hint, variant }: SummaryProps) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function SortHeader({
+  active,
+  dir,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 hover:text-foreground"
+    >
+      {children}
+      {active ? (
+        dir === "asc" ? (
+          <ChevronUp className="h-3 w-3" />
+        ) : (
+          <ChevronDown className="h-3 w-3" />
+        )
+      ) : (
+        <ArrowUpDown className="h-3 w-3 opacity-50" />
+      )}
+    </button>
   );
 }
 

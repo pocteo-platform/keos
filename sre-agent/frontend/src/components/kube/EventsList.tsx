@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNowStrict } from "date-fns";
@@ -6,6 +6,7 @@ import { enUS, fr as frLocale } from "date-fns/locale";
 import { AlertTriangle, Info } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -19,28 +20,45 @@ import { useApp } from "@/lib/store";
 
 type Filter = "all" | "warn";
 
+const PAGE = 25;
+
 export function EventsList({ ns }: { ns: string }) {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
+  const [offset, setOffset] = useState(0);
   const locale = useApp((s) => s.locale);
   const dfLocale = locale === "fr" ? frLocale : enUS;
 
   const q = useQuery({
     queryKey: ["events", ns],
-    queryFn: () => api.listEvents(ns, 80),
+    queryFn: () => api.listEvents(ns, 200),
     refetchInterval: 4000,
   });
 
-  const events = (q.data ?? []).filter((e) => {
-    if (filter === "warn" && e.type !== "Warning") return false;
-    if (search) {
-      const needle = search.toLowerCase();
-      const hay = `${e.reason} ${e.message} ${e.involved_name ?? ""}`.toLowerCase();
-      if (!hay.includes(needle)) return false;
-    }
-    return true;
-  });
+  // Reset to page 0 whenever the namespace or filter changes.
+  useEffect(() => {
+    setOffset(0);
+  }, [ns, filter, search]);
+
+  const events = useMemo(
+    () =>
+      (q.data ?? []).filter((e) => {
+        if (filter === "warn" && e.type !== "Warning") return false;
+        if (search) {
+          const needle = search.toLowerCase();
+          const hay = `${e.reason} ${e.message} ${e.involved_name ?? ""}`.toLowerCase();
+          if (!hay.includes(needle)) return false;
+        }
+        return true;
+      }),
+    [q.data, filter, search],
+  );
+
+  const total = events.length;
+  const page = events.slice(offset, offset + PAGE);
+  const pageNum = Math.floor(offset / PAGE);
+  const pageMax = Math.max(0, Math.ceil(total / PAGE) - 1);
 
   return (
     <div className="space-y-3">
@@ -77,7 +95,7 @@ export function EventsList({ ns }: { ns: string }) {
         </Card>
       ) : (
         <ul className="space-y-2">
-          {events.map((e, idx) => {
+          {page.map((e, idx) => {
             const isWarn = e.type === "Warning";
             const ago = e.last_seen
               ? formatDistanceToNowStrict(new Date(e.last_seen), {
@@ -119,6 +137,42 @@ export function EventsList({ ns }: { ns: string }) {
           })}
         </ul>
       )}
+
+      {events.length > 0 ? (
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            {t("incidents.pagination.showing", {
+              from: offset + 1,
+              to: Math.min(offset + PAGE, total),
+              total,
+              defaultValue: `${offset + 1}–${Math.min(offset + PAGE, total)} of ${total}`,
+            })}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7"
+              disabled={pageNum <= 0}
+              onClick={() => setOffset(Math.max(0, offset - PAGE))}
+            >
+              {t("incidents.pagination.prev", { defaultValue: "Prev" })}
+            </Button>
+            <span className="font-mono text-[11px]">
+              {pageNum + 1}/{pageMax + 1}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7"
+              disabled={pageNum >= pageMax}
+              onClick={() => setOffset(offset + PAGE)}
+            >
+              {t("incidents.pagination.next", { defaultValue: "Next" })}
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
