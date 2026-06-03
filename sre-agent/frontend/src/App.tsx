@@ -10,12 +10,13 @@ import LoginPage from "@/routes/login";
 const DashboardPage = lazy(() => import("@/routes/dashboard"));
 const ClusterPage = lazy(() => import("@/routes/cluster"));
 const WorkloadPage = lazy(() => import("@/routes/workload"));
-const ControlPage = lazy(() => import("@/routes/control"));
 const PipelinePage = lazy(() => import("@/routes/pipeline"));
 const IncidentsPage = lazy(() => import("@/routes/incidents"));
 const IncidentDetailPage = lazy(() => import("@/routes/incident-detail"));
 const UseCasesPage = lazy(() => import("@/routes/usecases"));
-const CalibrationPage = lazy(() => import("@/routes/calibration"));
+const ReliabilityPage = lazy(() => import("@/routes/reliability"));
+const OptimizationPage = lazy(() => import("@/routes/optimization"));
+const SettingsPage = lazy(() => import("@/routes/settings"));
 
 export default function App() {
   const token = useApp((s) => s.token);
@@ -46,13 +47,25 @@ export default function App() {
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/cluster" element={<ClusterPage />} />
               <Route path="/workload/:ns/:kind/:name" element={<WorkloadPage />} />
-              <Route path="/control" element={<ControlPage />} />
+              <Route path="/reliability" element={<ReliabilityPage />} />
               <Route path="/incidents" element={<IncidentsPage />} />
               <Route path="/incidents/:id" element={<IncidentDetailPage />} />
               <Route path="/pipeline/:id" element={<PipelinePage />} />
               <Route path="/pipeline/live" element={<PipelinePage />} />
               <Route path="/usecases" element={<UseCasesPage />} />
-              <Route path="/calibration" element={<CalibrationPage />} />
+              <Route path="/optimization" element={<OptimizationPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              {/* Back-compat redirects from the pre-14.6 layout —
+                  /control becomes Settings/Agent, /calibration
+                  becomes Settings/Calibration. Bookmarks survive. */}
+              <Route
+                path="/control"
+                element={<Navigate to="/settings?tab=agent" replace />}
+              />
+              <Route
+                path="/calibration"
+                element={<Navigate to="/settings?tab=calibration" replace />}
+              />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </Suspense>

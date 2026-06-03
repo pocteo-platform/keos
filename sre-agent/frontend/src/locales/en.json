@@ -5,12 +5,13 @@
   },
   "nav": {
     "dashboard": "Dashboard",
+    "reliability": "Reliability",
     "cluster": "Cluster",
     "incidents": "Incidents",
     "pipeline": "Pipeline",
     "usecases": "Use Cases",
-    "calibration": "Calibration",
-    "control": "Control"
+    "optimization": "Optimization",
+    "settings": "Settings"
   },
   "topbar": {
     "language": "Language",
@@ -427,6 +428,311 @@
   "errors": {
     "fetchFailed": "Couldn't reach the API. Check `make up` and your bearer token.",
     "wsDisconnected": "Live stream disconnected. Reconnecting…"
+  },
+  "reliability": {
+    "title": "Kubernetes health & reliability",
+    "subtitle": "Workload and infrastructure risks, ranked by the agent's view of the cluster.",
+    "workload": { "title": "Workload health" },
+    "infra": { "title": "Infrastructure health" },
+    "section": {
+      "realtime": "Realtime issues",
+      "risks": "Reliability risks"
+    },
+    "tiles": {
+      "unhealthyServices": "Unhealthy pods",
+      "activeIncidents": "Active incidents",
+      "forecastedBreaches": "Forecasted breaches",
+      "podRestarts": "Pods restarted",
+      "nodesNotReady": "Nodes not Ready",
+      "nodesWithPressure": "Nodes with pressure",
+      "agentMode": "Agent mode",
+      "baselinesKnown": "Baselines known",
+      "allHealthy": "All running",
+      "unhealthyHint": "across {{count}} namespace(s)",
+      "noSurge": "No surge predicted",
+      "surgeWindow": "5-min horizon",
+      "restartsHint": "this run",
+      "pressureHint": "memory / disk / PID",
+      "baselinesHint": "(metric, ns, pod) tuples"
+    },
+    "risks": {
+      "degradedServices": "Degraded services",
+      "nodePressure": "Node pressure"
+    },
+    "chart": {
+      "title": "Issues over time · last {{count}} days",
+      "healed": "Healed",
+      "auto": "Auto-resolved",
+      "escalated": "Escalated",
+      "failed": "Failed"
+    }
+  },
+  "optimization": {
+    "title": "Optimization",
+    "subtitle": "Rightsizing recommendations derived from learned baselines. Operator-facing — apply via the Use Case wizard or `kubectl patch`.",
+    "summary": {
+      "recommendations": "Recommendations",
+      "over": "Over-provisioned",
+      "overHint": "Cut requests to reclaim capacity",
+      "under": "Under-provisioned",
+      "underHint": "Raise limits to avoid OOM",
+      "avgHeadroom": "Avg headroom"
+    },
+    "table": {
+      "title": "Per-workload recommendations",
+      "empty": "No recommendations yet — the learner needs ≥ 50 samples per metric before it can rightsize.",
+      "emptyAction": "Back to dashboard"
+    },
+    "cols": {
+      "workload": "Workload",
+      "direction": "Direction",
+      "mean": "Baseline mean",
+      "current": "Current",
+      "sigma": "σ above",
+      "headroom": "Headroom"
+    },
+    "legend": "{{count}} workloads are well-sized · ranked by urgency"
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Agent kill-switch, calibration, runtime knobs, audit log, and product info.",
+    "tabs": {
+      "agent": "Agent",
+      "calibration": "Calibration",
+      "forecasting": "Forecasting",
+      "baselines": "Baselines",
+      "notifications": "Notifications",
+      "audit": "Audit",
+      "about": "About"
+    },
+    "agent": {
+      "mode": {
+        "title": "Agent mode",
+        "description": "Kill-switch for the agent. `observe-only` is dry-run; `active` lets actions execute; `frozen` blocks everything including paging.",
+        "option": {
+          "observe-only": "Observe-only",
+          "active": "Active",
+          "frozen": "Frozen"
+        }
+      },
+      "approvals": {
+        "title": "Pending approvals",
+        "empty": "No actions waiting on operator approval.",
+        "approve": "Approve",
+        "deny": "Deny",
+        "denyReason": "Reason…"
+      },
+      "confirmTitle": "Switch agent to {{mode}}?",
+      "confirmActive": "Active mode lets the agent execute remediations autonomously. OPA still gates every action.",
+      "confirmFrozen": "Frozen mode blocks ALL actions, including page_human. Use for incident response when you need full manual control.",
+      "confirmObserve": "Observe-only is dry-run; actions are logged but not executed.",
+      "confirmApply": "Apply"
+    },
+    "calibration": {
+      "summary": {
+        "median": "Median confidence",
+        "medianHint": "Target ≥ 0.90",
+        "above90": "Rules above 90%",
+        "rules": "Tracked rules"
+      },
+      "table": {
+        "title": "Per-rule calibration",
+        "empty": "No rules graded yet — run a use case to populate."
+      },
+      "cols": {
+        "rule": "Rule",
+        "n": "N",
+        "accuracy": "Accuracy",
+        "p50": "p50",
+        "p90": "p90",
+        "threshold": "Effective threshold",
+        "source": "Source",
+        "override": "Override"
+      },
+      "source": {
+        "override": "operator override",
+        "learned": "learned (p25)",
+        "global": "global default"
+      },
+      "pin": "Pin"
+    },
+    "knobs": {
+      "forecasting": {
+        "title": "Forecaster",
+        "config": "Edit these in `.env.local` (laptop) or the Helm `values.yaml` (cluster) and restart the api container."
+      },
+      "baselines": {
+        "title": "Baseline learner",
+        "config": "Baselines require Prometheus. Apply manifests/monitoring.yaml for in-cluster install (Phase 13c)."
+      },
+      "notifications": {
+        "title": "Notifications",
+        "config": "Either webhook URL is optional; both can be set at once. Both get the same JSON payload when `page_human` fires."
+      },
+      "forecastTick": {
+        "label": "Scheduler tick",
+        "hint": "How often the forecaster walks every fitted baseline."
+      },
+      "forecastWindow": {
+        "label": "Fit window",
+        "hint": "Samples per OLS fit. Larger = smoother, slower."
+      },
+      "forecastDedup": {
+        "label": "Dedup window",
+        "hint": "Cooldown per (metric, level) before re-publishing."
+      },
+      "prometheusUrl": {
+        "label": "Prometheus URL",
+        "hint": "Direct httpx URL or `k8s-proxy://` scheme. Empty disables baselines + forecasts."
+      },
+      "scrapeInterval": {
+        "label": "Scrape interval",
+        "hint": "How often the learner polls Prometheus."
+      },
+      "queryProfile": {
+        "label": "Query profile",
+        "hint": "`k8s` for in-cluster Prometheus (pod-shaped labels); `docker` for compose-side cAdvisor."
+      },
+      "slack": {
+        "label": "Slack webhook",
+        "hint": "Where `page_human` posts when escalation fires."
+      },
+      "generic": {
+        "label": "Generic webhook",
+        "hint": "PagerDuty / Opsgenie / Discord / Teams / custom JSON sink."
+      },
+      "alertmanager": {
+        "label": "Alertmanager bearer",
+        "hint": "Inbound webhook auth for the /api/webhooks/alertmanager endpoint."
+      }
+    },
+    "audit": {
+      "empty": "No audit entries yet."
+    },
+    "about": {
+      "product": {
+        "title": "Product",
+        "name": "Name",
+        "platform": "Platform",
+        "company": "Company",
+        "version": "Version",
+        "license": "License"
+      },
+      "deployment": {
+        "title": "Deployment",
+        "scope": "Scope",
+        "scopeValue": "Single-tenant edge cluster",
+        "scopeHint": "One install per Kubernetes cluster — not a SaaS.",
+        "firstTarget": "First target hardware",
+        "jetson": "NVIDIA Jetson Orin Nano (GPU edition)",
+        "jetsonHint": "Local LLM (Qwen2.5-7b q4_K_M) runs on CUDA; CPU fallback supported.",
+        "properties": "Properties"
+      },
+      "props": {
+        "autonomous": "Autonomous",
+        "resilient": "Resilient",
+        "secure": "Secure",
+        "smart": "Smart",
+        "learning": "Learning"
+      },
+      "loop": {
+        "title": "The agent loop",
+        "observe": "Observe",
+        "observeDesc": "Kubelet events + K8sGPT diagnostics + Prometheus baselines feed the triage layer.",
+        "predict": "Predict",
+        "predictDesc": "Linear-regression forecaster on every baseline; 5/15/60-min horizons drive the diagnose prompt.",
+        "heal": "Heal",
+        "healDesc": "Local Qwen-2.5-7b picks an action from the 10-tool catalog; OPA matrix gates execution.",
+        "learn": "Learn",
+        "learnDesc": "Per-rule calibration updates after every incident — 90 %-median confidence target."
+      }
+    }
+  },
+  "workload": {
+    "back": "Back to cluster",
+    "header": {
+      "health": "Health",
+      "replicas": "Replicas",
+      "age": "Age",
+      "restarts": "Restarts",
+      "node": "Node",
+      "lastAction": "Last action",
+      "image": "Image",
+      "activeIncidents": "active",
+      "history": "History",
+      "incidentsCount": "incidents",
+      "healed": "healed",
+      "escalated": "escalated",
+      "failed": "failed"
+    },
+    "ribbon": {
+      "title": "Events · last 24h",
+      "empty": "No incidents in this window — the workload has been healthy.",
+      "healed": "healed",
+      "escalated": "escalated",
+      "failed": "failed",
+      "auto": "auto"
+    },
+    "tabs": {
+      "incidents": "Incidents",
+      "baselines": "Baselines",
+      "forecasts": "Forecasts"
+    },
+    "incidents": {
+      "empty": "No incidents recorded for this workload."
+    },
+    "baselines": {
+      "title": "Metric baselines",
+      "empty": "No baselines yet — the learner needs ~50 samples per metric."
+    },
+    "forecasts": {
+      "title": "Forecast horizons",
+      "empty": "No forecasts yet for this workload."
+    }
+  },
+  "dashboard": {
+    "title": "Edge cluster overview",
+    "subtitle": "Observe → Predict → Heal → Learn — what the agent is seeing right now.",
+    "hero": {
+      "mode": "Agent mode",
+      "modeObserveHint": "Dry-run; no mutations.",
+      "modeActiveHint": "Autonomous remediation on.",
+      "modeFrozenHint": "Kill-switch engaged.",
+      "pods": "Pods ready",
+      "podsHint": "All workloads",
+      "active": "Active incidents",
+      "activeQuiet": "Quiet",
+      "activeBusy": "Graph runs in progress",
+      "confidence": "Median confidence",
+      "confidenceHint": "Target ≥ 0.90",
+      "baselines": "Baselines",
+      "baselinesHint": "{{count}} samples",
+      "forecasts": "Forecast alerts",
+      "forecastsHint": "Warning + critical"
+    },
+    "active": {
+      "title": "Active incidents",
+      "empty": "No incidents in flight — the agent is idle."
+    },
+    "recent": {
+      "title": "Recent outcomes",
+      "empty": "No incidents recorded yet."
+    },
+    "forecast": {
+      "title": "Forecast watchlist",
+      "loading": "Loading forecasts…",
+      "calm": "No surge predicted across any tracked metric."
+    },
+    "problemMap": {
+      "title": "Namespace × resource health",
+      "empty": "No namespaces visible — is `make cluster` up?",
+      "cols": {
+        "namespace": "Namespace",
+        "pods": "Pods",
+        "deployments": "Deployments",
+        "incidents": "Active incidents"
+      }
+    }
   },
   "scene": {
     "idle": "No incident selected — pick one or run a use case to populate the scene.",
