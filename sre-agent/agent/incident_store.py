@@ -197,15 +197,28 @@ def filter_and_paginate(
     severity: str | None = None,
     status: str | None = None,
     since: str | None = None,
+    pod: str | None = None,
+    rule: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[int, list[dict[str, Any]]]:
-    """Apply the filters that the /api/incidents endpoint exposes."""
+    """Apply the filters that the /api/incidents endpoint exposes.
+
+    Phase 14.5 adds `pod` + `rule` so the workload drill-down view can
+    pull only the incidents that touched a specific pod or a specific
+    rule. The match is on `state["pod"]` / `state["rule"]` — exact
+    string equality (not a regex), which is what the operator clicks
+    on from the workload header.
+    """
 
     def keep(it: dict[str, Any]) -> bool:
         if namespace and it.get("namespace") != namespace:
             return False
         if severity and it.get("severity") != severity:
+            return False
+        if pod and it.get("pod") != pod:
+            return False
+        if rule and it.get("rule") != rule:
             return False
         if status:
             esc = bool(it.get("escalated"))

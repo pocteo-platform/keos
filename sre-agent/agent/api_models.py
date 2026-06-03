@@ -245,6 +245,110 @@ class BaselineList(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Forecasts (Phase 14.5) — per-pod horizon projections for the SPA.
+# Different shape from BaselineSnapshotModel: forecast rows are
+# explicitly about TREND, not current state.
+# ---------------------------------------------------------------------------
+
+
+class ForecastRow(BaseModel):
+    metric: str
+    namespace: str
+    scope: str
+    # Status mirrors the forecaster's classifier output. `none` covers
+    # the case where the baseline exists but the linear fit failed
+    # (constant series, R² below floor, < N_MIN_FIT samples).
+    level: str  # safe | watch | warning | critical | none
+    slope_per_s: float | None = None
+    r2: float | None = None
+    t5_min: float | None = None
+    t15_min: float | None = None
+    t60_min: float | None = None
+    sigma_above: float | None = None
+    # Snapshot's current value, copied through so the SPA doesn't have
+    # to call /api/baselines separately to render the sparkline endpoint.
+    current: float | None = None
+    mean: float | None = None
+    std: float | None = None
+    n_samples: int = 0
+
+
+class ForecastList(BaseModel):
+    total: int
+    items: list[ForecastRow]
+
+
+# ---------------------------------------------------------------------------
+# Scene (Phase 14.5) — what the agent DID during one incident, projected
+# for the use-case-launch UI. Aggregates: resources affected (synthesized
+# from action_result.args), the chain of decisions (triage→...→verify),
+# the outcome banner data (healed vs escalated + reason), and a few
+# operator-facing summary fields.
+# ---------------------------------------------------------------------------
+
+
+class SceneResource(BaseModel):
+    """One K8s object the agent (or its observer / use-case runner)
+    touched during this incident. `state` is the operator-readable
+    status now — e.g., `Running`, `CrashLoopBackOff`, `cordoned`,
+    `(evicted)`."""
+
+    kind: str  # Pod | Deployment | Node | ConfigMap | ChaosExperiment | ...
+    namespace: str | None = None
+    name: str
+    state: str
+    # `outcome` is the agent's verdict on THIS resource after the
+    # incident ran. Drives the row color in the SPA:
+    #   reconciled — agent's action succeeded + verify=healed
+    #   paged      — agent escalated to a human; no mutation done
+    #   failed     — action ran but verify=False (or action_result.success=False)
+    #   unchanged  — observed but not acted on (e.g. the chaos CR)
+    outcome: str  # reconciled | paged | failed | unchanged
+    # Optional pointer back to the audit event that touched this row.
+    audit_event_type: str | None = None
+
+
+class SceneStep(BaseModel):
+    """One graph node's entry in the action chain. Sourced from the
+    audit log — every graph node emits one of these via `emit()`."""
+
+    name: str  # triage | retrieve_context | enrich_with_baselines | diagnose | ...
+    ts: str  # ISO timestamp
+    summary: str  # one-line human-readable
+    status: str  # ok | warn | error | skipped
+    payload_keys: list[str] = []  # so the SPA can decide whether to render a "view JSON" button
+
+
+class SceneOutcome(BaseModel):
+    """The big visual answer on the use-case-launch banner."""
+
+    verdict: str  # healed | escalated | failed | observe_only
+    reason: str  # human-readable; goes into the banner subtitle
+    time_to_outcome_seconds: float | None = None
+    # Per-class detail for the operator:
+    confidence: float | None = None  # diagnose confidence at the time
+    rule: str | None = None
+    tool: str | None = None  # which action ran (or would have run)
+    policy_decision: dict[str, object] | None = None  # full OPA payload
+
+
+class WorkloadScene(BaseModel):
+    """Returned by `GET /api/scene/{incident_id}`. The use-case-launch
+    UI binds the live pipeline's right-hand pane to a WS-pushed
+    version of this same shape so the operator sees the scene
+    populate row by row as the graph runs."""
+
+    incident_id: str
+    namespace: str | None = None
+    pod: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    outcome: SceneOutcome
+    resources: list[SceneResource] = []
+    steps: list[SceneStep] = []
+
+
+# ---------------------------------------------------------------------------
 # Scenarios + use cases
 # ---------------------------------------------------------------------------
 

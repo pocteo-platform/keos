@@ -261,7 +261,8 @@
     },
     "tabs": {
       "timeline": "Timeline",
-      "graph": "Graph"
+      "graph": "Graph",
+      "scene": "Scene"
     },
     "timeline": {
       "phases": {
@@ -425,5 +426,49 @@
   "errors": {
     "fetchFailed": "Couldn't reach the API. Check `make up` and your bearer token.",
     "wsDisconnected": "Live stream disconnected. Reconnecting…"
+  },
+  "scene": {
+    "idle": "No incident selected — pick one or run a use case to populate the scene.",
+    "loading": "Loading scene…",
+    "waiting": "Waiting for the agent to finish — the scene is empty until then.",
+    "outcome": {
+      "healed": {
+        "title": "Healed"
+      },
+      "escalated": {
+        "title": "Escalated"
+      },
+      "failed": {
+        "title": "Failed"
+      },
+      "observe_only": {
+        "title": "Observe only"
+      },
+      "unknown": {
+        "title": "Running…"
+      },
+      "ruleLabel": "rule",
+      "confidenceLabel": "confidence"
+    },
+    "resources": {
+      "title": "Resources affected",
+      "empty": "No K8s objects touched yet.",
+      "outcome": {
+        "reconciled": "reconciled",
+        "paged": "paged",
+        "failed": "failed",
+        "unchanged": "unchanged"
+      }
+    },
+    "chain": {
+      "title": "Action chain",
+      "empty": "Graph hasn't started yet.",
+      "status": {
+        "ok": "ok",
+        "warn": "warn",
+        "error": "error",
+        "skipped": "skipped"
+      }
+    }
   }
 }

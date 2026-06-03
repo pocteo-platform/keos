@@ -51,6 +51,8 @@ from agent.api_models import (
     DenialRequest,
     DeploymentSummary,
     EventSummary,
+    ForecastList,
+    ForecastRow,
     HealthResponse,
     IncidentDetail,
     IncidentList,
@@ -64,8 +66,12 @@ from agent.api_models import (
     ScenarioDescriptor,
     ScenarioRunRequest,
     ScenarioRunResponse,
+    SceneOutcome,
+    SceneResource,
+    SceneStep,
     UseCase,
     UseCaseRunResponse,
+    WorkloadScene,
 )
 from agent.audit import AuditLogger, verify_audit_log
 from agent.config import settings
@@ -797,6 +803,10 @@ def list_incidents(
     severity: str | None = None,
     status: str | None = None,
     since: str | None = None,
+    pod: str | None = Query(None, description="Filter to incidents touching this pod (Phase 14.5)"),
+    rule: str | None = Query(
+        None, description="Filter to incidents matching this rule (Phase 14.5)"
+    ),
     limit: int = 50,
     offset: int = 0,
 ) -> IncidentList:
@@ -807,6 +817,8 @@ def list_incidents(
         severity=severity,
         status=status,
         since=since,
+        pod=pod,
+        rule=rule,
         limit=limit,
         offset=offset,
     )
@@ -1178,6 +1190,356 @@ def list_baselines(
         total_samples=store.count_samples(),
         keys_known=len(store.list_keys()),
     )
+
+
+# ---------------------------------------------------------------------------
+# Forecasts (Phase 14.5) — per-pod horizon projections for the SPA.
+# Reuses the Phase 14 forecaster math + the Phase 13 baseline store.
+# ---------------------------------------------------------------------------
+
+
+@app.get(
+    "/api/forecasts",
+    response_model=ForecastList,
+    dependencies=[Depends(require_bearer)],
+)
+def list_forecasts(
+    ns: str | None = Query(None, description="Namespace filter; required when pod is set."),
+    pod: str | None = Query(None, description="Pod name; returns one forecast row per MetricKey."),
+) -> ForecastList:
+    """Per-pod (or all-keys) forecast snapshots for the SPA's
+    workload-drill-down "Forecasts" tab + the live-pipeline scene.
+
+    Conservatively returns level=`none` for keys that fit OK but
+    don't trip the danger classifier, so the SPA can render the
+    full picture (a row per key) and not just the anomalous ones."""
+    from agent.baselines import get_default_store
+    from agent.baselines.store import MetricKey
+    from agent.forecasting import decide, fit_linear
+
+    store = get_default_store()
+    keys: list[MetricKey] = (
+        store.list_keys(namespace=ns, scope=pod) if (ns and pod) else store.list_keys()
+    )
+    rows: list[ForecastRow] = []
+    for key in keys:
+        fit_row = store.get_fit(key)
+        samples = store.recent_samples(key, limit=60)
+        forecast = fit_linear([(s.ts, s.value) for s in samples])
+        current = samples[-1].value if samples else None
+        if forecast is None or fit_row is None or fit_row.std < 1e-6:
+            rows.append(
+                ForecastRow(
+                    metric=key.metric,
+                    namespace=key.namespace,
+                    scope=key.scope,
+                    level="none",
+                    current=current,
+                    mean=fit_row.mean if fit_row else None,
+                    std=fit_row.std if fit_row else None,
+                    n_samples=fit_row.n_samples if fit_row else 0,
+                )
+            )
+            continue
+        decision = decide(forecast, fit_row.mean, fit_row.std)
+        rows.append(
+            ForecastRow(
+                metric=key.metric,
+                namespace=key.namespace,
+                scope=key.scope,
+                level=decision.level,
+                slope_per_s=forecast.slope_per_s,
+                r2=forecast.r2,
+                t5_min=forecast.t5_min,
+                t15_min=forecast.t15_min,
+                t60_min=forecast.t60_min,
+                sigma_above=decision.sigma_above,
+                current=current,
+                mean=fit_row.mean,
+                std=fit_row.std,
+                n_samples=fit_row.n_samples,
+            )
+        )
+    # Sort: anomalous first (critical → warning → watch → safe → none),
+    # then by descending |sigma_above|. Matches the SPA expectation.
+    level_rank = {"critical": 0, "warning": 1, "watch": 2, "safe": 3, "none": 4}
+    rows.sort(key=lambda r: (level_rank.get(r.level, 9), -abs(r.sigma_above or 0.0)))
+    return ForecastList(total=len(rows), items=rows)
+
+
+# ---------------------------------------------------------------------------
+# Scene (Phase 14.5) — what the agent DID during one incident.
+# Aggregates: resources touched, the action chain, the outcome banner.
+# ---------------------------------------------------------------------------
+
+
+def _scene_from_incident(incident: dict[str, object]) -> WorkloadScene:
+    """Pure projection — runs over the persisted incident snapshot
+    that `incident_store.save()` writes. Kept pure so the SPA test
+    suite can drive it without a live agent."""
+    inc_id = str(incident.get("incident_id", ""))
+    ns = incident.get("namespace") if isinstance(incident.get("namespace"), str) else None
+    pod = incident.get("pod") if isinstance(incident.get("pod"), str) else None
+    # ---- Outcome banner ------------------------------------------------
+    verification = incident.get("verification") or {}
+    if not isinstance(verification, dict):
+        verification = {}
+    proposed = incident.get("proposed_action") or {}
+    if not isinstance(proposed, dict):
+        proposed = {}
+    diagnosis = incident.get("diagnosis") or {}
+    if not isinstance(diagnosis, dict):
+        diagnosis = {}
+    decision = incident.get("policy_decision") or {}
+    if not isinstance(decision, dict):
+        decision = {}
+    escalated = bool(incident.get("escalated"))
+    healed = verification.get("healed")
+    mode = incident.get("agent_mode")
+    tool = proposed.get("tool") if isinstance(proposed.get("tool"), str) else None
+    # Verdict priority: explicit healed/failed > escalated > observe-only > unknown.
+    if healed is True:
+        verdict = "healed"
+        reason = "Action ran; verify confirmed the cluster recovered."
+    elif healed is False:
+        verdict = "failed"
+        reason = "Action ran but the cluster did NOT recover; agent escalated."
+    elif escalated:
+        verdict = "escalated"
+        # Pick the most-informative reason available.
+        esc_reason = incident.get("escalation_reason")
+        if isinstance(esc_reason, str) and esc_reason:
+            reason = esc_reason
+        elif decision.get("reasons"):
+            reason = "; ".join(str(r) for r in decision.get("reasons") or [])
+        else:
+            reason = "Escalated without explicit reason."
+    elif mode and mode != "active":
+        verdict = "observe_only"
+        reason = f"Agent mode is {mode}; action was logged but not executed."
+    else:
+        verdict = "unknown"
+        reason = "Incident completed without a terminal classification."
+    outcome = SceneOutcome(
+        verdict=verdict,
+        reason=reason,
+        time_to_outcome_seconds=incident.get("duration_seconds")
+        if isinstance(incident.get("duration_seconds"), int | float)
+        else None,
+        confidence=float(diagnosis.get("confidence"))
+        if isinstance(diagnosis.get("confidence"), int | float)
+        else None,
+        rule=str(incident.get("rule")) if incident.get("rule") else None,
+        tool=tool,
+        policy_decision=decision if decision else None,
+    )
+    # ---- Resources affected -------------------------------------------
+    # The agent's `proposed_action.args` carries the target identity
+    # for the action. We synthesize a one-row resource view per target,
+    # plus rows for the chaos CR (if the incident came from a use case
+    # runner) and the affected pod/node from the incident state.
+    resources: list[SceneResource] = []
+    if pod and ns:
+        # The original target pod — colored by the verify outcome.
+        if healed is True:
+            target_outcome = "reconciled"
+        elif healed is False:
+            target_outcome = "failed"
+        elif escalated:
+            target_outcome = "paged"
+        else:
+            target_outcome = "unchanged"
+        resources.append(
+            SceneResource(
+                kind="Pod",
+                namespace=ns,
+                name=pod,
+                state=str(incident.get("phase") or "?"),
+                outcome=target_outcome,
+            )
+        )
+    # Synthesize the resource the action touched (may overlap with the
+    # target pod row — that's fine, the SPA can dedup).
+    if tool and proposed.get("args"):
+        args = proposed.get("args") or {}
+        if not isinstance(args, dict):
+            args = {}
+        kind_hint = {
+            "restart_pod": "Pod",
+            "rollout_undo": "Deployment",
+            "scale_deployment": "Deployment",
+            "set_resources": "Deployment",
+            "tune_hpa": "HorizontalPodAutoscaler",
+            "evict_workload": "Namespace",
+            "cordon_node": "Node",
+            "uncordon_node": "Node",
+            "drain_node": "Node",
+            "page_human": None,
+        }.get(tool)
+        action_target = (
+            args.get("pod_name")
+            or args.get("deployment_name")
+            or args.get("hpa_name")
+            or args.get("node_name")
+            or args.get("label_selector")
+        )
+        if (
+            kind_hint
+            and action_target
+            and not any(r.kind == kind_hint and r.name == action_target for r in resources)
+        ):
+            resources.append(
+                SceneResource(
+                    kind=kind_hint,
+                    namespace=args.get("namespace")
+                    if isinstance(args.get("namespace"), str)
+                    else None,
+                    name=str(action_target),
+                    state="(target of " + tool + ")",
+                    outcome=target_outcome
+                    if pod and ns
+                    else (
+                        "reconciled"
+                        if healed is True
+                        else "paged"
+                        if escalated
+                        else "failed"
+                        if healed is False
+                        else "unchanged"
+                    ),
+                    audit_event_type="execute",
+                )
+            )
+    # ---- Action chain --------------------------------------------------
+    # Each major IncidentState transition becomes one step. Order
+    # mirrors the graph topology so the SPA renders them as a
+    # vertical stepper. Mapping is by SEMANTIC state key
+    # (state["diagnosis"], state["proposed_action"], ...) rather than
+    # by node name — the graph nodes write to those keys, and that's
+    # what `incident_store.save` persists. Triage is special: it
+    # doesn't write a per-step dict, so we synthesize one row from
+    # the top-level state fields the triage node populates.
+    step_order: list[tuple[str, str | None, str]] = [
+        ("triage", None, "Event triaged"),
+        ("retrieve_context", "context", "Retrieved runbooks + pod state"),
+        ("k8sgpt_analyze", "k8sgpt_findings", "Pulled cluster diagnostic signals"),
+        ("enrich_with_baselines", "baselines", "Enriched with metric baselines"),
+        ("diagnose", "diagnosis", "Diagnosed root cause"),
+        ("plan_action", "proposed_action", "Planned remediation"),
+        ("policy_gate", "policy_decision", "Policy gate evaluated"),
+        ("execute", "action_result", "Action executed"),
+        ("verify", "verification", "Verified cluster state"),
+    ]
+    steps: list[SceneStep] = []
+    for step_name, state_key, default_summary in step_order:
+        if state_key is None:
+            # Triage — synthesize from top-level fields.
+            if not incident.get("severity"):
+                continue
+            steps.append(
+                SceneStep(
+                    name=step_name,
+                    ts=str(incident.get("saved_at") or ""),
+                    summary=(
+                        f"Triaged: severity={incident.get('severity')} "
+                        f"ns={incident.get('namespace') or '?'} "
+                        f"pod={incident.get('pod') or '?'}"
+                    ),
+                    status="ok",
+                    payload_keys=["severity", "namespace", "pod", "rule"],
+                )
+            )
+            continue
+        raw_section = incident.get(state_key)
+        # `k8sgpt_findings` + `baselines` are lists, not dicts — wrap
+        # them into a dict so the rest of the projection is uniform.
+        if isinstance(raw_section, list):
+            section: dict[str, Any] = {"count": len(raw_section)}
+        elif isinstance(raw_section, dict):
+            section = raw_section
+        else:
+            # Missing or unexpected shape — skip silently (graph
+            # short-circuits leave these out for legitimate reasons).
+            continue
+        # Status: error overrides warn overrides ok.
+        status = "ok"
+        if section.get("error"):
+            status = "error"
+        if step_name == "policy_gate" and section.get("allow") is False:
+            status = "warn"
+        if step_name == "diagnose" and section.get("confidence", 1.0) < 0.5:
+            status = "warn"
+        if step_name == "execute" and section.get("success") is False:
+            status = "error"
+        if step_name == "verify" and section.get("healed") is False:
+            status = "warn"
+        # One-line operator summary per step.
+        if step_name == "diagnose":
+            summary = str(section.get("summary") or default_summary)
+        elif step_name == "plan_action":
+            rationale = section.get("rationale", "")
+            summary = f"Chose `{section.get('tool', '?')}` — {rationale}"[:200]
+        elif step_name == "policy_gate":
+            allow = section.get("allow")
+            reasons = section.get("reasons") or []
+            joined = ", ".join(str(r) for r in reasons) or "no reasons"
+            summary = f"OPA {'allow' if allow else 'deny'} — {joined}"[:200]
+        elif step_name == "execute":
+            ok = section.get("success")
+            summary = f"{'Success' if ok else 'Failed'} — {section.get('tool', '?')}"
+        elif step_name == "verify":
+            h = section.get("healed")
+            summary = (
+                "healed" if h is True else "not healed" if h is False else "verify n/a"
+            )
+        elif step_name == "retrieve_context":
+            hits = section.get("runbook_hits") or []
+            summary = f"{len(hits)} runbook hit(s)"
+            if isinstance(hits, list) and hits and isinstance(hits[0], dict):
+                summary += f", top: {hits[0].get('slug', '?')}"
+        elif step_name == "k8sgpt_analyze":
+            summary = f"{section.get('count', 0)} finding(s)"
+        elif step_name == "enrich_with_baselines":
+            summary = f"{section.get('count', 0)} baseline snapshot(s)"
+        else:
+            summary = default_summary
+        steps.append(
+            SceneStep(
+                name=step_name,
+                ts=str(incident.get("saved_at") or ""),
+                summary=summary,
+                status=status,
+                payload_keys=sorted(list(section.keys()))[:8],
+            )
+        )
+    return WorkloadScene(
+        incident_id=inc_id,
+        namespace=ns,
+        pod=pod,
+        started_at=str(incident.get("started_at") or ""),
+        completed_at=str(incident.get("saved_at") or ""),
+        outcome=outcome,
+        resources=resources,
+        steps=steps,
+    )
+
+
+@app.get(
+    "/api/scene/{incident_id}",
+    response_model=WorkloadScene,
+    dependencies=[Depends(require_bearer)],
+)
+def get_scene(incident_id: str) -> WorkloadScene:
+    """Aggregate one incident into the Komodor-style 'scene' payload
+    the SPA's use-case-launch view binds to. 404 if the incident
+    isn't persisted (yet) — the SPA polls / subscribes via the
+    pipeline-trace WS until it lands."""
+    from agent import incident_store
+
+    incident = incident_store.load(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail=f"incident {incident_id!r} not found")
+    return _scene_from_incident(incident)
 
 
 # ---------------------------------------------------------------------------
