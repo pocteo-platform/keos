@@ -302,29 +302,26 @@ export function Sidebar() {
               )}
               {section.items.map(({ to, icon: Icon, key }) => {
                 const showCounter = to === "/incidents" && activeCount > 0;
-                // Two layouts: expanded is a full-width row; collapsed
-                // is a centered 40×40 tile with breathing room on every
-                // side (8px horizontal margin from the rail edges via
-                // `mx-3`, vertical from the parent's gap-1). Active
-                // state in collapsed mode also gets a 3px left accent
-                // rail so the operator can see at a glance which page
-                // they're on without reading any text.
-                const linkNode = (
+                const label = t(key);
+                // Native HTML title attribute when collapsed — Tooltip
+                // + asChild on NavLink was producing missing-icon
+                // weirdness; the browser's own tooltip is bulletproof.
+                const titleAttr = showCollapsed
+                  ? showCounter
+                    ? `${label} · ${activeCount} active`
+                    : label
+                  : undefined;
+                return (
                   <NavLink
                     key={to}
                     to={to}
                     end={to === "/dashboard"}
+                    title={titleAttr}
                     className={({ isActive }) =>
                       cn(
                         "group relative flex items-center font-medium transition-colors",
                         showCollapsed
                           ? cn(
-                              // Collapsed tile: full-opacity foreground tone
-                              // for the icon glyph so it reads clearly at
-                              // 20px against the white card background.
-                              // Operator-reported regression: `text-muted-foreground`
-                              // and `text-foreground/75` both produced
-                              // near-invisible icons in light mode.
                               "mx-2 h-10 justify-center rounded-sm text-sm",
                               isActive
                                 ? "bg-primary text-primary-foreground shadow-sm"
@@ -341,37 +338,33 @@ export function Sidebar() {
                   >
                     <Icon
                       strokeWidth={showCollapsed ? 2.25 : 2}
+                      // Inline color + size as a defense-in-depth
+                      // measure: even if a Tailwind class is purged
+                      // or overridden, the icon still paints in the
+                      // theme's foreground tone at 20×20.
+                      style={
+                        showCollapsed
+                          ? { width: 20, height: 20, color: "hsl(var(--foreground))" }
+                          : undefined
+                      }
                       className={cn(
                         "shrink-0",
-                        // Collapsed: 20×20 with extra stroke weight so
-                        // the icon doesn't disappear at small size on
-                        // a white background. `strokeWidth` is passed
-                        // as a React prop (not via Tailwind class)
-                        // because lucide-react sets the attribute
-                        // directly on the SVG element, where prop
-                        // beats CSS reliably.
                         showCollapsed ? "h-5 w-5" : "h-4 w-4",
                       )}
                     />
                     {showCollapsed ? null : (
-                      <span className="flex-1 truncate">{t(key)}</span>
+                      <span className="flex-1 truncate">{label}</span>
                     )}
                     {showCounter ? (
                       showCollapsed ? (
                         <span
                           className="absolute right-1 top-1 inline-block h-2 w-2 animate-pulse rounded-full bg-warn ring-2 ring-card"
-                          aria-label={t("sidebar.activeIncidents", {
-                            count: activeCount,
-                            defaultValue: `${activeCount} active`,
-                          })}
+                          aria-label={`${activeCount} active`}
                         />
                       ) : (
                         <span
                           className="inline-flex items-center gap-1.5 bg-warn/15 px-1.5 py-0.5 text-[10px] font-semibold text-warn"
-                          aria-label={t("sidebar.activeIncidents", {
-                            count: activeCount,
-                            defaultValue: `${activeCount} active`,
-                          })}
+                          aria-label={`${activeCount} active`}
                         >
                           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warn" />
                           {activeCount}
@@ -380,22 +373,6 @@ export function Sidebar() {
                     ) : null}
                   </NavLink>
                 );
-                if (showCollapsed) {
-                  return (
-                    <Tooltip key={to}>
-                      <TooltipTrigger asChild>{linkNode}</TooltipTrigger>
-                      <TooltipContent side="right" className="font-medium">
-                        {t(key)}
-                        {showCounter ? (
-                          <span className="ml-1.5 text-[10px] text-warn">
-                            ({activeCount} active)
-                          </span>
-                        ) : null}
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                }
-                return linkNode;
               })}
             </div>
           ))}
