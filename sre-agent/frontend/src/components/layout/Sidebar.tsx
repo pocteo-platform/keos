@@ -319,10 +319,13 @@ export function Sidebar() {
                         "group relative flex items-center font-medium transition-colors",
                         showCollapsed
                           ? cn(
-                              "mx-3 h-10 justify-center rounded-sm text-sm",
+                              // Collapsed tile: stronger contrast on the
+                              // icon glyphs so they read at 18px against
+                              // the card-white background.
+                              "mx-2 h-10 justify-center rounded-sm text-sm",
                               isActive
                                 ? "bg-primary text-primary-foreground shadow-sm"
-                                : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
+                                : "text-foreground/75 hover:bg-primary/10 hover:text-primary",
                             )
                           : cn(
                               "gap-3 px-2 py-2 text-sm",
@@ -336,7 +339,10 @@ export function Sidebar() {
                     <Icon
                       className={cn(
                         "shrink-0",
-                        showCollapsed ? "h-[18px] w-[18px]" : "h-4 w-4",
+                        // Collapsed: 20×20 with full stroke weight so
+                        // the icon doesn't disappear at small size on
+                        // a white background.
+                        showCollapsed ? "h-5 w-5 stroke-[2.25]" : "h-4 w-4",
                       )}
                     />
                     {showCollapsed ? null : (
