@@ -116,6 +116,68 @@ def test_scene_unknown_when_terminal_classification_missing() -> None:
     assert scene.outcome.verdict == "unknown"
 
 
+def test_scene_failed_when_execute_returned_error_even_with_verify_none() -> None:
+    """Regression guard for the bug seen in the Phase 14.5a demo screenshot:
+    `tune_hpa` execute failed with `kubectl exit 1`, verify never ran,
+    `escalated=True`. The OLD code surfaced verdict="escalated" + the
+    useless "Escalated without explicit reason." string. The verdict
+    is actually `failed` (the action did not succeed) and the reason
+    should carry the kubectl error so the operator doesn't have to
+    dig through the audit chain."""
+    incident = _base_incident(
+        verification={"healed": None},
+        proposed_action={
+            "tool": "tune_hpa",
+            "args": {"hpa_name": "k3d-poc-server", "namespace": "workloads", "max_replicas": 5},
+            "rationale": "forecasted surge",
+        },
+        action_result={"tool": "tune_hpa", "success": False, "error": "kubectl exit 1"},
+        escalated=True,
+    )
+    scene = _scene_from_incident(incident)
+    assert scene.outcome.verdict == "failed"
+    assert "tune_hpa" in scene.outcome.reason
+    assert "kubectl exit 1" in scene.outcome.reason
+
+
+def test_scene_failed_when_execute_stderr_present_even_without_error() -> None:
+    """Some tools surface failure as a non-empty `stderr` rather than
+    `error` (e.g. a kubectl exit 0 with warnings). Treat that as a
+    failure too — the operator should see what went wrong."""
+    incident = _base_incident(
+        verification={"healed": None},
+        action_result={
+            "tool": "set_resources",
+            "success": False,
+            "stderr": "Error from server (Conflict): operation cannot be fulfilled",
+        },
+    )
+    scene = _scene_from_incident(incident)
+    assert scene.outcome.verdict == "failed"
+    assert "Conflict" in scene.outcome.reason
+
+
+def test_scene_pod_state_carries_tool_name_when_execute_failed() -> None:
+    """The POD state field should not be `?` when we have action_result
+    data — that was the second bug in the demo screenshot. With a
+    failed action, the row state should read `(tune_hpa failed)`."""
+    incident = _base_incident(
+        verification={"healed": None},
+        proposed_action={
+            "tool": "tune_hpa",
+            "args": {"hpa_name": "k3d-poc-server", "namespace": "workloads"},
+            "rationale": "forecasted surge",
+        },
+        action_result={"tool": "tune_hpa", "success": False, "error": "kubectl exit 1"},
+        escalated=True,
+    )
+    scene = _scene_from_incident(incident)
+    pod_row = next((r for r in scene.resources if r.kind == "Pod"), None)
+    assert pod_row is not None
+    assert pod_row.state == "(tune_hpa failed)"
+    assert pod_row.outcome == "failed"
+
+
 def test_scene_outcome_carries_metadata() -> None:
     scene = _scene_from_incident(_base_incident())
     assert scene.outcome.confidence == 0.84

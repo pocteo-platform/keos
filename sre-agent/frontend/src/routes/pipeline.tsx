@@ -9,16 +9,12 @@ import { api } from "@/lib/api";
 import { useChannel } from "@/lib/ws";
 import { usePipelineState, type TraceEvent } from "@/hooks/usePipelineState";
 import type { NodeKind } from "@/lib/pipeline-topology";
-import { PipelineCanvas } from "@/components/pipeline/PipelineCanvas";
 import { NodeDrawer } from "@/components/pipeline/NodeDrawer";
 import { Scrubber } from "@/components/pipeline/Scrubber";
 import { IncidentPicker } from "@/components/pipeline/IncidentPicker";
-import { IncidentTimeline } from "@/components/pipeline/IncidentTimeline";
-import { TelemetrySidebar } from "@/components/pipeline/TelemetrySidebar";
-import { ScenePane } from "@/components/pipeline/ScenePane";
+import { UnifiedPipelineGrid } from "@/components/pipeline/UnifiedPipelineGrid";
 import { RunningIndicator, computePhaseStates } from "@/components/pipeline/RunningIndicator";
 import { ResultsBanner } from "@/components/usecases/ResultsBanner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ActiveIncident } from "@/lib/api";
 
 type Speed = 0.5 | 1 | 2 | 4 | "instant";
@@ -100,7 +96,7 @@ function LiveCanvas() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] flex-col gap-4">
+    <div className="flex min-h-[calc(100vh-7rem)] flex-col gap-4">
       <Header
         title={t("pipeline.title")}
         subtitle={t("pipeline.live.subtitle")}
@@ -112,43 +108,26 @@ function LiveCanvas() {
         }
       />
       <IncidentPicker current={following} seen={seen} onChange={onPickerChange} />
-      <Tabs defaultValue="timeline" className="flex-1 flex flex-col">
-        <TabsList className="self-start">
-          <TabsTrigger value="timeline">{t("pipeline.tabs.timeline")}</TabsTrigger>
-          <TabsTrigger value="graph">{t("pipeline.tabs.graph")}</TabsTrigger>
-          <TabsTrigger value="scene">
-            {t("pipeline.tabs.scene", { defaultValue: "Scene" })}
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="timeline" className="flex-1">
-          <div className="grid h-full grid-cols-1 gap-4 overflow-auto lg:grid-cols-[1fr_22rem]">
-            <Card>
-              <CardContent className="p-6">
-                <IncidentTimeline state={state} onSelectNode={setSelected} />
-              </CardContent>
-            </Card>
-            <TelemetrySidebar state={state} />
-          </div>
-        </TabsContent>
-        <TabsContent value="graph" className="flex-1">
-          <Card className="h-full">
-            <CardContent className="h-full p-0">
-              <PipelineCanvas state={state} onSelectNode={setSelected} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-        {/* Phase 14.5 — Scene tab: the Komodor-inspired summary of
-            what the agent actually did to the cluster during this
-            incident. Binds to GET /api/scene/:id and polls while
-            the graph is still in flight. */}
-        <TabsContent value="scene" className="flex-1">
-          <Card className="h-full">
-            <CardContent className="h-full p-0">
-              <ScenePane incidentId={state.incidentId} state={state} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      {/* Phase 14.5b — unified Komodor-pro layout. No tabs. The
+          operator sees graph + telemetry + scene + timeline at
+          once. Left column is the React Flow canvas (the "wow"
+          surface); right column stacks the three scene sections;
+          full-width timeline at the bottom mirrors the Phase 9.4
+          ribbon. */}
+      {state.incidentId ? (
+        <UnifiedPipelineGrid
+          state={state}
+          incidentId={state.incidentId}
+          onSelectNode={setSelected}
+        />
+      ) : (
+        <Card>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground">
+            <Activity className="mx-auto mb-2 h-5 w-5" />
+            {t("pipeline.live.empty")}
+          </CardContent>
+        </Card>
+      )}
       <NodeDrawer
         kind={selected}
         state={selected ? state.nodes[selected] : null}
@@ -159,14 +138,7 @@ function LiveCanvas() {
         <p className="text-xs text-muted-foreground">
           {t("pipeline.live.watching")} <span className="font-mono">{state.incidentId}</span>
         </p>
-      ) : (
-        <Card>
-          <CardContent className="py-6 text-center text-sm text-muted-foreground">
-            <Activity className="mx-auto mb-2 h-5 w-5" />
-            {t("pipeline.live.empty")}
-          </CardContent>
-        </Card>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -322,7 +294,7 @@ function ReplayCanvas({ incidentId }: { incidentId: string }) {
   };
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] flex-col gap-4">
+    <div className="flex min-h-[calc(100vh-7rem)] flex-col gap-4">
       <Header
         title={t("pipeline.title")}
         subtitle={
@@ -334,57 +306,25 @@ function ReplayCanvas({ incidentId }: { incidentId: string }) {
       {useCaseId && incidentQ.data ? (
         <ResultsBanner useCaseId={useCaseId} incident={incidentQ.data} />
       ) : null}
-      <Tabs defaultValue="timeline" className="flex-1 flex flex-col">
-        <TabsList className="self-start">
-          <TabsTrigger value="timeline">{t("pipeline.tabs.timeline")}</TabsTrigger>
-          <TabsTrigger value="graph">{t("pipeline.tabs.graph")}</TabsTrigger>
-          <TabsTrigger value="scene">
-            {t("pipeline.tabs.scene", { defaultValue: "Scene" })}
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="timeline" className="flex-1">
-          <div className="grid h-full grid-cols-1 gap-4 overflow-auto lg:grid-cols-[1fr_22rem]">
-            <Card>
-              <CardContent className="p-6">
-                {trace.length === 0 ? (
-                  // No trace yet. If we got here from a Run redirect OR
-                  // the incident file isn't persisted (404 → placeholder),
-                  // show the live loader. The loader keeps showing real
-                  // node progress as WS events arrive, then is replaced
-                  // by IncidentTimeline once any trace records exist.
-                  <RunningIndicator phases={phaseStates} currentNode={currentNode} />
-                ) : (
-                  <IncidentTimeline state={state} onSelectNode={setSelected} />
-                )}
-              </CardContent>
-            </Card>
-            <TelemetrySidebar state={state} />
-          </div>
-        </TabsContent>
-        <TabsContent value="graph" className="flex-1">
-          <Card className="h-full">
-            <CardContent className="h-full p-0">
-              {trace.length === 0 ? (
-                <div className="flex h-full items-center justify-center p-6">
-                  <RunningIndicator phases={phaseStates} currentNode={currentNode} />
-                </div>
-              ) : (
-                <PipelineCanvas state={state} onSelectNode={setSelected} />
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-        {/* Phase 14.5 — Scene tab in replay too, so the operator can
-            re-open a past incident and see exactly what the agent
-            did to the cluster. */}
-        <TabsContent value="scene" className="flex-1">
-          <Card className="h-full">
-            <CardContent className="h-full p-0">
-              <ScenePane incidentId={incidentId} state={state} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      {/* Phase 14.5b — unified layout. While the trace is empty
+          (graph hasn't fired any events yet — fresh use-case run
+          or 404 placeholder), show the RunningIndicator card so
+          the operator sees real-time node progress without an
+          empty grid. Once trace records exist, swap to the full
+          UnifiedPipelineGrid (graph + telemetry + scene + timeline). */}
+      {trace.length === 0 ? (
+        <Card>
+          <CardContent className="flex items-center justify-center p-12">
+            <RunningIndicator phases={phaseStates} currentNode={currentNode} />
+          </CardContent>
+        </Card>
+      ) : (
+        <UnifiedPipelineGrid
+          state={state}
+          incidentId={incidentId}
+          onSelectNode={setSelected}
+        />
+      )}
       {trace.length > 0 ? (
         <Scrubber
           totalMs={totalMs}

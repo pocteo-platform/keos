@@ -1297,13 +1297,39 @@ def _scene_from_incident(incident: dict[str, object]) -> WorkloadScene:
     healed = verification.get("healed")
     mode = incident.get("agent_mode")
     tool = proposed.get("tool") if isinstance(proposed.get("tool"), str) else None
-    # Verdict priority: explicit healed/failed > escalated > observe-only > unknown.
+    action_result_raw = incident.get("action_result") or {}
+    action_result = action_result_raw if isinstance(action_result_raw, dict) else {}
+    execute_failed = (
+        action_result.get("success") is False
+        or bool(action_result.get("error"))
+        or bool(action_result.get("stderr"))
+    )
+    # Verdict priority (more-specific first):
+    #   1. action_result.success=False — the kubectl call itself failed;
+    #      surface the stderr / error string so the operator doesn't see
+    #      a generic "escalated without reason" for what was actually an
+    #      execute failure (the bug that surfaced in the Phase 14.5a demo).
+    #   2. explicit verify.healed True/False
+    #   3. mode != active → observe_only
+    #   4. escalated → with whatever reason we have
+    #   5. unknown
     if healed is True:
         verdict = "healed"
         reason = "Action ran; verify confirmed the cluster recovered."
     elif healed is False:
         verdict = "failed"
         reason = "Action ran but the cluster did NOT recover; agent escalated."
+    elif execute_failed and tool:
+        verdict = "failed"
+        err = (
+            action_result.get("error")
+            or action_result.get("stderr")
+            or "kubectl call failed"
+        )
+        reason = f"`{tool}` action did not succeed — {err}"
+    elif mode and mode != "active":
+        verdict = "observe_only"
+        reason = f"Agent mode is {mode}; action was logged but not executed."
     elif escalated:
         verdict = "escalated"
         # Pick the most-informative reason available.
@@ -1314,9 +1340,6 @@ def _scene_from_incident(incident: dict[str, object]) -> WorkloadScene:
             reason = "; ".join(str(r) for r in decision.get("reasons") or [])
         else:
             reason = "Escalated without explicit reason."
-    elif mode and mode != "active":
-        verdict = "observe_only"
-        reason = f"Agent mode is {mode}; action was logged but not executed."
     else:
         verdict = "unknown"
         reason = "Incident completed without a terminal classification."
@@ -1340,21 +1363,41 @@ def _scene_from_incident(incident: dict[str, object]) -> WorkloadScene:
     # runner) and the affected pod/node from the incident state.
     resources: list[SceneResource] = []
     if pod and ns:
-        # The original target pod — colored by the verify outcome.
+        # The original target pod — colored by the verdict, which the
+        # block above already considered execute_failed. `healed=True`
+        # → reconciled; explicit healed=False OR execute_failed →
+        # failed; mode!=active → paged; otherwise unchanged.
         if healed is True:
             target_outcome = "reconciled"
-        elif healed is False:
+        elif healed is False or execute_failed:
             target_outcome = "failed"
         elif escalated:
             target_outcome = "paged"
         else:
             target_outcome = "unchanged"
+        # Pod "state" string is operator-readable summary of what the
+        # agent observed/did to the pod. Derive from triage severity +
+        # action_result, since IncidentState doesn't carry a `phase`
+        # field directly. Fall back to severity for the legacy case.
+        severity_val = incident.get("severity")
+        if execute_failed and tool:
+            pod_state = f"({tool} failed)"
+        elif healed is True:
+            pod_state = "(restarted, healthy)"
+        elif healed is False:
+            pod_state = "(action ran, still unhealthy)"
+        elif escalated:
+            pod_state = "(escalated; pod untouched)"
+        elif isinstance(severity_val, str):
+            pod_state = f"severity={severity_val}"
+        else:
+            pod_state = "—"
         resources.append(
             SceneResource(
                 kind="Pod",
                 namespace=ns,
                 name=pod,
-                state=str(incident.get("phase") or "?"),
+                state=pod_state,
                 outcome=target_outcome,
             )
         )

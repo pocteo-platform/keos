@@ -234,6 +234,28 @@ export interface UseCase {
   updated_at: string;
 }
 
+// ---------- Phase 13: baselines ----------
+
+export interface BaselineSnapshotModel {
+  metric: string;
+  namespace: string;
+  scope: string;
+  status: "ok" | "learning" | "missing";
+  current: number | null;
+  mean: number | null;
+  std: number | null;
+  sigma_above: number | null;
+  seasonal_residual: number | null;
+  n_samples: number;
+}
+
+export interface BaselineList {
+  total: number;
+  items: BaselineSnapshotModel[];
+  total_samples: number;
+  keys_known: number;
+}
+
 // ---------- Phase 14.5: forecasts + scene ----------
 
 export type ForecastLevel = "critical" | "warning" | "watch" | "safe" | "none";
@@ -312,8 +334,11 @@ export const api = {
 
   listNodes: () => request<NodeSummary[]>("GET", "/api/cluster/nodes"),
   listNamespaces: () => request<NamespaceSummary[]>("GET", "/api/cluster/namespaces"),
-  listPods: (ns: string) =>
-    request<PodSummary[]>("GET", `/api/cluster/pods?ns=${encodeURIComponent(ns)}`),
+  listPods: (ns?: string) =>
+    request<PodSummary[]>(
+      "GET",
+      ns ? `/api/cluster/pods?ns=${encodeURIComponent(ns)}` : "/api/cluster/pods",
+    ),
   listDeployments: (ns: string) =>
     request<DeploymentSummary[]>("GET", `/api/cluster/deployments?ns=${encodeURIComponent(ns)}`),
   listEvents: (ns: string, limit = 50) =>
@@ -388,6 +413,16 @@ export const api = {
   deleteUseCase: (id: string) => request<{ deleted: boolean }>("DELETE", `/api/usecases/${id}`),
   runUseCase: (id: string) =>
     request<{ incident_id: string; use_case_id: string }>("POST", `/api/usecases/${id}/run`),
+
+  // Phase 13 — baselines read-view. Optional ns/pod filter.
+  listBaselines: (params: { ns?: string; pod?: string } = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+    });
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return request<BaselineList>("GET", `/api/baselines${suffix}`);
+  },
 
   // Phase 14.5 — forecasts read-view for the workload drill-down +
   // pipeline scene pane. One row per (metric, namespace, scope)
