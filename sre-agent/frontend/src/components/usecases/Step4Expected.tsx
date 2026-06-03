@@ -139,4 +139,4 @@ export function Step4Expected({ draft, setDraft }: Props) {
   );
 }
 
-export const isStep4Valid = (_: Draft) => true; // expectations are optional
+// Validator moved to `./step-validators.ts` (always-true: optional step).

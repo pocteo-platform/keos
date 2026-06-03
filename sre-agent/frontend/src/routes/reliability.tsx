@@ -81,7 +81,12 @@ export default function ReliabilityPage() {
   ).length;
 
   // ----- Workload risks (severity-bucketed from incident history) -----
-  const incidents = incidentsQ.data?.items ?? [];
+  // Memoised so the `?? []` default doesn't allocate a new array
+  // every render and bust the downstream useMemos.
+  const incidents = useMemo(
+    () => incidentsQ.data?.items ?? [],
+    [incidentsQ.data],
+  );
   // Phase 15 — count drift-driven incidents in the last 7 days. The
   // drift detector tags its events with rule starting "GitOps drift",
   // which `triage` carries through to IncidentSummary.rule.

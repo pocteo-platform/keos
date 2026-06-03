@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { computePhaseStates, type PhaseState } from "@/components/pipeline/RunningIndicator";
+import { computePhaseStates, type PhaseState } from "@/components/pipeline/computePhaseStates";
 import type { LoopPhase } from "@/lib/branding";
 
 // Helper: assert that the returned shape covers exactly the 4 phases.

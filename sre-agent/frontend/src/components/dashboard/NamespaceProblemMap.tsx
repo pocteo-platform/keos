@@ -116,8 +116,15 @@ function NamespaceRow({ ns, activeIncidentsForNs }: RowProps) {
     refetchInterval: 10_000,
   });
 
-  const pods: PodSummary[] = podsQ.data ?? [];
-  const deploys: DeploymentSummary[] = deployQ.data ?? [];
+  // `podsQ.data` is a fresh array on every refetch — capturing the
+  // logical default with `?? []` would create a NEW [] on every render
+  // and bust the downstream useMemo cache. Wrap once so the empty-
+  // case identity is stable.
+  const pods: PodSummary[] = useMemo(() => podsQ.data ?? [], [podsQ.data]);
+  const deploys: DeploymentSummary[] = useMemo(
+    () => deployQ.data ?? [],
+    [deployQ.data],
+  );
 
   const unhealthyPods = useMemo(
     () => pods.filter((p) => p.phase !== "Running" && p.phase !== "Succeeded"),

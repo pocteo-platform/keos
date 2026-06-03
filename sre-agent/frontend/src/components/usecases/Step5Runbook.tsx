@@ -47,4 +47,4 @@ export function Step5Runbook({ draft, setDraft }: Props) {
   );
 }
 
-export const isStep5Valid = (_: Draft) => true; // runbook is optional
+// Validator moved to `./step-validators.ts` (always-true: optional step).

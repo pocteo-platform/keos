@@ -13,7 +13,8 @@ import { NodeDrawer } from "@/components/pipeline/NodeDrawer";
 import { Scrubber } from "@/components/pipeline/Scrubber";
 import { IncidentPicker } from "@/components/pipeline/IncidentPicker";
 import { UnifiedPipelineGrid } from "@/components/pipeline/UnifiedPipelineGrid";
-import { RunningIndicator, computePhaseStates } from "@/components/pipeline/RunningIndicator";
+import { RunningIndicator } from "@/components/pipeline/RunningIndicator";
+import { computePhaseStates } from "@/components/pipeline/computePhaseStates";
 import { ResultsBanner } from "@/components/usecases/ResultsBanner";
 import type { ActiveIncident } from "@/lib/api";
 
