@@ -772,6 +772,30 @@ def _dispatch(action: ProposedAction, dry_run: bool):
             grace_period_s=int(args.get("grace_period_s", 60) or 60),
             dry_run=dry_run,
         )
+    if tool == "tune_hpa":
+        return tools.tune_hpa(
+            hpa_name=args.get("hpa_name") or args.get("name", ""),
+            namespace=args["namespace"],
+            min_replicas=args.get("min_replicas"),
+            max_replicas=args.get("max_replicas"),
+            target_cpu=args.get("target_cpu"),
+            dry_run=dry_run,
+        )
+    if tool == "set_resources":
+        return tools.set_resources(
+            deployment_name=args.get("deployment_name") or args.get("name", ""),
+            namespace=args["namespace"],
+            container=args.get("container", ""),
+            requests=args.get("requests"),
+            limits=args.get("limits"),
+            dry_run=dry_run,
+        )
+    if tool == "evict_workload":
+        return tools.evict_workload(
+            namespace=args["namespace"],
+            label_selector=args.get("label_selector", ""),
+            dry_run=dry_run,
+        )
     if tool == "page_human":
         return tools.page_human(reason=args.get("reason", "no reason given"), dry_run=dry_run)
     raise ValueError(f"unknown tool {tool!r}")

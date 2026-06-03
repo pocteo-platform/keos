@@ -24,6 +24,10 @@ ToolName = Literal[
     "cordon_node",
     "uncordon_node",
     "drain_node",
+    # Phase 14 — predictive / rightsizing tools.
+    "tune_hpa",
+    "set_resources",
+    "evict_workload",
     "page_human",
 ]
 

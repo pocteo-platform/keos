@@ -234,6 +234,127 @@ def drain_node(
 
 
 @mcp.tool()
+def tune_hpa(
+    hpa_name: str,
+    namespace: str,
+    min_replicas: int | None = None,
+    max_replicas: int | None = None,
+    target_cpu: int | None = None,
+    severity: str = DEFAULT_SEVERITY,
+) -> dict[str, Any]:
+    """Phase 14 — adjust a HorizontalPodAutoscaler's bounds + target CPU.
+
+    Use for: forecasted traffic surge (raise max before reactive HPA
+    trips), rightsizing a chronically over/under-provisioned workload.
+    All three knobs optional — pass only what you want to change.
+    """
+    inc = _new_incident_id()
+    args = {
+        "hpa_name": hpa_name,
+        "namespace": namespace,
+        "min_replicas": min_replicas,
+        "max_replicas": max_replicas,
+        "target_cpu": target_cpu,
+    }
+    action = ProposedAction(
+        tool="tune_hpa",
+        args=args,
+        scope="deploy",
+        reversible=True,
+        rationale="MCP-driven tune_hpa call",
+    )
+    mode = _gate(action, severity)
+    result = agent_tools.tune_hpa(
+        hpa_name=hpa_name,
+        namespace=namespace,
+        min_replicas=min_replicas,
+        max_replicas=max_replicas,
+        target_cpu=target_cpu,
+        dry_run=False,
+    )
+    payload = result.model_dump() | {"mode": mode, "severity": severity, "incident_id": inc}
+    _emit(inc, "execute", payload)
+    if not result.success:
+        raise ToolError(f"tune_hpa failed: {result.error or result.stderr}")
+    return payload
+
+
+@mcp.tool()
+def set_resources(
+    deployment_name: str,
+    namespace: str,
+    container: str,
+    requests: dict[str, str] | None = None,
+    limits: dict[str, str] | None = None,
+    severity: str = DEFAULT_SEVERITY,
+) -> dict[str, Any]:
+    """Phase 14 — patch a Deployment container's resource requests/limits.
+
+    Use for: forecasted OOM (raise memory limit), rightsizing
+    over-provisioned containers (lower requests). Strategic-merge
+    patch — preserves env, volumeMounts, securityContext, etc.
+    """
+    inc = _new_incident_id()
+    args = {
+        "deployment_name": deployment_name,
+        "namespace": namespace,
+        "container": container,
+        "requests": requests,
+        "limits": limits,
+    }
+    action = ProposedAction(
+        tool="set_resources",
+        args=args,
+        scope="deploy",
+        reversible=True,
+        rationale="MCP-driven set_resources call",
+    )
+    mode = _gate(action, severity)
+    result = agent_tools.set_resources(
+        deployment_name=deployment_name,
+        namespace=namespace,
+        container=container,
+        requests=requests,
+        limits=limits,
+        dry_run=False,
+    )
+    payload = result.model_dump() | {"mode": mode, "severity": severity, "incident_id": inc}
+    _emit(inc, "execute", payload)
+    if not result.success:
+        raise ToolError(f"set_resources failed: {result.error or result.stderr}")
+    return payload
+
+
+@mcp.tool()
+def evict_workload(
+    namespace: str, label_selector: str, severity: str = DEFAULT_SEVERITY
+) -> dict[str, Any]:
+    """Phase 14 — delete every pod matching `label_selector` in `namespace`.
+
+    Soft restart for stateless workloads. The scheduler reschedules the
+    deleted pods — pair with cordon_node first if you want them moved
+    off the source node. Empty selector is rejected.
+    """
+    inc = _new_incident_id()
+    action = ProposedAction(
+        tool="evict_workload",
+        args={"namespace": namespace, "label_selector": label_selector},
+        scope="ns",
+        reversible=True,
+        rationale="MCP-driven evict_workload call",
+    )
+    mode = _gate(action, severity)
+    result = agent_tools.evict_workload(
+        namespace=namespace, label_selector=label_selector, dry_run=False
+    )
+    payload = result.model_dump() | {"mode": mode, "severity": severity, "incident_id": inc}
+    _emit(inc, "execute", payload)
+    if not result.success:
+        raise ToolError(f"evict_workload failed: {result.error or result.stderr}")
+    return payload
+
+
+@mcp.tool()
 def page_human(reason: str, severity: str = DEFAULT_SEVERITY) -> dict[str, Any]:
     """Record a structured page-human event in the audit log.
 

@@ -215,7 +215,67 @@ CASES: list[tuple[str, dict, bool, str | None]] = [
         True,
         None,
     ),
-    # 16 — Multiple gate violations stack reasons (kube-public + observe-only + L3).
+    # 16 — Phase 14: tune_hpa at high → L1 → allow.
+    (
+        "tune_hpa_high_allowed",
+        {
+            "action": "tune_hpa",
+            "severity": "high",
+            "agent_mode": "active",
+            "target": _target(kind="Deployment", name="checkout-hpa"),
+        },
+        True,
+        None,
+    ),
+    # 17 — Phase 14: tune_hpa at low → L3 → deny (operator approval).
+    (
+        "tune_hpa_low_blocked",
+        {
+            "action": "tune_hpa",
+            "severity": "low",
+            "agent_mode": "active",
+            "target": _target(kind="Deployment", name="checkout-hpa"),
+        },
+        False,
+        "L3",
+    ),
+    # 18 — Phase 14: set_resources at critical → L1 → allow.
+    (
+        "set_resources_critical_allowed",
+        {
+            "action": "set_resources",
+            "severity": "critical",
+            "agent_mode": "active",
+            "target": _target(kind="Deployment", name="checkout-api"),
+        },
+        True,
+        None,
+    ),
+    # 19 — Phase 14: evict_workload at low → L4 → deny.
+    (
+        "evict_workload_low_blocked",
+        {
+            "action": "evict_workload",
+            "severity": "low",
+            "agent_mode": "active",
+            "target": _target(kind="Namespace", name="app=checkout"),
+        },
+        False,
+        "L4",
+    ),
+    # 20 — Phase 14: evict_workload at high → L2 → allow.
+    (
+        "evict_workload_high_allowed",
+        {
+            "action": "evict_workload",
+            "severity": "high",
+            "agent_mode": "active",
+            "target": _target(kind="Namespace", name="app=checkout"),
+        },
+        True,
+        None,
+    ),
+    # 21 — Multiple gate violations stack reasons (kube-public + observe-only + L3).
     (
         "multiple_reasons_aggregated",
         {

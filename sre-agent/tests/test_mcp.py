@@ -133,12 +133,12 @@ async def _call(name: str, args: dict[str, Any]):
 
 
 @pytest.mark.asyncio
-async def test_lists_seven_tools_with_schemas() -> None:
+async def test_lists_ten_tools_with_schemas() -> None:
     tools = await _list_tools()
     names = {t.name for t in tools}
-    # 7 actions — 5 pod/deploy-scoped + node-scope's cordon/drain/uncordon
-    # trio + the always-allowed page_human. `uncordon_node` is the
-    # symmetric undo of `cordon_node` after a transient node issue clears.
+    # 10 actions — 5 pod/deploy-scoped + node-scope's cordon/drain/uncordon
+    # trio + Phase-14's predictive trio (tune_hpa, set_resources,
+    # evict_workload) + the always-allowed page_human.
     assert names == {
         "restart_pod",
         "rollout_undo",
@@ -146,6 +146,10 @@ async def test_lists_seven_tools_with_schemas() -> None:
         "cordon_node",
         "uncordon_node",
         "drain_node",
+        # Phase 14 — predictive / rightsizing tools.
+        "tune_hpa",
+        "set_resources",
+        "evict_workload",
         "page_human",
     }
     by_name = {t.name: t for t in tools}
@@ -160,6 +164,10 @@ async def test_lists_seven_tools_with_schemas() -> None:
     # cordon + drain need a node arg.
     assert "node" in by_name["cordon_node"].inputSchema["properties"]
     assert "node" in by_name["drain_node"].inputSchema["properties"]
+    # Phase 14 schemas — verify each carries its distinctive arg.
+    assert "hpa_name" in by_name["tune_hpa"].inputSchema["properties"]
+    assert "container" in by_name["set_resources"].inputSchema["properties"]
+    assert "label_selector" in by_name["evict_workload"].inputSchema["properties"]
     # page_human needs reason.
     assert "reason" in by_name["page_human"].inputSchema["properties"]
 
