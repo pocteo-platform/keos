@@ -319,13 +319,16 @@ export function Sidebar() {
                         "group relative flex items-center font-medium transition-colors",
                         showCollapsed
                           ? cn(
-                              // Collapsed tile: stronger contrast on the
-                              // icon glyphs so they read at 18px against
-                              // the card-white background.
+                              // Collapsed tile: full-opacity foreground tone
+                              // for the icon glyph so it reads clearly at
+                              // 20px against the white card background.
+                              // Operator-reported regression: `text-muted-foreground`
+                              // and `text-foreground/75` both produced
+                              // near-invisible icons in light mode.
                               "mx-2 h-10 justify-center rounded-sm text-sm",
                               isActive
                                 ? "bg-primary text-primary-foreground shadow-sm"
-                                : "text-foreground/75 hover:bg-primary/10 hover:text-primary",
+                                : "text-foreground hover:bg-primary/10 hover:text-primary",
                             )
                           : cn(
                               "gap-3 px-2 py-2 text-sm",
@@ -337,12 +340,17 @@ export function Sidebar() {
                     }
                   >
                     <Icon
+                      strokeWidth={showCollapsed ? 2.25 : 2}
                       className={cn(
                         "shrink-0",
-                        // Collapsed: 20×20 with full stroke weight so
+                        // Collapsed: 20×20 with extra stroke weight so
                         // the icon doesn't disappear at small size on
-                        // a white background.
-                        showCollapsed ? "h-5 w-5 stroke-[2.25]" : "h-4 w-4",
+                        // a white background. `strokeWidth` is passed
+                        // as a React prop (not via Tailwind class)
+                        // because lucide-react sets the attribute
+                        // directly on the SVG element, where prop
+                        // beats CSS reliably.
+                        showCollapsed ? "h-5 w-5" : "h-4 w-4",
                       )}
                     />
                     {showCollapsed ? null : (
