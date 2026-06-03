@@ -1,0 +1,46 @@
+# Prometheus scrape config for the laptop demo stack.
+#
+# Three scrape jobs:
+#
+#   1. `prometheus` — self-scrape, so `/api/v1/query` returns something
+#      even before the other targets are healthy. Lets `make doctor`
+#      tell "Prometheus is up but learning" apart from "Prometheus down".
+#
+#   2. `keos-api`  — scrapes the agent's own `/metrics` exposition.
+#      Surfaces `keos_diagnose_confidence`, `keos_baseline_samples_total`,
+#      `keos_calibration_threshold`, the policy + chaos counters, etc.
+#      The baseline learner does NOT query these series (their labels
+#      don't carry a pod/scope), but they power the SPA dashboards.
+#
+#   3. `cadvisor`  — per-Docker-container resource metrics, intended
+#      to feed the baseline learner (`BASELINE_QUERY_PROFILE=docker`).
+#      On a regular Linux host each compose service shows up as a
+#      series with label `name=shp-<service>` and the learner picks
+#      them up within ~30 s. **Known limitation on Docker Desktop /
+#      WSL2:** cAdvisor cannot read the overlayfs layerdb path, so
+#      every series degrades to bare `id=/docker/<sha>` with no
+#      `name` label and the learner sees `keys=0`. The code path is
+#      still correct — same image on a Jetson / Talos / bare-metal
+#      Linux host produces fully-labelled series.
+#
+# For pod-level baselines against the k3d workloads (the real
+# production target), deploy Prometheus + kube-state-metrics IN the
+# cluster and set `PROMETHEUS_URL` to that endpoint — Phase 13c.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: keos-api
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ["api:8000"]
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]

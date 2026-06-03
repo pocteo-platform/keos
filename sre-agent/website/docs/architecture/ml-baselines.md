@@ -182,6 +182,26 @@ The agent's own `/metrics` endpoint gains three new families:
   baselines are separating signal from noise well; p90 ≤ 1 means the
   catalog is mismatched to what the cluster actually does.
 
+## Laptop demo (`BASELINE_QUERY_PROFILE=docker`)
+
+The compose stack ships Prometheus + cAdvisor for an offline demo
+where the agent baselines its OWN containers (api, ollama, qdrant,
+nats, opa, mcp-server, …) rather than k3d pods. The learner runs
+the `docker` profile: four PromQL queries against cAdvisor's
+container-shaped series (`name` label = container name).
+
+**Known limitation on Docker Desktop / WSL2.** cAdvisor 0.49 cannot
+read the overlayfs layerdb path under Docker Desktop on WSL2; every
+series degrades to a bare `id=/docker/<sha>` cgroup path with no
+`name` label, and the learner sees `keys=0`. The code path is
+exercised correctly — same image on a Jetson, Talos, k3s-on-Pi,
+or bare-metal Linux host produces fully-labelled series and the
+doctor's BASELINES line lights up within a minute.
+
+The recommended laptop-demo path for real pod-level baselines is
+the k3s/k3d in-cluster Prometheus install (Phase 13c) — that's
+where the agent will run in production anyway.
+
 ## Cold-start behaviour
 
 A fresh edge install has no baselines for the first hour. Concretely:
