@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, PlayCircle } from "lucide-react";
+import { ChevronLeft, ExternalLink, PlayCircle } from "lucide-react";
 import { format } from "date-fns";
 import { enUS, fr as frLocale } from "date-fns/locale";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,7 @@ import { LlmResponsesTab } from "@/components/incidents/tabs/LlmResponsesTab";
 import { PolicyDecisionTab } from "@/components/incidents/tabs/PolicyDecisionTab";
 import { ActionResultTab } from "@/components/incidents/tabs/ActionResultTab";
 import { AuditChainTab } from "@/components/incidents/tabs/AuditChainTab";
+import { OutcomeBanner } from "@/components/pipeline/OutcomeBanner";
 import { api, type IncidentDetail } from "@/lib/api";
 import { useApp } from "@/lib/store";
 import { useChannel } from "@/lib/ws";
@@ -52,6 +53,18 @@ export default function IncidentDetailPage() {
     // Poll the full incident every 4s while it might still be in flight.
     // The condition flips on `complete` arrival (set in the WS handler).
     refetchInterval: () => (completeRef.current ? false : 4000),
+  });
+
+  // Phase 14.5c — surface the rich outcome banner at the top of the
+  // incident detail. Polled at the same cadence as the incident itself
+  // so the banner refreshes as the graph progresses. The first few
+  // polls 404 (scene aggregator runs against the persisted incident
+  // file); silence those.
+  const sceneQ = useQuery({
+    queryKey: ["scene", id],
+    queryFn: () => api.getScene(id),
+    refetchInterval: () => (completeRef.current ? false : 4000),
+    retry: 1,
   });
 
   // Live trace events. We dedupe by (ts, node, phase) so reapplying never
@@ -128,6 +141,13 @@ export default function IncidentDetailPage() {
         </Button>
       </div>
 
+      {/* Phase 14.5c — Komodor-rich outcome banner at the top.
+          Pulled from the same /api/scene/:id endpoint the
+          pipeline scene tab uses; renders the big visual healed/
+          escalated/failed/observe_only answer with action tool,
+          duration, rule, confidence chips. */}
+      <OutcomeBanner outcome={sceneQ.data?.outcome ?? null} hideUntilTerminal={isLive} />
+
       <Card>
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-3 font-mono text-base">
@@ -142,11 +162,36 @@ export default function IncidentDetailPage() {
               </Badge>
             ) : null}
           </CardTitle>
-          <CardDescription>
-            {inc.ts ? format(new Date(inc.ts), "PPPp", { locale: dfLocale }) : "—"} ·{" "}
-            <span className="font-mono">{inc.namespace ?? "—"}</span> /{" "}
-            <span className="font-mono">{inc.pod ?? "—"}</span>
-            {inc.rule ? <> · {inc.rule}</> : null}
+          <CardDescription className="flex flex-wrap items-center gap-2">
+            <span>
+              {inc.ts ? format(new Date(inc.ts), "PPPp", { locale: dfLocale }) : "—"}
+            </span>
+            <span className="opacity-60">·</span>
+            {inc.namespace && inc.pod ? (
+              // Phase 14.5c — direct link to the workload page so the
+              // operator can jump from incident → workload context.
+              <Link
+                to={`/workload/${encodeURIComponent(inc.namespace)}/Pod/${encodeURIComponent(inc.pod)}`}
+                className="inline-flex items-center gap-1 font-mono hover:underline"
+              >
+                <span>{inc.namespace}</span>
+                <span className="opacity-60">/</span>
+                <span>{inc.pod}</span>
+                <ExternalLink className="h-3 w-3 opacity-60" />
+              </Link>
+            ) : (
+              <>
+                <span className="font-mono">{inc.namespace ?? "—"}</span>
+                <span className="opacity-60">/</span>
+                <span className="font-mono">{inc.pod ?? "—"}</span>
+              </>
+            )}
+            {inc.rule ? (
+              <>
+                <span className="opacity-60">·</span>
+                <span>{inc.rule}</span>
+              </>
+            ) : null}
           </CardDescription>
         </CardHeader>
         <CardContent>

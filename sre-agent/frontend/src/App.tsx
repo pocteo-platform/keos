@@ -9,6 +9,7 @@ import LoginPage from "@/routes/login";
 
 const DashboardPage = lazy(() => import("@/routes/dashboard"));
 const ClusterPage = lazy(() => import("@/routes/cluster"));
+const WorkloadPage = lazy(() => import("@/routes/workload"));
 const ControlPage = lazy(() => import("@/routes/control"));
 const PipelinePage = lazy(() => import("@/routes/pipeline"));
 const IncidentsPage = lazy(() => import("@/routes/incidents"));
@@ -44,6 +45,7 @@ export default function App() {
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/cluster" element={<ClusterPage />} />
+              <Route path="/workload/:ns/:kind/:name" element={<WorkloadPage />} />
               <Route path="/control" element={<ControlPage />} />
               <Route path="/incidents" element={<IncidentsPage />} />
               <Route path="/incidents/:id" element={<IncidentDetailPage />} />
