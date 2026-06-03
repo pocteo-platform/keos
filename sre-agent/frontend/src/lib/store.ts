@@ -45,9 +45,20 @@ const initialLocale = (): Locale => {
   return nav.startsWith("fr") ? "fr" : "en";
 };
 
+// Sidebar collapsed state persists across reloads so an operator who
+// prefers the icon-only rail keeps it. Default is "expanded" on first
+// visit to maximise discoverability.
+const initialSidebarCollapsed = (): boolean => {
+  try {
+    return localStorage.getItem("shp_sidebar_collapsed") === "1";
+  } catch {
+    return false;
+  }
+};
+
 export const useApp = create<AppState>((set) => ({
   token: getStoredToken(),
-  sidebarCollapsed: false,
+  sidebarCollapsed: initialSidebarCollapsed(),
   mobileNavOpen: false,
   theme: initialTheme(),
   locale: initialLocale(),
@@ -58,7 +69,16 @@ export const useApp = create<AppState>((set) => ({
     set({ token });
   },
 
-  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+  toggleSidebar: () =>
+    set((s) => {
+      const next = !s.sidebarCollapsed;
+      try {
+        localStorage.setItem("shp_sidebar_collapsed", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return { sidebarCollapsed: next };
+    }),
   setMobileNavOpen: (mobileNavOpen) => set({ mobileNavOpen }),
 
   setTheme: (theme) => {
