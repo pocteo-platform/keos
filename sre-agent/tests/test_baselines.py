@@ -764,3 +764,67 @@ def test_render_baselines_block_formats_learning_snapshot() -> None:
     )
     assert "still learning" in block
     assert "container_cpu_rate_5m" in block
+
+
+def test_render_baselines_block_appends_forecast_when_warning_or_critical() -> None:
+    """Phase 14 — a baseline snapshot carrying a `forecast` sub-dict
+    at warning/critical level should produce a second line on the
+    same bullet point so the LLM sees the projection alongside the
+    current σ."""
+    from agent.llm import _render_baselines_block
+
+    block = _render_baselines_block(
+        [
+            {
+                "metric": "container_memory_rss_bytes",
+                "status": "ok",
+                "current": 838 * 1024 * 1024,
+                "mean": 412 * 1024 * 1024,
+                "std": 18 * 1024 * 1024,
+                "sigma_above": 23.6,
+                "n_samples": 942,
+                "forecast": {
+                    "slope_per_s": 1.5e6,
+                    "r2": 0.94,
+                    "t5_min": 980 * 1024 * 1024,
+                    "t15_min": 1024 * 1024 * 1024,
+                    "t60_min": 2 * 1024 * 1024 * 1024,
+                    "level": "critical",
+                    "sigma_above": 31.0,
+                },
+            }
+        ]
+    )
+    assert "forecast: t+5min" in block
+    assert "level=critical" in block
+    assert "r²=0.94" in block
+
+
+def test_render_baselines_block_omits_safe_forecasts() -> None:
+    """A forecast at level=safe / watch shouldn't bloat the prompt —
+    the LLM doesn't need to weight projections that aren't notable."""
+    from agent.llm import _render_baselines_block
+
+    block = _render_baselines_block(
+        [
+            {
+                "metric": "container_cpu_rate_5m",
+                "status": "ok",
+                "current": 0.5,
+                "mean": 0.48,
+                "std": 0.05,
+                "sigma_above": 0.4,
+                "n_samples": 200,
+                "forecast": {
+                    "slope_per_s": 0.001,
+                    "r2": 0.4,
+                    "t5_min": 0.6,
+                    "t15_min": 0.7,
+                    "t60_min": 1.0,
+                    "level": "safe",
+                    "sigma_above": 1.2,
+                },
+            }
+        ]
+    )
+    assert "forecast: t+5min" not in block
