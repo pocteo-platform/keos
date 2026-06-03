@@ -52,10 +52,10 @@ surges.
 
 | Phase | What happens |
 |---|---|
-| **Observe** | Cluster events (kubelet, Chaos Mesh, GitOps drift detectors) flow through a debounced bus into the agent. Retrieval-augmented context pulls relevant runbooks. Structured cluster signals describe the current state. |
-| **Predict** | A local LLM (Qwen2.5-3B by default, CPU-friendly) reads telemetry + runbooks + signals and produces a JSON diagnosis with confidence + evidence. A second LLM call picks one of 6 remediation tools and concrete arguments. |
-| **Heal** | The proposed action goes through OPA's severity-× action matrix. If allowed, it dispatches through the MCP server (same surface Claude Desktop or kagent would use) to kubectl. |
-| **Learn** | The verify node polls the cluster until the action's effect is observable. Every state transition writes one HMAC-signed line to the audit log. The result feeds back into the operator's view (or the next training pass). |
+| **Observe** | Three event sources flow through a debounced bus into the agent: kubelet/Chaos Mesh events (reactive), forecast-driven events (Phase 14 — fired 5/15/60 min before the reactive symptom), and GitOps drift events (Phase 15 — fired when live cluster state diverges from a source-of-truth manifest set). Retrieval-augmented context pulls relevant runbooks. K8sGPT structured findings describe the current state. The Phase 13 ML-baseline enricher injects σ-above-baseline metric context per pod. |
+| **Predict** | A local LLM (Qwen2.5-3B by default, CPU-friendly) reads telemetry + runbooks + K8sGPT findings + baselines + forecasts and produces a JSON diagnosis with confidence + evidence. A per-rule confidence threshold (Phase 12 calibration) decides whether to plan or escalate. A second LLM call picks one of **11** remediation tools (added in Phase 14: `tune_hpa`, `set_resources`, `evict_workload`; Phase 15: `revert_drift`) and concrete arguments. |
+| **Heal** | The proposed action goes through OPA's severity × action matrix. If allowed, it dispatches through the MCP server (same surface Claude Desktop or kagent would use) to kubectl. |
+| **Learn** | The verify node polls the cluster until the action's effect is observable. Every state transition writes one HMAC-signed line to the audit log. The outcome (`healed` / `escalated` / `stale_resolved`) updates the Phase 12 calibration store so the next identical incident gets a tighter or looser threshold. |
 
 **The Keos SRE Agent is NOT**:
 - A replacement for SREs. It accelerates known-knowns; humans own the unknowns.

@@ -6,7 +6,115 @@ version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-_Nothing yet — bump the most recent in-flight change here as it lands._
+### Added — Phase 15 (GitOps drift detection)
+
+- **Drift package** (`agent/drift/`): `SourceOfTruth` protocol +
+  `ManifestsSource` filesystem provider (walks a YAML directory, skips
+  `Event` / `Lease` / `Pod` kinds by default, picks up per-manifest
+  `pocteo.io/drift-ignore-fields` annotations). Pure-function deep-diff
+  comparator with a comprehensive whitelist for server-controlled
+  (`metadata.uid`, `resourceVersion`, `managedFields`, `status.*`) and
+  controller-owned (`spec.replicas`, `spec.clusterIP`, nodePort)
+  fields. Background detector polls every `DRIFT_TICK_INTERVAL_S`
+  (default 120 s), publishes `infra.events.drift.<kind>` on divergence,
+  with a 600 s dedup window per (kind, ns, name).
+- **`revert_drift` action tool** (`agent/tools.py`, `mcp_server`):
+  reads the SoT manifest from `sot_source` (path or `path#doc_index`),
+  defensively refuses to apply if the doc's kind/name don't match the
+  request, then `kubectl apply -f`'s the single doc. Wired through OPA
+  matrix (`L3 low / L2 medium / L1 high+critical`), schemas literal,
+  graph dispatcher, llm catalog hints, MCP server's pre-execute gate.
+- **Runbook 012** (`agent/runbooks/012-drift.md`): symptoms (operator
+  edits / controller writeback / stale SoT), diagnosis cross-references
+  (managedFields + severity), preferred remediation paths, and the
+  three operator escape hatches (per-manifest ignore annotation, global
+  whitelist override, `DRIFT_SOURCE_TYPE=none` kill switch).
+- **Compose + Helm wiring**: `manifests/` bind-mounted into the api
+  container at `/manifests` (read-only); `DRIFT_SOURCE_TYPE=manifests`
+  + `DRIFT_SOURCE_PATH=/manifests` set in `docker-compose.yml`.
+- **Prometheus metric**: `drift_events_total{kind}`.
+- **Tests**: 32 new hermetic tests in `tests/test_drift.py` covering
+  strip semantics, comparator edge cases (whitelist, extra ignore
+  paths, added/removed/modified deltas), ManifestsSource (multi-doc
+  files, unparseable YAML, missing root, ignore annotation), detector
+  (publishes on drift, no-op in sync, missing live, dedup cooldown,
+  soft-fail per target, NATS down), and the `revert_drift` tool itself
+  (empty/missing/invalid sot_source, defensive kind/name mismatch
+  guard). 3 new OPA matrix cases for `revert_drift`. MCP tool-count
+  test bumped to 11 tools with `sot_source` schema check.
+- **Documentation**: New `website/docs/architecture/gitops-drift.md`
+  page; updated `website/docs/architecture/overview.md` to reference
+  the drift event class + 4-layer continuous-intelligence loop; new
+  ARCHITECTURE.md §8 covering Phases 12-15.
+
+### Added — Phase 14 (predictive forecasting + new remediation tools)
+
+- **Forecasting package** (`agent/forecasting/`): pure-Python OLS
+  linear-regression forecaster over 60-sample windows from the Phase
+  13 baseline store. Three horizons (5/15/60 min). `R²` floor discards
+  non-linear (seasonal / autoscaling-feedback) fits. Background
+  scheduler tick (60 s) publishes `infra.events.forecasted_<kind>`
+  events when any fitted baseline crosses its danger threshold within
+  a horizon.
+- **Severity step-down**: forecasted events fire at one severity step
+  LOWER than the reactive equivalent so OPA's matrix is more
+  conservative for autonomous responses.
+- **Three new action tools** in `agent/tools.py` + `mcp_server`:
+  - `tune_hpa(deployment, min, max, target_cpu)`: raise HPA caps ahead
+    of a forecast traffic surge.
+  - `set_resources(deployment, requests, limits)`: rightsizing in
+    response to forecast memory growth.
+  - `evict_workload(namespace, label_selector)`: noisy-neighbour
+    eviction before it OOMs siblings.
+- **OPA matrix** extended with the three new actions (HPA tune at high
+  severity = L1; low severity = L3 to require operator approval).
+  `tests/test_policy.py` covers the new matrix rows.
+- **Three new runbooks** (`009-traffic-forecast.md`,
+  `010-node-decay-prediction.md`, `011-rightsizing.md`) seeded into
+  Qdrant by `make seed`.
+- **Settings → Forecasting tab** in the SPA (toggle scheduler tick,
+  inspect last-forecast state per fitted key).
+
+### Added — Phase 13 (ML baselines for cluster metrics)
+
+- **Baselines package** (`agent/baselines/`): Prometheus scraper (60 s
+  tick, 600 s fit cadence), EWMA mean + per-hour-of-day median,
+  per-(metric, namespace, pod) keys persisted to `data/baselines.db`.
+  Dual transport (compose-side `http://prometheus:9090` OR in-cluster
+  `k8s-proxy://monitoring/prometheus:9090` via apiserver proxy, the
+  Phase 13c default).
+- **`enrich_with_baselines` graph node** inserted between
+  `k8sgpt_analyze` and `diagnose`; injects "Memory is 838 MiB, baseline
+  412 ± 18 MiB → 23 σ above (not seasonal)" context into the diagnose
+  prompt for every fitted key on the targeted pod.
+- **Cold-start handling**: below 50 samples per key, the prompt notes
+  "still learning" and the LLM weights raw values as before.
+- **Internal API**: `GET /api/baselines/<metric>?ns=&pod=` returns
+  `{baseline, current, sigma_above, seasonal_residual}`.
+- **Helm + compose**: Prometheus + kube-state-metrics added to the
+  stack (`k3d/bootstrap.sh` installs both in `ns/monitoring`).
+
+### Added — Phase 12 (confidence telemetry + per-rule calibration)
+
+- **Calibration package** (`agent/calibration/`): SQLite store at
+  `data/calibration.db` schema `(rule_id, n_incidents, n_correct,
+  p50_conf, p90_conf, threshold)`. Grader updates per-rule stats after
+  every `verify` outcome; `_route_after_diagnose` reads per-rule
+  threshold (fallback: global `AGENT_CONFIDENCE_THRESHOLD`).
+- **Prometheus histograms**: `keos_diagnose_confidence{rule}` and
+  `keos_diagnose_accuracy{rule}`.
+- **Calibration view**: Settings → Calibration tab in the SPA with
+  per-rule table, sparkline, and manual threshold-override input
+  (`POST /api/calibration/<rule>/threshold`).
+- **Doctor**: new line
+  `[OK]  CALIBRATION  median_conf=0.71 below_90pct=14/50 rules_calibrated=8/8`.
+
+### Fixed — Reliability page i18n
+
+- Pluralized "across N namespace(s)" hint via i18next `_one`/`_other`
+  keys (`unhealthyHint_one`, `unhealthyHint_other`) in both EN and FR
+  locales; updated `reliability.tsx` to pass `count` so the right form
+  resolves.
 
 ---
 

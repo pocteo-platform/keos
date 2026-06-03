@@ -1321,11 +1321,7 @@ def _scene_from_incident(incident: dict[str, object]) -> WorkloadScene:
         reason = "Action ran but the cluster did NOT recover; agent escalated."
     elif execute_failed and tool:
         verdict = "failed"
-        err = (
-            action_result.get("error")
-            or action_result.get("stderr")
-            or "kubectl call failed"
-        )
+        err = action_result.get("error") or action_result.get("stderr") or "kubectl call failed"
         reason = f"`{tool}` action did not succeed — {err}"
     elif mode and mode != "active":
         verdict = "observe_only"
@@ -1532,9 +1528,7 @@ def _scene_from_incident(incident: dict[str, object]) -> WorkloadScene:
             summary = f"{'Success' if ok else 'Failed'} — {section.get('tool', '?')}"
         elif step_name == "verify":
             h = section.get("healed")
-            summary = (
-                "healed" if h is True else "not healed" if h is False else "verify n/a"
-            )
+            summary = "healed" if h is True else "not healed" if h is False else "verify n/a"
         elif step_name == "retrieve_context":
             hits = section.get("runbook_hits") or []
             summary = f"{len(hits)} runbook hit(s)"

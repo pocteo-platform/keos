@@ -843,6 +843,14 @@ def _dispatch(action: ProposedAction, dry_run: bool):
             label_selector=args.get("label_selector", ""),
             dry_run=dry_run,
         )
+    if tool == "revert_drift":
+        return tools.revert_drift(
+            kind=args.get("kind") or args.get("k8s.kind", ""),
+            namespace=args.get("namespace"),
+            name=args.get("name") or args.get("k8s.name", ""),
+            sot_source=args.get("sot_source") or args.get("drift.source", ""),
+            dry_run=dry_run,
+        )
     if tool == "page_human":
         return tools.page_human(reason=args.get("reason", "no reason given"), dry_run=dry_run)
     raise ValueError(f"unknown tool {tool!r}")

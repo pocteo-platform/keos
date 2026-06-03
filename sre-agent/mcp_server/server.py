@@ -355,6 +355,48 @@ def evict_workload(
 
 
 @mcp.tool()
+def revert_drift(
+    kind: str,
+    namespace: str,
+    name: str,
+    sot_source: str,
+    severity: str = DEFAULT_SEVERITY,
+) -> dict[str, Any]:
+    """Phase 15 — re-apply the source-of-truth manifest to the cluster.
+
+    Use for: GitOps drift events. `sot_source` is the pointer the
+    drift detector stashed in the event payload (`drift.source` field).
+    Format is `path[#doc_index]` for the v1 ManifestsSource provider.
+    """
+    inc = _new_incident_id()
+    action = ProposedAction(
+        tool="revert_drift",
+        args={
+            "kind": kind,
+            "namespace": namespace,
+            "name": name,
+            "sot_source": sot_source,
+        },
+        scope="ns",
+        reversible=True,
+        rationale="MCP-driven revert_drift call",
+    )
+    mode = _gate(action, severity)
+    result = agent_tools.revert_drift(
+        kind=kind,
+        namespace=namespace,
+        name=name,
+        sot_source=sot_source,
+        dry_run=False,
+    )
+    payload = result.model_dump() | {"mode": mode, "severity": severity, "incident_id": inc}
+    _emit(inc, "execute", payload)
+    if not result.success:
+        raise ToolError(f"revert_drift failed: {result.error or result.stderr}")
+    return payload
+
+
+@mcp.tool()
 def page_human(reason: str, severity: str = DEFAULT_SEVERITY) -> dict[str, Any]:
     """Record a structured page-human event in the audit log.
 

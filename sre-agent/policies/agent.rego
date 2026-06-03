@@ -39,6 +39,13 @@ levels := {
 	"tune_hpa":          {"low": 3, "medium": 2, "high": 1, "critical": 1},
 	"set_resources":     {"low": 3, "medium": 2, "high": 1, "critical": 1},
 	"evict_workload":    {"low": 4, "medium": 3, "high": 2, "critical": 1},
+	# Phase 15 — revert_drift re-applies the SoT manifest. Lower-risk
+	# than a rollout_undo (the inputs are explicit YAML, not implicit
+	# replicaset history), so the matrix is one step more permissive
+	# than rollout_undo at the same severity. Still gated at low /
+	# medium severity for operator approval, because reverting drift
+	# can blast over a legitimate hotfix nobody had time to commit.
+	"revert_drift":      {"low": 3, "medium": 2, "high": 1, "critical": 1},
 	"page_human":        {"low": 1, "medium": 1, "high": 1, "critical": 1},
 }
 

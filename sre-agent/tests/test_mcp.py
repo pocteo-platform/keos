@@ -133,12 +133,12 @@ async def _call(name: str, args: dict[str, Any]):
 
 
 @pytest.mark.asyncio
-async def test_lists_ten_tools_with_schemas() -> None:
+async def test_lists_eleven_tools_with_schemas() -> None:
     tools = await _list_tools()
     names = {t.name for t in tools}
-    # 10 actions — 5 pod/deploy-scoped + node-scope's cordon/drain/uncordon
-    # trio + Phase-14's predictive trio (tune_hpa, set_resources,
-    # evict_workload) + the always-allowed page_human.
+    # 11 actions — 5 pod/deploy-scoped + node-scope's cordon/drain/uncordon
+    # trio + Phase-14's predictive trio + Phase-15's revert_drift +
+    # the always-allowed page_human.
     assert names == {
         "restart_pod",
         "rollout_undo",
@@ -150,6 +150,8 @@ async def test_lists_ten_tools_with_schemas() -> None:
         "tune_hpa",
         "set_resources",
         "evict_workload",
+        # Phase 15 — GitOps drift revert.
+        "revert_drift",
         "page_human",
     }
     by_name = {t.name: t for t in tools}
@@ -168,6 +170,9 @@ async def test_lists_ten_tools_with_schemas() -> None:
     assert "hpa_name" in by_name["tune_hpa"].inputSchema["properties"]
     assert "container" in by_name["set_resources"].inputSchema["properties"]
     assert "label_selector" in by_name["evict_workload"].inputSchema["properties"]
+    # Phase 15 — revert_drift carries kind + sot_source.
+    assert "sot_source" in by_name["revert_drift"].inputSchema["properties"]
+    assert "kind" in by_name["revert_drift"].inputSchema["properties"]
     # page_human needs reason.
     assert "reason" in by_name["page_human"].inputSchema["properties"]
 

@@ -11,8 +11,7 @@ FR_ADDITIONS: dict[str, dict] = {
     "reliability": {
         "title": "Santé et fiabilité Kubernetes",
         "subtitle": (
-            "Risques workload et infrastructure, classés selon la vue "
-            "de l'agent sur le cluster."
+            "Risques workload et infrastructure, classés selon la vue de l'agent sur le cluster."
         ),
         "workload": {"title": "Santé des workloads"},
         "infra": {"title": "Santé de l'infrastructure"},

@@ -13,6 +13,8 @@ It is built in layers:
 5. **The data planes** — RAG store, telemetry bus, audit chain, WebSocket fan-out.
 6. **The deployment shapes** — laptop, edge k3s, Talos, air-gapped.
 7. **The request lifecycle** — one event traced from publish to healed.
+8. **Continuous intelligence** — Phase 12-15 loops: calibration, ML
+   baselines, predictive forecasting, GitOps drift detection.
 
 > **Convention.** All diagrams are Mermaid. They render natively in
 > GitHub, GitLab, VS Code (with the Mermaid extension), and most IDE
@@ -140,19 +142,21 @@ flowchart TB
 
 ## 3. The agent loop (LangGraph)
 
-This is the heart. Nine nodes, four phases, three escape hatches to
-`escalate`. Each node is a pure async function that takes the
-`IncidentState` TypedDict and returns a partial dict that LangGraph
-merges into the state.
+This is the heart. **Ten nodes** (Phase 13 inserted
+`enrich_with_baselines` between `k8sgpt_analyze` and `diagnose`), four
+phases, three escape hatches to `escalate`. Each node is a pure async
+function that takes the `IncidentState` TypedDict and returns a
+partial dict that LangGraph merges into the state.
 
 ```mermaid
 flowchart TD
-    START([NATS event<br/>infra.events.kind]) --> Triage
+    START([NATS event<br/>infra.events.kind<br/>reactive · forecasted · drift]) --> Triage
 
     subgraph Observe["OBSERVE — gather"]
         Triage[triage<br/>parse event<br/>+ severity / ns / pod]
         Retrieve[retrieve_context<br/>RAG top-3 from Qdrant<br/>+ kubectl describe pod]
         K8sgpt[k8sgpt_analyze<br/>cluster diagnostic signals<br/>K8sGPT MCP]
+        Baselines[enrich_with_baselines<br/>σ-above-baseline<br/>+ 5/15/60 min forecasts]
     end
 
     subgraph Predict["PREDICT — reason"]
@@ -172,9 +176,9 @@ flowchart TD
         ENDesc([END escalated])
     end
 
-    Triage --> Retrieve --> K8sgpt --> Diagnose
-    Diagnose -->|confidence < 0.6| Escalate
-    Diagnose -->|confidence >= 0.6| Plan
+    Triage --> Retrieve --> K8sgpt --> Baselines --> Diagnose
+    Diagnose -->|confidence < threshold<br/>per-rule from calibration| Escalate
+    Diagnose -->|confidence >= threshold| Plan
     Plan --> Gate
     Gate -->|deny| Escalate
     Gate -->|allow| Execute
@@ -189,7 +193,7 @@ flowchart TD
     classDef heal fill:#1d4ed8,stroke:#60a5fa,color:#dbeafe
     classDef learn fill:#14532d,stroke:#16a34a,color:#bbf7d0
     classDef terminal fill:#1e293b,stroke:#64748b,color:#f1f5f9
-    class Triage,Retrieve,K8sgpt observe
+    class Triage,Retrieve,K8sgpt,Baselines observe
     class Diagnose,Plan predict
     class Gate,Execute heal
     class Verify,Escalate learn
@@ -203,8 +207,9 @@ flowchart TD
 | `triage` | observe | NATS event payload | `severity`, `namespace`, `pod`, `rule_id` | no |
 | `retrieve_context` | observe | rule + output text | `rag_hits` (top-3 chunks), `pod_describe` | no |
 | `k8sgpt_analyze` | observe | namespace, pod | `k8sgpt_findings: list[Finding]` (empty on failure — soft degrade) | no |
-| `diagnose` | predict | event + RAG + findings + describe | `diagnosis: {summary, root_cause, confidence, evidence, notes}` | **yes** if `confidence < 0.6` |
-| `plan_action` | predict | diagnosis + tool catalog | `proposed_action: {tool, args, scope, reversible}` | no (constrained by catalog) |
+| `enrich_with_baselines` | observe | namespace, pod | `baselines: list[BaselineSnapshot]` + `forecasts: list[Forecast]` (empty on failure — soft degrade) | no |
+| `diagnose` | predict | event + RAG + findings + baselines + describe | `diagnosis: {summary, root_cause, confidence, evidence, notes}` | **yes** if `confidence < threshold` (per-rule from Phase 12 calibration; falls back to global 0.6) |
+| `plan_action` | predict | diagnosis + tool catalog (11 tools) | `proposed_action: {tool, args, scope, reversible}` | no (constrained by catalog) |
 | `policy_gate` | heal | `proposed_action`, `severity`, `mode` | `policy_decision: {allow, reasons[]}` | **yes** if `allow=false` |
 | `execute` | heal | `proposed_action`, `mode` | `action_result: {ok, dry_run, output, error}` | **yes** if `ok=false` |
 | `verify` | learn | `action_result.target` | `verification: {healed, observations}` | **yes** if `healed=false` |
@@ -637,6 +642,123 @@ sequenceDiagram
 | 26–32 | proposed action | ActionResult | MCP → kubectl → audit |
 | 33–36 | target | Verification (healed=true/false) | state + audit |
 | WS | every node start/end | UI frames | TraceBus → /ws/events |
+
+---
+
+## 8. Continuous intelligence — Phases 12-15
+
+The reactive loop (§3-§7) is the **floor**. The four background
+intelligence layers below are what move the agent from "useful demo"
+to "production-grade autonomous SRE". Each one is independently
+optional — kill any of them via env var and the reactive layer keeps
+running unchanged — but stacked, they lift the median diagnose
+confidence from ~0.65 toward the 0.90 design target.
+
+```mermaid
+flowchart LR
+    subgraph Reactive["Reactive (Phase 4-9)"]
+        Ev[infra.events.<br/>OOMKilled · BackOff · ...]
+    end
+
+    subgraph Predictive["Predictive (Phase 14)"]
+        F[forecasting.scheduler<br/>60s tick] --> Fev[infra.events.<br/>forecasted_*]
+    end
+
+    subgraph Drift["Drift (Phase 15)"]
+        D[drift.detector<br/>120s tick] --> Dev[infra.events.<br/>drift.*]
+    end
+
+    subgraph Baselines["Baselines (Phase 13)"]
+        L[baselines.learner<br/>60s scrape · 600s fit]
+        B[(baselines.db<br/>EWMA + DoW median)]
+        L --> B
+    end
+
+    subgraph Calibration["Calibration (Phase 12)"]
+        G[calibration.grader<br/>after verify]
+        S[(calibration.db<br/>per-rule threshold)]
+        G --> S
+    end
+
+    Ev --> N[(NATS INFRA)]
+    Fev --> N
+    Dev --> N
+    N --> GR[LangGraph]
+    B --enrich_with_baselines--> GR
+    B --feeds--> F
+    GR --rule outcome--> G
+    S --per-rule threshold--> GR
+```
+
+### 8.1 Per-rule calibration (Phase 12)
+
+| What | Where | Why it matters |
+|---|---|---|
+| Tracks per-rule diagnose-confidence histograms + accuracy after `verify` | `agent/calibration/store.py` (SQLite at `data/calibration.db`) | Without per-rule numbers, the agent can't tell a "noisy" rule (LLM is often wrong) from a well-calibrated one (LLM is reliably right). |
+| Learns a per-rule threshold = p25 of the historical confidence distribution of correct diagnoses | `agent/calibration/grader.py` | Noisy rules end up with a high threshold → more escalations on them. Well-calibrated rules get a permissive threshold → more autonomous heals. |
+| Operator override per rule (pin a manual threshold from the SPA) | Settings → Calibration tab; `POST /api/calibration/{rule}/threshold` | Operator's runtime knowledge beats the learner during the first few weeks of deployment. |
+| Exposes Prometheus histograms | `keos_diagnose_confidence{rule}` + `keos_diagnose_accuracy{rule}` | Plug into Grafana/Alertmanager without writing a custom exporter. |
+
+### 8.2 ML baselines (Phase 13)
+
+| What | Where | Why it matters |
+|---|---|---|
+| Scrapes Prometheus every 60 s for a fixed set of cluster metrics | `agent/baselines/learner.py` | The diagnose prompt needs numeric grounding. "Memory is 838 MiB" is meaningless; "Memory is 838 MiB, baseline 412 ± 18 MiB → 23 σ above" is actionable. |
+| Fits a per-(metric, namespace, pod) baseline every 600 s | EWMA mean + DoW median (per hour-of-day) | EWMA captures short-term drift; DoW median captures seasonal cycles (Mon-9am ≠ Sat-3am). |
+| `enrich_with_baselines` node injects σ-above-baseline into the diagnose user prompt | `agent/graph.py:node_enrich_with_baselines` | The LLM weights numeric anomaly evidence higher than text-only RAG hits. Single biggest accuracy lever in the project. |
+| Prometheus source is pluggable | Compose-side `http://prometheus:9090` OR in-cluster `k8s-proxy://monitoring/prometheus:9090` via apiserver proxy (default in Phase 13c) | Edge clusters get the in-cluster path "for free"; laptop demos can still use the compose-side Prometheus. |
+| Cold-start handling | Below 50 samples per key → "still learning" note in the prompt | Cold cluster doesn't poison the diagnose with garbage baselines. |
+
+### 8.3 Predictive forecasting (Phase 14)
+
+| What | Where | Why it matters |
+|---|---|---|
+| Linear-regression forecaster (60-sample OLS) | `agent/forecasting/forecaster.py` | At 5/15/60-min horizons short-term metric trends are linear-dominated; OLS is ~10 µs per fit. ARIMA / Holt-Winters would pull `statsmodels` (50+ MB) for negligible accuracy gain at these horizons. |
+| Background scheduler (60 s tick) | `agent/forecasting/scheduler.py` | When any fitted baseline crosses its danger threshold within the horizon → publishes `infra.events.forecasted_<kind>` to NATS. The agent's existing graph consumer picks it up like any other event. |
+| Severity step-down | Forecasted events fire at one severity LOWER than reactive equivalent | Conservative defaults: a forecasted_oom is "high" rather than "critical" so OPA's matrix gates the autonomous response more strictly. |
+| Three new action tools | `tune_hpa`, `set_resources`, `evict_workload` (in `agent/tools.py` + `mcp_server/server.py` + OPA matrix entries) | The agent can act *preemptively* — raise HPA's `max` before a traffic surge, raise memory requests before an OOM, evict a noisy neighbour before it OOMs siblings. |
+| R² floor | Forecasts with `R² < R2_MIN` are discarded | Seasonal load patterns + autoscaling-feedback patterns look non-linear at short horizons; the floor stops them from producing false alarms. |
+
+### 8.4 GitOps drift detection (Phase 15)
+
+| What | Where | Why it matters |
+|---|---|---|
+| `SourceOfTruth` protocol + `ManifestsSource` provider | `agent/drift/sources.py` | v1 reads a bind-mounted directory of YAML files. Future providers (ArgoCD `Application` CRs, Flux `Kustomization` CRs, raw `git clone`) implement the same protocol and slot in without touching detector/comparator. |
+| Field-whitelisted comparator | `agent/drift/comparator.py` | Strips server-controlled fields (resourceVersion, managedFields, status) + controller-owned fields (HPA's spec.replicas, Service clusterIP). Per-manifest override via `pocteo.io/drift-ignore-fields` annotation. |
+| Background detector (120 s tick + 600 s dedup) | `agent/drift/detector.py` | Per target: fetch live → compare → publish `infra.events.drift.<kind>` if drifted. Soft-fail per target — one broken manifest doesn't stop the rest. |
+| New `revert_drift` action | `agent/tools.py::revert_drift` + `mcp_server` + OPA matrix | Re-applies the SoT manifest via `kubectl apply -f`. Defensive guards: refuses if the SoT doc's `kind` / `name` don't match the request (catches stale audit replays after the SoT changed). |
+| Runbook 012 | `agent/runbooks/012-drift.md` (indexed in Qdrant via `make seed`) | The diagnose LLM retrieves this through the existing RAG path; covers `kubectl edit` vs controller writeback vs stale SoT diagnosis paths. |
+
+### 8.5 How the four layers stack
+
+The numbers below are design targets from the Phase 12+ plan, validated
+empirically as each phase landed:
+
+| Layer | Effort | Expected confidence delta |
+|---|---|---|
+| Phase 12 — calibration | 1-2 wk | Establishes baseline (≈ 0.65-0.75) — no lift on its own, but measurable. |
+| Phase 13 — ML baselines | 3-4 wk | **+10-15 pp** on metric-driven rules (memory leaks, OOM, traffic). Largest single lever. |
+| Phase 14 — predictive forecasting | 3-4 wk | **+3-5 pp** on traffic + rightsizing rules. More importantly: shifts the loop from reactive to proactive. |
+| Phase 15 — GitOps drift | 2-3 wk | Broader event surface — neutral on median confidence but covers a class of incidents the reactive layer never sees. |
+
+Phases 16-20 (continuous learning, admission webhook, edge resilience,
+deep security, operator confidence-tuning UI) build on top of these
+foundations. See the Phase 12+ plan for the path to ≥ 0.90 median.
+
+### 8.6 Kill-switches
+
+Each background loop has a single env-var disable:
+
+| Layer | Disable | Effect |
+|---|---|---|
+| Calibration | `KEOS_CALIBRATION_ENABLED=0` | Falls back to global `AGENT_CONFIDENCE_THRESHOLD`. |
+| Baselines | `PROMETHEUS_URL=""` | `enrich_with_baselines` no-ops; diagnose prompt has no σ context. |
+| Forecasting | `FORECAST_ENABLED=0` | Scheduler doesn't start; only reactive + drift events flow. |
+| Drift | `DRIFT_SOURCE_TYPE=none` | Detector doesn't start; only reactive + forecast events flow. |
+
+All four are configurable from `values.yaml` (Helm) or `.env.local`
+(laptop). Doctor reports each layer's state at boot so an operator
+knows what's on.
 
 ---
 
