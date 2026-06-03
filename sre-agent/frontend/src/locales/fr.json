@@ -4,6 +4,7 @@
     "subtitle": "Réponse aux incidents au bord du réseau, contrôlée par politique"
   },
   "nav": {
+    "dashboard": "Tableau de bord",
     "cluster": "Cluster",
     "incidents": "Incidents",
     "pipeline": "Pipeline",

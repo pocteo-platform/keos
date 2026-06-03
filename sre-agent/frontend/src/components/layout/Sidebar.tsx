@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Activity, Boxes, GitBranch, Layers, ShieldCheck, Target, X } from "lucide-react";
+import { Activity, Boxes, GitBranch, Layers, LayoutDashboard, ShieldCheck, Target, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   COMPANY_NAME,
@@ -13,6 +13,10 @@ import {
 import { useApp } from "@/lib/store";
 
 const items = [
+  // Phase 14.5b — Dashboard becomes the landing page. Komodor-pro
+  // operators arrive here, see the cluster's state in one glance,
+  // then drill in.
+  { to: "/dashboard", icon: LayoutDashboard, key: "nav.dashboard" },
   { to: "/cluster", icon: Layers, key: "nav.cluster" },
   { to: "/incidents", icon: Activity, key: "nav.incidents" },
   { to: "/pipeline/live", icon: GitBranch, key: "nav.pipeline" },

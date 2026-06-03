@@ -7,6 +7,7 @@ import { TopBar } from "@/components/layout/TopBar";
 import { LiveTailBanner } from "@/components/layout/LiveTailBanner";
 import LoginPage from "@/routes/login";
 
+const DashboardPage = lazy(() => import("@/routes/dashboard"));
 const ClusterPage = lazy(() => import("@/routes/cluster"));
 const ControlPage = lazy(() => import("@/routes/control"));
 const PipelinePage = lazy(() => import("@/routes/pipeline"));
@@ -28,7 +29,7 @@ export default function App() {
   }
 
   if (location.pathname === "/login") {
-    return <Navigate to="/cluster" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return (
@@ -40,7 +41,8 @@ export default function App() {
         <main className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
           <Suspense fallback={<p className="text-sm text-muted-foreground">…</p>}>
             <Routes>
-              <Route path="/" element={<Navigate to="/cluster" replace />} />
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/cluster" element={<ClusterPage />} />
               <Route path="/control" element={<ControlPage />} />
               <Route path="/incidents" element={<IncidentsPage />} />
@@ -49,7 +51,7 @@ export default function App() {
               <Route path="/pipeline/live" element={<PipelinePage />} />
               <Route path="/usecases" element={<UseCasesPage />} />
               <Route path="/calibration" element={<CalibrationPage />} />
-              <Route path="*" element={<Navigate to="/cluster" replace />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </Suspense>
         </main>

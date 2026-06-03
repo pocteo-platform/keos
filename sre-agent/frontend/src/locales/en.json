@@ -4,6 +4,7 @@
     "subtitle": "Policy-gated incident response on the edge"
   },
   "nav": {
+    "dashboard": "Dashboard",
     "cluster": "Cluster",
     "incidents": "Incidents",
     "pipeline": "Pipeline",
