@@ -181,8 +181,10 @@ export function Sidebar() {
           "fixed inset-y-0 left-0 z-40 flex shrink-0 flex-col border-r bg-card transition-[transform,width] duration-200",
           mobileNavOpen ? "translate-x-0" : "-translate-x-full",
           "md:static md:z-auto md:translate-x-0",
-          // Width is the headline visual: 64 expanded, 14 collapsed.
-          showCollapsed ? "w-14 md:w-14" : "w-64 md:w-60",
+          // Width is the headline visual: 64 expanded, 16 collapsed.
+          // 16 (= 64px) gives the icon rail enough breathing room for
+          // a 40px tile + 12px of margin without feeling cramped.
+          showCollapsed ? "w-16 md:w-16" : "w-64 md:w-60",
         )}
         aria-label="Primary navigation"
       >
@@ -266,10 +268,31 @@ export function Sidebar() {
         </div>
 
         {/* ─── Nav ───────────────────────────────────────────────────
-            Sectioned. Section labels hide when collapsed. */}
-        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-2 py-3">
-          {NAV_SECTIONS.map((section) => (
-            <div key={section.label} className={cn("flex flex-col", showCollapsed ? "" : "gap-0.5")}>
+            Sectioned. In expanded mode each section gets its caps
+            label; in collapsed mode the section header disappears
+            and a thin border separator marks the boundary instead. */}
+        <nav
+          className={cn(
+            "scrollbar-thin flex flex-1 flex-col overflow-y-auto overflow-x-hidden",
+            showCollapsed ? "gap-1 py-3" : "gap-1 px-2 py-3",
+          )}
+          aria-label="Sections"
+        >
+          {NAV_SECTIONS.map((section, sectionIdx) => (
+            <div
+              key={section.label}
+              className={cn(
+                "flex flex-col",
+                showCollapsed
+                  ? // Section spacing in collapsed mode: 12px gap +
+                    // a thin top divider between groups, except the
+                    // first group which sits flush under the header.
+                    sectionIdx > 0
+                    ? "mt-1.5 gap-0.5 border-t border-border/50 pt-1.5"
+                    : "gap-0.5"
+                  : "gap-0.5",
+              )}
+            >
               {showCollapsed ? null : (
                 <div className="px-2 pb-1 pt-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60">
                   {t(section.label, {
@@ -279,30 +302,50 @@ export function Sidebar() {
               )}
               {section.items.map(({ to, icon: Icon, key }) => {
                 const showCounter = to === "/incidents" && activeCount > 0;
+                // Two layouts: expanded is a full-width row; collapsed
+                // is a centered 40×40 tile with breathing room on every
+                // side (8px horizontal margin from the rail edges via
+                // `mx-3`, vertical from the parent's gap-1). Active
+                // state in collapsed mode also gets a 3px left accent
+                // rail so the operator can see at a glance which page
+                // they're on without reading any text.
                 const linkNode = (
                   <NavLink
                     key={to}
                     to={to}
+                    end={to === "/dashboard"}
                     className={({ isActive }) =>
                       cn(
-                        "group relative flex items-center text-sm font-medium transition-colors",
+                        "group relative flex items-center font-medium transition-colors",
                         showCollapsed
-                          ? "h-9 w-full justify-center"
-                          : "gap-3 px-2 py-2",
-                        isActive
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
+                          ? cn(
+                              "mx-3 h-10 justify-center rounded-sm text-sm",
+                              isActive
+                                ? "bg-primary text-primary-foreground shadow-sm"
+                                : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
+                            )
+                          : cn(
+                              "gap-3 px-2 py-2 text-sm",
+                              isActive
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
+                            ),
                       )
                     }
                   >
-                    <Icon className="h-4 w-4 shrink-0" />
+                    <Icon
+                      className={cn(
+                        "shrink-0",
+                        showCollapsed ? "h-[18px] w-[18px]" : "h-4 w-4",
+                      )}
+                    />
                     {showCollapsed ? null : (
                       <span className="flex-1 truncate">{t(key)}</span>
                     )}
                     {showCounter ? (
                       showCollapsed ? (
                         <span
-                          className="absolute right-1.5 top-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-warn ring-2 ring-card"
+                          className="absolute right-1 top-1 inline-block h-2 w-2 animate-pulse rounded-full bg-warn ring-2 ring-card"
                           aria-label={t("sidebar.activeIncidents", {
                             count: activeCount,
                             defaultValue: `${activeCount} active`,
