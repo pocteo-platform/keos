@@ -1,7 +1,17 @@
 import { useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Activity, Boxes, GitBranch, Layers, LayoutDashboard, ShieldCheck, Target, X } from "lucide-react";
+import {
+  Activity,
+  Boxes,
+  GitBranch,
+  HeartPulse,
+  Layers,
+  LayoutDashboard,
+  Settings as SettingsIcon,
+  TrendingUp,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   COMPANY_NAME,
@@ -13,16 +23,19 @@ import {
 import { useApp } from "@/lib/store";
 
 const items = [
-  // Phase 14.5b — Dashboard becomes the landing page. Komodor-pro
-  // operators arrive here, see the cluster's state in one glance,
-  // then drill in.
+  // Phase 14.6 — operator-flow ordering. Dashboard (start) →
+  // Reliability (what's wrong) → Cluster (where) → Incidents +
+  // Pipeline (what is the agent doing) → Use Cases (test scenarios)
+  // → Optimization (improvement opportunities) → Settings (config,
+  // includes Calibration + Approvals tabs).
   { to: "/dashboard", icon: LayoutDashboard, key: "nav.dashboard" },
+  { to: "/reliability", icon: HeartPulse, key: "nav.reliability" },
   { to: "/cluster", icon: Layers, key: "nav.cluster" },
   { to: "/incidents", icon: Activity, key: "nav.incidents" },
   { to: "/pipeline/live", icon: GitBranch, key: "nav.pipeline" },
   { to: "/usecases", icon: Boxes, key: "nav.usecases" },
-  { to: "/calibration", icon: Target, key: "nav.calibration" },
-  { to: "/control", icon: ShieldCheck, key: "nav.control" },
+  { to: "/optimization", icon: TrendingUp, key: "nav.optimization" },
+  { to: "/settings", icon: SettingsIcon, key: "nav.settings" },
 ] as const;
 
 export function Sidebar() {
