@@ -108,14 +108,30 @@ def _fake_event(
 
 class _FakeJetStream:
     """Captures every publish so tests can assert on subject + payload
-    without a real NATS connection."""
+    without a real NATS connection.
+
+    `publish` records SYNCHRONOUSLY into `publishes` (no async — we
+    don't want to depend on coroutine-stepping semantics for the
+    capture; that's been flaky on Python 3.11 in CI). It still returns
+    an awaitable so the SUT can pass it to `asyncio.run_coroutine_threadsafe`
+    without crashing."""
 
     def __init__(self) -> None:
         self.publishes: list[tuple[str, bytes]] = []
         self._loop = None
 
-    async def publish(self, subject: str, payload: bytes) -> None:
+    def publish(self, subject: str, payload: bytes):  # noqa: ANN201
+        # Record synchronously — the test assertions read this list.
         self.publishes.append((subject, payload))
+        # Return a real awaitable so `asyncio.run_coroutine_threadsafe`
+        # has something to wrap. We use a fresh coroutine each call.
+        return _noop_coro()
+
+
+async def _noop_coro() -> None:
+    """A pre-baked coroutine that does nothing — gives the mocked
+    run_coroutine_threadsafe a valid awaitable to consume."""
+    return None
 
 
 def _wire(observer: ChaosObserver, monkeypatch: pytest.MonkeyPatch) -> _FakeJetStream:
@@ -123,27 +139,22 @@ def _wire(observer: ChaosObserver, monkeypatch: pytest.MonkeyPatch) -> _FakeJetS
     capture by stubbing the publish path. The observer thinks it's
     publishing; we record what it would have sent.
 
-    monkeypatch.setattr is used so the asyncio module's namespace is
-    restored between tests — previously a global assignment leaked
-    across tests, breaking CI ordering."""
+    Side-effect capture happens inside _FakeJetStream.publish (above);
+    here we just neutralise asyncio.run_coroutine_threadsafe so the
+    SUT doesn't try to schedule on the real loop."""
     js = _FakeJetStream()
-    # Loop captured so _handle's `loop is None` check passes.
     observer._loop = SimpleNamespace(_dummy=True)  # type: ignore[assignment]
 
-    # chaos_observer.py uses `asyncio.run_coroutine_threadsafe(...)`
-    # via the imported `asyncio` module. Patch on `agent.chaos_observer.asyncio`
-    # (the module-level binding seen by the caller) so we don't
-    # touch the global asyncio module.
     from agent import chaos_observer as _co
 
     def _fake_run_coro_threadsafe(coro, _loop):  # noqa: ANN001
-        """Synchronously consume the coroutine. js.publish() is a
-        simple `async def` that does `self.publishes.append(...)` and
-        returns — stepping with `coro.send(None)` runs its body to
-        completion (StopIteration with .value = return value)."""
+        # Close the coroutine to avoid Python's
+        # "coroutine 'X' was never awaited" warning, then return a
+        # fake future-shape. The actual capture has already happened
+        # synchronously inside js.publish().
         try:
-            coro.send(None)
-        except StopIteration:
+            coro.close()
+        except Exception:  # noqa: BLE001
             pass
         return SimpleNamespace(result=lambda timeout: None)
 
