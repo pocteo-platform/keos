@@ -6,6 +6,49 @@ version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — V1 UI polish (Phases 14.5 through 14.10)
+
+- **Phase 14.5 — Komodor-inspired UI uplift**: workload drill-down route
+  `/workload/:ns/:kind/:name` with WorkloadHeaderCard, related-incidents
+  table, and forecast horizons panel. Unified pipeline view
+  (`UnifiedPipelineGrid`) replaces the dual React-Flow / timeline split.
+  New `/api/scene/:incidentId` aggregates everything the pipeline scene
+  needs in one round-trip. Workload page polling cadences tuned per
+  data source.
+- **Phase 14.6 — V1 UI completion**: dedicated Reliability page (`/reliability`)
+  with workload + infrastructure health tiles, severity-bucketed risks,
+  30-day issues-over-time chart. Dedicated Optimization page (`/optimization`)
+  with rightsizing recommendations derived from baselines. Unified Settings
+  page (`/settings`) with 7 tabs replacing the old `/control` and
+  `/calibration` top-level routes. Complete EN/FR i18n for every visible
+  string. Operator-flow nav ordering: Dashboard → Reliability → Cluster →
+  Incidents → Pipeline → Use Cases → Optimization → Settings.
+- **Phase 14.7 — V1 polish**: Settings tabs now show LIVE data alongside
+  env-var knobs (Forecasting tab with `/api/forecasts` table + level
+  chips; Baselines tab with `/api/baselines` table + σ-graded tones;
+  new Drift tab for Phase 15 events). Dashboard gains a
+  `LiveActivityRibbon` streaming the last 12 audit events with
+  per-stage icons and Framer-Motion entrance. AuditTable gets full
+  pagination (50/page) + column sort + payload-JSON search. Reliability
+  page adds a GitOps-drift tile counting drift incidents over 7d.
+- **Phase 14.8 — pagination everywhere**: Optimization recommendations
+  paginated (25/page) with sortable columns + direction filter +
+  search. Cluster Events list paginated. Settings → Calibration
+  sortable on every numeric column.
+- **Phase 14.9 — Use Cases search + sidebar live counter**: Use Cases
+  page gains search input + tag-chip filter + match-count badge +
+  no-match empty state. Sidebar shows live active-incidents pill on
+  the Incidents nav item (4s poll, pulsing warn dot).
+- **Phase 14.10 — Pro sidebar + topbar**: sidebar is collapsible (64px
+  ↔ 240px) with persistent state and `[` keyboard shortcut.
+  Sectioned nav (OVERVIEW / OPERATE / LEARN). Persistent
+  agent-mode pill above the footer (live-polled). Smooth 200ms
+  transitions. Topbar gets a URL-driven breadcrumb, an API + WS
+  health combo pill (via new `useWsStatus()` hook reading
+  `WsClient.onStatus`), and a clickable mode badge linking to
+  Settings → Agent. Custom theme-aware scrollbars across the entire
+  app (no native browser chrome ever shown).
+
 ### Added — Phase 15 (GitOps drift detection)
 
 - **Drift package** (`agent/drift/`): `SourceOfTruth` protocol +

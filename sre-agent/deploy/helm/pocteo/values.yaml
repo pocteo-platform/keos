@@ -120,12 +120,142 @@ networkPolicy:
 # Agent runtime defaults to observe-only — safest on first install.
 agent:
   defaultMode: observe-only  # one of: observe-only | active | frozen
+  # GLOBAL diagnose-confidence threshold. Used as a fallback when the
+  # per-rule calibration store has < 20 graded incidents for a rule —
+  # below that the learner doesn't have enough data and we fall back
+  # to this value.
   confidenceThreshold: 0.6
   # Namespace watch scope (chaos_observer). Empty list = watch every
   # namespace except the system deny-list (kube-system, kube-public,
   # kube-node-lease, chaos-mesh, local-path-storage). Set to a specific
   # list (e.g. ["workloads","production"]) to lock it down.
   watchNamespaces: []
+
+# ---------------------------------------------------------------------------
+# Phase 12 — per-rule calibration.
+#
+# Tracks per-rule diagnose-confidence distribution and after each
+# `verify` outcome updates the rule's stats. Once 20 graded incidents
+# exist the learner picks `threshold = p25 of correct confidences`
+# (noisy rules end up with a high threshold → escalate sooner;
+# well-calibrated rules get a permissive threshold → autonomous heals).
+# Operators can pin a manual override from the SPA's Settings →
+# Calibration tab; overrides persist across agent restarts.
+# ---------------------------------------------------------------------------
+calibration:
+  enabled: true
+  # SQLite store path INSIDE the api container. Defaults to /data so
+  # it's part of the persistent volume.
+  dbPath: /data/calibration.db
+  # Minimum graded-incident count before the learner replaces the
+  # global `agent.confidenceThreshold` fallback with the per-rule p25.
+  # Lower = faster learning, noisier early decisions.
+  minSamples: 20
+
+# ---------------------------------------------------------------------------
+# Phase 13 — ML baselines for cluster metrics.
+#
+# Background scraper pulls metric history from Prometheus and fits a
+# per-(metric, namespace, pod) EWMA mean + per-hour-of-day median.
+# The `enrich_with_baselines` graph node injects σ-above-baseline
+# context into every diagnose prompt — single biggest accuracy lever
+# in the project.
+#
+# Two transport modes:
+#   - "k8s-proxy://monitoring/prometheus:9090"  via apiserver proxy
+#     (Phase 13c default — works on any in-cluster Prometheus)
+#   - "http://prometheus:9090"                   for compose-side
+#     deployments where Prometheus is a sibling service
+# Set prometheusUrl to "" to disable baselines + forecasts entirely.
+# ---------------------------------------------------------------------------
+baselines:
+  prometheusUrl: "k8s-proxy://monitoring/prometheus:9090"
+  # Tick cadence (seconds). Each tick scrapes every tracked metric
+  # query against Prometheus.
+  scrapeIntervalS: 60
+  # Re-fit cadence (seconds). Cheap; the fit is per-key EWMA + DoW
+  # median, both O(n) over the last fitWindow samples.
+  fitIntervalS: 600
+  # `k8s` for in-cluster Prometheus with pod-shaped labels
+  # (kube-state-metrics + cAdvisor); `docker` for compose-side
+  # cAdvisor-only mode.
+  queryProfile: k8s
+  # Minimum samples per key before the snapshot reports `status: ok`
+  # instead of `learning`. Cold-start protection — at < 50 samples
+  # the diagnose prompt notes "still learning" rather than poisoning
+  # with weak baselines.
+  minSamples: 50
+  # SQLite store path INSIDE the api container.
+  dbPath: /data/baselines.db
+
+# ---------------------------------------------------------------------------
+# Phase 14 — predictive forecasting + tune_hpa / set_resources /
+# evict_workload action tools.
+#
+# Linear-regression forecaster over the last `fitWindow` baseline
+# samples. Three horizons (5/15/60 min). When a forecast crosses a
+# danger threshold within the horizon, the scheduler publishes an
+# `infra.events.forecasted_<kind>` event into NATS; the graph then
+# handles it like any reactive event but at one severity step LOWER
+# (so OPA's matrix is more conservative for autonomous responses).
+# ---------------------------------------------------------------------------
+forecasting:
+  enabled: true
+  # How often the forecaster walks every fitted baseline. Cheap
+  # (60 samples * OLS = ~10us per fit) so 60s is fine even on a Jetson.
+  tickIntervalS: 60
+  # Samples per OLS fit. Larger window = smoother trend, slower
+  # response to a real change of regime. 60 is the sweet spot per
+  # Phase 14's runbook 011.
+  fitWindow: 60
+  # Cooldown per (metric, level) before re-publishing an alert. Stops
+  # the scheduler from firing the same forecasted_oom event every
+  # tick once a forecast has crossed the threshold.
+  dedupWindowS: 300
+  # Forecasts with R² below this are discarded (seasonal patterns +
+  # autoscaling feedback look non-linear at short horizons and would
+  # otherwise produce false alarms).
+  r2Min: 0.4
+
+# ---------------------------------------------------------------------------
+# Phase 15 — GitOps drift detection + revert_drift action.
+#
+# Polls a source-of-truth manifest set every `tickIntervalS` and
+# diffs each declared resource against live cluster state with a
+# whitelist of server- and controller-owned fields. Drift events
+# fire as `infra.events.drift.<kind>` and the graph picks them up.
+#
+# sourceType:
+#   - "manifests"  walk a directory of YAML files (v1 provider). The
+#                  chart bind-mounts a ConfigMap into /manifests by
+#                  default; override `sourceConfigMap` to point at
+#                  your own ConfigMap that holds the SoT YAML.
+#   - "none"       disable the detector entirely (no background task,
+#                  zero overhead).
+#
+# Per-manifest operator override: add the
+# `pocteo.io/drift-ignore-fields` annotation to any SoT manifest
+# with a comma-separated list of dotted paths to ignore.
+# ---------------------------------------------------------------------------
+drift:
+  sourceType: manifests
+  # Path the detector walks INSIDE the api container. The chart
+  # mounts `sourceConfigMap` here; if you'd rather use a PVC,
+  # set `sourceConfigMap: ""` and patch the api Deployment with
+  # your own volumeMount.
+  sourcePath: /manifests
+  # ConfigMap name (in the release namespace) that holds the SoT
+  # YAML. Each top-level key in the ConfigMap.data is a YAML file.
+  # Leave empty to skip the bind-mount (operator-managed PVC mode).
+  sourceConfigMap: ""
+  # Detector tick cadence (seconds). Drift accumulates slowly so
+  # sub-minute polling produces noise without catching anything
+  # the reactive layer wouldn't catch first.
+  tickIntervalS: 120
+  # Per-(kind, ns, name) cooldown between drift events for the same
+  # resource. Stops the operator from drowning in "still drifted"
+  # pings while they're fixing the SoT.
+  dedupWindowS: 600
 
 # Inbound alert sources. Each integration that POSTs alerts to the agent
 # gets its own dedicated bearer token, kept separate from the SPA's

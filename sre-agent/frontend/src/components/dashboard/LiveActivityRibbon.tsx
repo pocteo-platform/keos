@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
+import { useChannel } from "@/lib/ws";
 import {
   Activity,
   AlertTriangle,
@@ -173,17 +174,67 @@ function relativeTime(iso: string): string {
 
 export function LiveActivityRibbon() {
   const { t } = useTranslation();
-  const audit = useQuery({
-    queryKey: ["audit", "live-ribbon"],
-    queryFn: () => api.listAudit({ limit: 60 }),
-    refetchInterval: 5_000,
+  // Phase 14.7: was a 5s poll; Phase 14.11 upgrade: WS-subscribed.
+  // Initial seed comes from the REST endpoint so the ribbon is
+  // pre-populated on first render; thereafter `useChannel("audit")`
+  // streams every new audit line. The fallback poll stays at a much
+  // slower 30s so a transient WS drop still gets refreshed.
+  const seed = useQuery({
+    queryKey: ["audit", "live-ribbon-seed"],
+    queryFn: () => api.listAudit({ limit: 12 }),
+    refetchInterval: 30_000,
   });
 
-  // Newest first; cap at 12.
-  const items = useMemo(() => {
-    const arr = audit.data?.items ?? [];
-    return arr.slice().reverse().slice(0, 12);
-  }, [audit.data]);
+  // Live tail buffer — newest first, capped at 12.
+  const [tail, setTail] = useState<AuditRecord[]>([]);
+  const seededRef = useRef(false);
+
+  // Seed the tail from the REST snapshot on first arrival.
+  useEffect(() => {
+    if (seededRef.current) return;
+    if (!seed.data?.items) return;
+    seededRef.current = true;
+    setTail(seed.data.items.slice().reverse().slice(0, 12));
+  }, [seed.data]);
+
+  // WS push: prepend new records, dedupe by (ts + incident_id + event_type
+  // + hmac8) so a brief WS+REST overlap doesn't double-render.
+  useChannel("audit", (event) => {
+    const r = event as unknown as AuditRecord;
+    if (!r || !r.event_type || !r.incident_id || !r.ts) return;
+    setTail((prev) => {
+      const key = `${r.ts}-${r.incident_id}-${r.event_type}-${(r.hmac ?? "").slice(0, 8)}`;
+      const seen = new Set(
+        prev.map((p) => `${p.ts}-${p.incident_id}-${p.event_type}-${(p.hmac ?? "").slice(0, 8)}`),
+      );
+      if (seen.has(key)) return prev;
+      return [r, ...prev].slice(0, 12);
+    });
+  });
+
+  // Background poll for ribbon: when WS is down, the 30s seed
+  // refetch above ALSO re-seeds the tail with whatever's currently
+  // in the audit log. We add a small effect to merge updates without
+  // wiping locally-streamed entries.
+  useEffect(() => {
+    if (!seed.data?.items) return;
+    const incoming = seed.data.items.slice().reverse().slice(0, 12);
+    setTail((prev) => {
+      // If the WS has been silent, prev might be a stale snapshot;
+      // merge by key, prefer prev for already-seen records.
+      const byKey = new Map<string, AuditRecord>();
+      for (const r of [...incoming, ...prev]) {
+        const k = `${r.ts}-${r.incident_id}-${r.event_type}-${(r.hmac ?? "").slice(0, 8)}`;
+        if (!byKey.has(k)) byKey.set(k, r);
+      }
+      // Sort newest first.
+      return [...byKey.values()]
+        .sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))
+        .slice(0, 12);
+    });
+  }, [seed.data]);
+
+  const items = useMemo(() => tail, [tail]);
 
   return (
     <Card>
@@ -203,7 +254,7 @@ export function LiveActivityRibbon() {
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        {audit.isLoading ? (
+        {seed.isLoading && items.length === 0 ? (
           <p className="px-4 py-6 text-xs text-muted-foreground">
             {t("common.loading", { defaultValue: "Loading…" })}
           </p>
