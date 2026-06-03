@@ -336,41 +336,51 @@ export function Sidebar() {
                       )
                     }
                   >
-                    <Icon
-                      strokeWidth={showCollapsed ? 2.25 : 2}
-                      // Inline color + size as a defense-in-depth
-                      // measure: even if a Tailwind class is purged
-                      // or overridden, the icon still paints in the
-                      // theme's foreground tone at 20×20.
-                      style={
-                        showCollapsed
-                          ? { width: 20, height: 20, color: "hsl(var(--foreground))" }
-                          : undefined
-                      }
-                      className={cn(
-                        "shrink-0",
-                        showCollapsed ? "h-5 w-5" : "h-4 w-4",
-                      )}
-                    />
-                    {showCollapsed ? null : (
-                      <span className="flex-1 truncate">{label}</span>
-                    )}
-                    {showCounter ? (
-                      showCollapsed ? (
-                        <span
-                          className="absolute right-1 top-1 inline-block h-2 w-2 animate-pulse rounded-full bg-warn ring-2 ring-card"
-                          aria-label={`${activeCount} active`}
+                    {({ isActive }) => (
+                      <>
+                        <Icon
+                          strokeWidth={showCollapsed ? 2.25 : 2}
+                          // Belt-and-braces: inline w/h ensures the
+                          // icon paints at 20×20 in collapsed mode
+                          // even if a Tailwind utility gets purged.
+                          // Inline color ONLY when inactive — the
+                          // active state needs to inherit the
+                          // primary-foreground white from the parent
+                          // tile, otherwise the inline `color` wins
+                          // and the active icon stays dark on the
+                          // dark primary background (operator bug).
+                          style={
+                            showCollapsed
+                              ? {
+                                  width: 20,
+                                  height: 20,
+                                  color: isActive ? undefined : "hsl(var(--foreground))",
+                                }
+                              : undefined
+                          }
+                          className={cn("shrink-0", showCollapsed ? "h-5 w-5" : "h-4 w-4")}
                         />
-                      ) : (
-                        <span
-                          className="inline-flex items-center gap-1.5 bg-warn/15 px-1.5 py-0.5 text-[10px] font-semibold text-warn"
-                          aria-label={`${activeCount} active`}
-                        >
-                          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warn" />
-                          {activeCount}
-                        </span>
-                      )
-                    ) : null}
+                        {showCollapsed ? null : (
+                          <span className="flex-1 truncate">{label}</span>
+                        )}
+                        {showCounter ? (
+                          showCollapsed ? (
+                            <span
+                              className="absolute right-1 top-1 inline-block h-2 w-2 animate-pulse rounded-full bg-warn ring-2 ring-card"
+                              aria-label={`${activeCount} active`}
+                            />
+                          ) : (
+                            <span
+                              className="inline-flex items-center gap-1.5 bg-warn/15 px-1.5 py-0.5 text-[10px] font-semibold text-warn"
+                              aria-label={`${activeCount} active`}
+                            >
+                              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warn" />
+                              {activeCount}
+                            </span>
+                          )
+                        ) : null}
+                      </>
+                    )}
                   </NavLink>
                 );
               })}
