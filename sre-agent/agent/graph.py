@@ -290,13 +290,17 @@ def node_k8sgpt_analyze(state: IncidentState) -> dict[str, Any]:
 
 
 def node_enrich_with_baselines(state: IncidentState) -> dict[str, Any]:
-    """Phase 13 — attach per-pod metric baselines for the diagnose LLM.
+    """Phase 13 + 14 — attach per-pod metric baselines AND forecasts.
 
     Reads `state["namespace"]` + `state["pod"]`, asks the baselines
-    store for the top-N most-interesting snapshots, returns them under
-    `baselines`. Wide try/except: a baseline store failure must NEVER
-    block the graph. Fail-OPEN-but-empty — diagnose still runs without
-    the snapshots, same pattern as `k8sgpt_analyze`.
+    store for the top-N most-interesting snapshots, then (Phase 14)
+    runs a linear-regression forecast over recent samples for each
+    anomalous snapshot. The forecast's t+5/15/60min projections + r²
+    land on the snapshot dict so the diagnose prompt can render them
+    alongside the σ-above-baseline context.
+
+    Wide try/except at every layer — a baseline-store or forecaster
+    failure must NEVER block the graph. Fail-OPEN-but-empty.
     """
     ns = state.get("namespace") or ""
     pod = state.get("pod") or ""
@@ -305,7 +309,50 @@ def node_enrich_with_baselines(state: IncidentState) -> dict[str, Any]:
         try:
             from agent.baselines import snapshot_for_pod
 
-            snapshots = [s.to_dict() for s in snapshot_for_pod(ns, pod)]
+            snap_objs = snapshot_for_pod(ns, pod)
+            snapshots = [s.to_dict() for s in snap_objs]
+            # Phase 14 — attach a forecast to each baseline snapshot
+            # so the diagnose prompt sees "current 838 MiB, baseline
+            # 412 ± 18 MiB, +23σ now, forecast t+5min would land at
+            # 980 MiB (r²=0.94)". Skipped for `learning` / `missing`
+            # status (no baseline to compare against).
+            try:
+                from agent.baselines import get_default_store
+                from agent.baselines.store import MetricKey
+                from agent.forecasting import decide, fit_linear
+
+                store = get_default_store()
+                for snap in snapshots:
+                    if snap.get("status") != "ok":
+                        continue
+                    key = MetricKey(
+                        metric=snap["metric"],
+                        namespace=snap["namespace"],
+                        scope=snap["scope"],
+                    )
+                    # 60 samples = the same window the forecaster scheduler
+                    # uses, so the diagnose-time forecast matches whatever
+                    # the operator may already have seen as an event.
+                    recent = store.recent_samples(key, limit=60)
+                    forecast = fit_linear([(s.ts, s.value) for s in recent])
+                    if forecast is None:
+                        continue
+                    decision = decide(
+                        forecast,
+                        mean=float(snap.get("mean") or 0.0),
+                        std=float(snap.get("std") or 0.0),
+                    )
+                    snap["forecast"] = {
+                        "slope_per_s": forecast.slope_per_s,
+                        "r2": forecast.r2,
+                        "t5_min": forecast.t5_min,
+                        "t15_min": forecast.t15_min,
+                        "t60_min": forecast.t60_min,
+                        "level": decision.level,
+                        "sigma_above": decision.sigma_above,
+                    }
+            except Exception as exc:  # noqa: BLE001
+                log.debug("forecast enrichment failed (%s); continuing", exc)
         except Exception as exc:  # noqa: BLE001
             log.warning("enrich_with_baselines raised %s; continuing empty", exc)
             snapshots = []

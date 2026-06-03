@@ -327,10 +327,40 @@ def _fmt_baseline_value(v: float | None) -> str:
     return f"{v:.4f}"
 
 
+def _fmt_forecast_suffix(forecast: dict[str, Any] | None) -> str:
+    """Render the Phase-14 forecast bit appended to a baseline line.
+
+    Returns empty string when forecast is missing or low-quality (the
+    `decide()` classifier returned "safe" / "watch") — the prompt only
+    highlights climbs the LLM should actually weight, so cold-start
+    clusters and noisy stationary metrics don't bloat the diagnose
+    input."""
+    if not forecast:
+        return ""
+    level = forecast.get("level", "safe")
+    if level not in ("warning", "critical"):
+        return ""
+    t5 = forecast.get("t5_min")
+    r2 = forecast.get("r2")
+    if t5 is None or r2 is None:
+        return ""
+    return (
+        f"\n    forecast: t+5min → {_fmt_baseline_value(float(t5))} "
+        f"(level={level}, r²={float(r2):.2f}, "
+        f"slope/s={forecast.get('slope_per_s', 0.0):+.4g})"
+    )
+
+
 def _render_baselines_block(snapshots: list[dict[str, Any]] | None) -> str:
     """Build the "=== METRIC BASELINES ===" block injected into the
     diagnose user prompt. Returns empty string when the input is
-    empty so the prompt stays compact on cold-start clusters."""
+    empty so the prompt stays compact on cold-start clusters.
+
+    Phase 14 — each `ok` snapshot may carry a `forecast` sub-dict
+    (set by `node_enrich_with_baselines`). When the forecast's
+    danger level is `warning` or `critical`, we append a second
+    line citing the t+5min projection so the LLM sees the trend
+    alongside the current σ-above-baseline."""
     if not snapshots:
         return ""
     lines: list[str] = []
@@ -347,10 +377,12 @@ def _render_baselines_block(snapshots: list[dict[str, Any]] | None) -> str:
             seasonal_part = (
                 f", seasonal Δ {_fmt_baseline_value(residual)}" if residual is not None else ""
             )
-            lines.append(
+            line = (
                 f"- {metric}: current {current}, baseline {mean} ± {std} "
                 f"({sigma_part} above{seasonal_part}, n={s.get('n_samples', 0)})"
             )
+            line += _fmt_forecast_suffix(s.get("forecast"))
+            lines.append(line)
         elif status == "learning":
             lines.append(
                 f"- {metric}: current {current}, baseline still learning (insufficient history)"
