@@ -5,6 +5,7 @@ import { useWsLifecycle } from "@/lib/ws";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
 import { LiveTailBanner } from "@/components/layout/LiveTailBanner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import LoginPage from "@/routes/login";
 
 const DashboardPage = lazy(() => import("@/routes/dashboard"));
@@ -35,14 +36,15 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar />
-        <LiveTailBanner />
-        <main className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
-          <Suspense fallback={<p className="text-sm text-muted-foreground">…</p>}>
-            <Routes>
+    <TooltipProvider delayDuration={200}>
+      <div className="flex h-screen w-screen overflow-hidden">
+        <Sidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopBar />
+          <LiveTailBanner />
+          <main className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
+            <Suspense fallback={<p className="text-sm text-muted-foreground">…</p>}>
+              <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/cluster" element={<ClusterPage />} />
@@ -66,11 +68,12 @@ export default function App() {
                 path="/calibration"
                 element={<Navigate to="/settings?tab=calibration" replace />}
               />
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
-          </Suspense>
-        </main>
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </Suspense>
+          </main>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }
