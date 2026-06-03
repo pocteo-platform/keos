@@ -141,6 +141,42 @@ baseline_enrich_sigma_above = Histogram(
 
 
 # ---------------------------------------------------------------------------
+# Forecasting — Phase 14. The proactive half of the loop. These let
+# dashboards answer "is the scheduler running?" + "is it actually
+# catching predicted breaches before the reactive event fires?".
+# ---------------------------------------------------------------------------
+
+forecast_events_total = Counter(
+    "keos_forecast_events_total",
+    "Forecasted incident events published to NATS, labelled by metric "
+    "(memory / cpu / fs / restarts / …) and danger level. A flat counter "
+    "in the presence of a known load ramp means the forecaster is "
+    "missing the signal — tune Z_TRIGGER_FORECAST.",
+    labelnames=("metric", "level"),  # level ∈ {warning, critical}
+    registry=REGISTRY,
+)
+
+forecast_sigma_above = Histogram(
+    "keos_forecast_sigma_above",
+    "Per-event σ-above-baseline at the 5-min horizon. Distribution helps "
+    "tune the alert threshold — if p50 = 7σ the threshold is too loose; "
+    "if p50 = 25σ it's too tight.",
+    buckets=(2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 25.0, 50.0),
+    registry=REGISTRY,
+)
+
+forecast_r2 = Histogram(
+    "keos_forecast_r2",
+    "Per-event R² of the linear fit. A persistent left-shift toward "
+    "R² ≈ 0.5 means the linear model is fighting non-linear behaviour "
+    "(e.g., load spikes, exponential growth). Tracking this is the "
+    "input signal for moving to Holt-Winters in a later phase.",
+    buckets=(0.35, 0.5, 0.65, 0.8, 0.9, 0.95, 0.99),
+    registry=REGISTRY,
+)
+
+
+# ---------------------------------------------------------------------------
 # Policy + safety mesh counters.
 # ---------------------------------------------------------------------------
 
@@ -246,6 +282,9 @@ __all__ = [
     "baseline_samples_total",
     "baseline_keys_known",
     "baseline_enrich_sigma_above",
+    "forecast_events_total",
+    "forecast_sigma_above",
+    "forecast_r2",
     "policy_decisions_total",
     "escalations_total",
     "pending_approvals",

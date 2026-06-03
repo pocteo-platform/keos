@@ -348,8 +348,20 @@ async def _async_main(host: str, port: int) -> None:
             await _baseline_learner.start()
         except Exception as exc:  # noqa: BLE001
             log.warning("baselines: learner failed to start (%s); continuing", exc)
+
+        # Phase 14 — forecast scheduler. Runs only when the baseline
+        # learner is enabled (it needs the fitted baselines as input).
+        # Same try/except shape — a forecast failure must never break
+        # the rest of the agent.
+        try:
+            from agent.forecasting import scheduler_from_env
+
+            _forecast_scheduler = scheduler_from_env()
+            await _forecast_scheduler.start()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("forecasting: scheduler failed to start (%s); continuing", exc)
     else:
-        log.info("baselines: PROMETHEUS_URL empty — learner disabled")
+        log.info("baselines: PROMETHEUS_URL empty — learner + forecaster disabled")
 
     await asyncio.gather(
         _serve(host, port),
