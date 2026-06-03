@@ -9,8 +9,12 @@
 // React side: components call `useChannel("pipeline.<id>", handler)` to
 // auto-subscribe-then-cleanup on unmount.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "./store";
+
+/** Connection states the UI cares about. */
+export type WsStatus = "connecting" | "open" | "closed";
+type StatusListener = (s: WsStatus) => void;
 
 type ChannelEvent = { channel: string; event: Record<string, unknown> };
 type Handler = (event: Record<string, unknown>) => void;
@@ -23,10 +27,31 @@ class WsClient {
   private reconnectMs = 1000;
   private intentionalClose = false;
   private pingTimer: number | null = null;
+  private status: WsStatus = "closed";
+  private statusListeners = new Set<StatusListener>();
+
+  onStatus(listener: StatusListener): () => void {
+    this.statusListeners.add(listener);
+    // Push current state immediately so subscribers don't render "closed"
+    // by default when we're actually already open.
+    listener(this.status);
+    return () => this.statusListeners.delete(listener);
+  }
+
+  getStatus(): WsStatus {
+    return this.status;
+  }
+
+  private _setStatus(s: WsStatus) {
+    if (this.status === s) return;
+    this.status = s;
+    for (const l of this.statusListeners) l(s);
+  }
 
   connect(token: string) {
     if (this.ws && this.ws.readyState <= 1) return;
     this.intentionalClose = false;
+    this._setStatus("connecting");
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
     this.url = `${proto}//${host}/ws/events?token=${encodeURIComponent(token)}`;
@@ -34,10 +59,12 @@ class WsClient {
       this.ws = new WebSocket(this.url);
     } catch (err) {
       console.warn("ws constructor failed", err);
+      this._setStatus("closed");
       return;
     }
     this.ws.addEventListener("open", () => {
       this.reconnectMs = 1000;
+      this._setStatus("open");
       // Resubscribe to anything that was active before the disconnect.
       if (this.active.size) this._send({ op: "subscribe", channels: [...this.active] });
       this.pingTimer = window.setInterval(() => this._send({ op: "ping" }), 30000);
@@ -62,7 +89,12 @@ class WsClient {
         clearInterval(this.pingTimer);
         this.pingTimer = null;
       }
-      if (this.intentionalClose) return;
+      if (this.intentionalClose) {
+        this._setStatus("closed");
+        return;
+      }
+      // Reconnecting after an unexpected close — UI shows "connecting".
+      this._setStatus("connecting");
       const backoff = Math.min(this.reconnectMs, 30000);
       window.setTimeout(() => this.connect(token), backoff);
       this.reconnectMs = Math.min(this.reconnectMs * 2, 30000);
@@ -74,6 +106,7 @@ class WsClient {
 
   disconnect() {
     this.intentionalClose = true;
+    this._setStatus("closed");
     try {
       this.ws?.close();
     } catch {
@@ -128,6 +161,13 @@ export function useWsLifecycle() {
     if (token) wsClient.connect(token);
     else wsClient.disconnect();
   }, [token]);
+}
+
+/** Reactive view of the WebSocket connection state. */
+export function useWsStatus(): WsStatus {
+  const [status, setStatus] = useState<WsStatus>(wsClient.getStatus());
+  useEffect(() => wsClient.onStatus(setStatus), []);
+  return status;
 }
 
 /** Subscribe to a channel for the lifetime of the calling component. */

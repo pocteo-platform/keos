@@ -16,13 +16,33 @@
   "topbar": {
     "language": "Language",
     "theme": "Theme",
+    "themeLight": "Switch to light theme",
+    "themeDark": "Switch to dark theme",
     "logout": "Sign out",
     "tokenOk": "Token OK",
     "tokenMissing": "No token",
     "live": "Live",
     "openMenu": "Open menu",
-    "closeMenu": "Close menu"
+    "closeMenu": "Close menu",
+    "apiOk": "API",
+    "apiDown": "API down",
+    "apiHealthTooltip": "API healthy · WebSocket bridge for live events",
+    "apiDownTooltip": "API unreachable. The agent's REST surface isn't responding.",
+    "modeTooltip": "Agent mode · click to manage"
   },
+  "sidebar": {
+    "section": {
+      "overview": "Overview",
+      "operate": "Operate",
+      "learn": "Learn"
+    },
+    "modeLabel": "Agent mode",
+    "expand": "Expand sidebar",
+    "collapse": "Collapse sidebar",
+    "activeIncidents_one": "{{count}} active incident",
+    "activeIncidents_other": "{{count}} active incidents"
+  },
+  "pipeline.live": "Live",
   "modes": {
     "observe-only": "Observe-only",
     "active": "Active",

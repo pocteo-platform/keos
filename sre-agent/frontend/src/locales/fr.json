@@ -16,13 +16,33 @@
   "topbar": {
     "language": "Langue",
     "theme": "Thème",
+    "themeLight": "Passer au thème clair",
+    "themeDark": "Passer au thème sombre",
     "logout": "Déconnexion",
     "tokenOk": "Jeton OK",
     "tokenMissing": "Jeton manquant",
     "live": "En direct",
     "openMenu": "Ouvrir le menu",
-    "closeMenu": "Fermer le menu"
+    "closeMenu": "Fermer le menu",
+    "apiOk": "API",
+    "apiDown": "API K.-O.",
+    "apiHealthTooltip": "API en bonne santé · WebSocket pour les événements live",
+    "apiDownTooltip": "API injoignable. La surface REST de l'agent ne répond pas.",
+    "modeTooltip": "Mode de l'agent · cliquer pour gérer"
   },
+  "sidebar": {
+    "section": {
+      "overview": "Vue d'ensemble",
+      "operate": "Opérer",
+      "learn": "Apprendre"
+    },
+    "modeLabel": "Mode de l'agent",
+    "expand": "Déplier la barre latérale",
+    "collapse": "Replier la barre latérale",
+    "activeIncidents_one": "{{count}} incident actif",
+    "activeIncidents_other": "{{count}} incidents actifs"
+  },
+  "pipeline.live": "En direct",
   "modes": {
     "observe-only": "Observation seule",
     "active": "Actif",
