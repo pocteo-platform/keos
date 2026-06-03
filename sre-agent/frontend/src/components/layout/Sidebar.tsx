@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   Boxes,
@@ -21,6 +22,7 @@ import {
   TAGLINE_FR,
 } from "@/lib/branding";
 import { useApp } from "@/lib/store";
+import { api } from "@/lib/api";
 
 const items = [
   // Phase 14.6 — operator-flow ordering. Dashboard (start) →
@@ -45,6 +47,17 @@ export function Sidebar() {
   const setMobileNavOpen = useApp((s) => s.setMobileNavOpen);
   const location = useLocation();
   const tagline = locale === "fr" ? TAGLINE_FR : TAGLINE_EN;
+
+  // Phase 14.9 — live active-incidents counter on the Incidents nav
+  // item. Polls every 4 s; renders a pulsing red dot + count badge so
+  // the operator sees motion across the cluster without leaving the
+  // current page.
+  const activeQ = useQuery({
+    queryKey: ["active-incidents"],
+    queryFn: api.listActiveIncidents,
+    refetchInterval: 4_000,
+  });
+  const activeCount = activeQ.data?.length ?? 0;
 
   // Close the mobile drawer on route change so navigating doesn't leave it
   // stuck open over the new page.
@@ -134,23 +147,39 @@ export function Sidebar() {
             in globals.css pin --primary to brand-deep; `hover:bg-primary`
             with /90 alpha lands near brand-navy automatically. */}
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
-          {items.map(({ to, icon: Icon, key }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                cn(
-                  "group flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
-                )
-              }
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              <span className="truncate">{t(key)}</span>
-            </NavLink>
-          ))}
+          {items.map(({ to, icon: Icon, key }) => {
+            // Sidebar badge: only the Incidents link gets the live count.
+            const showCounter = to === "/incidents" && activeCount > 0;
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  cn(
+                    "group flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
+                  )
+                }
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="flex-1 truncate">{t(key)}</span>
+                {showCounter ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 bg-warn/15 px-1.5 py-0.5 text-[10px] font-semibold text-warn"
+                    aria-label={t("sidebar.activeIncidents", {
+                      count: activeCount,
+                      defaultValue: `${activeCount} active`,
+                    })}
+                  >
+                    <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warn" />
+                    {activeCount}
+                  </span>
+                ) : null}
+              </NavLink>
+            );
+          })}
         </nav>
 
         {/* ─── Footer attribution ─────────────────────────────────

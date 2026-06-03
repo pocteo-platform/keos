@@ -720,6 +720,10 @@
       "title": "Active incidents",
       "empty": "No incidents in flight — the agent is idle."
     },
+    "activity": {
+      "title": "Live agent activity",
+      "empty": "Quiet on the cluster. Run a use case to see the agent in action."
+    },
     "recent": {
       "title": "Recent outcomes",
       "empty": "No incidents recorded yet."

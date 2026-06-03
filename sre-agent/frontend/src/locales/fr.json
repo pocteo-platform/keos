@@ -732,6 +732,10 @@
       "title": "Incidents actifs",
       "empty": "Aucun incident en vol — l'agent est au repos."
     },
+    "activity": {
+      "title": "Activité de l'agent en direct",
+      "empty": "Tout est calme. Lancez un cas d'usage pour voir l'agent en action."
+    },
     "recent": {
       "title": "Résultats récents",
       "empty": "Aucun incident enregistré."
