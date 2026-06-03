@@ -48,7 +48,7 @@ dev = [
     # (Python 3.11 + 3.12, FastAPI 0.136, Pydantic 2.11). Bumping either
     # is fine — they're advisory, not gating, in CI today (10.7 tightens).
     "ruff>=0.8.0,<1",
-    "mypy>=1.13,<2",
+    "mypy>=1.13,<3",
 ]
 
 [tool.pytest.ini_options]
