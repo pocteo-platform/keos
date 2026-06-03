@@ -201,6 +201,39 @@ def test_upsert_fit_round_trips(store: BaselineStore) -> None:
     assert loaded.std == pytest.approx(2.5)
 
 
+def test_tick_once_does_not_prune_freshly_inserted_samples(store: BaselineStore) -> None:
+    """Regression guard: `tick_once`'s first cycle hits BOTH the
+    insert branch AND the fit/prune branch (because `_last_fit_at = 0`).
+    Samples inserted on that tick MUST survive the immediate prune.
+    Before this guard, a sample dated >14 days ago — including any
+    naturally old chunk of an `BASELINE_EXTRA_QUERIES_JSON` series —
+    was silently deleted on the same tick that wrote it."""
+    import asyncio as _asyncio
+
+    from agent.baselines.learner import Learner
+
+    learner = Learner(prometheus_url="http://prometheus:9090", store=store)
+
+    fresh = time.time()
+    canned = [
+        Sample(
+            key=MetricKey("m", "ns", "pod"),
+            ts=fresh,
+            value=1.0,
+        ),
+    ]
+
+    async def _stub() -> list[Sample]:
+        return canned
+
+    learner._scrape_all = _stub  # type: ignore[assignment]
+    _asyncio.run(learner.tick_once())
+    assert store.count_samples() == 1, (
+        "freshly-inserted sample lost — prune_older_than may be evicting "
+        "what insert_samples just wrote"
+    )
+
+
 def test_prune_older_than_drops_old_rows(store: BaselineStore) -> None:
     key = MetricKey("m", "ns", "pod")
     now = time.time()
@@ -531,6 +564,108 @@ def test_learner_class_exposes_refit_method() -> None:
         "_refit_all must be a Learner method; otherwise tick_once's "
         "fit branch silently fails on every cycle"
     )
+
+
+def test_proxy_target_parses_simple_url() -> None:
+    from agent.baselines.k8s_proxy import ProxyTarget
+
+    t = ProxyTarget.from_url("k8s-proxy://monitoring/prometheus:9090")
+    assert t.namespace == "monitoring"
+    assert t.service == "prometheus"
+    assert t.port == 9090
+
+
+def test_proxy_target_defaults_port_when_missing() -> None:
+    from agent.baselines.k8s_proxy import ProxyTarget
+
+    t = ProxyTarget.from_url("k8s-proxy://monitoring/prometheus")
+    assert t.port == 9090
+
+
+def test_proxy_target_rejects_non_proxy_url() -> None:
+    from agent.baselines.k8s_proxy import ProxyTarget
+
+    with pytest.raises(ValueError, match="not a k8s-proxy URL"):
+        ProxyTarget.from_url("http://prometheus:9090")
+
+
+def test_proxy_target_rejects_missing_service() -> None:
+    from agent.baselines.k8s_proxy import ProxyTarget
+
+    with pytest.raises(ValueError, match="missing namespace/service"):
+        ProxyTarget.from_url("k8s-proxy://monitoring")
+
+
+def test_proxy_target_rejects_invalid_port() -> None:
+    from agent.baselines.k8s_proxy import ProxyTarget
+
+    with pytest.raises(ValueError, match="invalid port"):
+        ProxyTarget.from_url("k8s-proxy://monitoring/prometheus:abc")
+
+
+def test_learner_selects_proxy_client_for_k8s_proxy_url(store: BaselineStore) -> None:
+    """`PROMETHEUS_URL=k8s-proxy://...` swaps the learner to the
+    apiserver-proxy path. We don't need a live cluster here — just
+    assert the proxy client got constructed instead of the httpx one."""
+    from agent.baselines.learner import Learner
+
+    learner = Learner(
+        prometheus_url="k8s-proxy://monitoring/prometheus:9090",
+        store=store,
+    )
+    assert learner._proxy_client is not None
+    assert learner._proxy_client.target.namespace == "monitoring"
+    assert learner._proxy_client.target.service == "prometheus"
+    assert learner._proxy_client.target.port == 9090
+
+
+def test_learner_uses_httpx_for_plain_http_url(store: BaselineStore) -> None:
+    """Direct-Prometheus mode stays unchanged when the URL doesn't
+    carry the `k8s-proxy://` scheme."""
+    from agent.baselines.learner import Learner
+
+    learner = Learner(prometheus_url="http://prometheus:9090", store=store)
+    assert learner._proxy_client is None
+
+
+@pytest.mark.asyncio
+async def test_learner_proxy_path_persists_samples(store: BaselineStore) -> None:
+    """Drive the proxy path end-to-end by replacing the proxy
+    client's `query_async` with a canned response — same shape the
+    real apiserver-proxy returns. Confirms `_scrape_via_proxy` walks
+    every query and persists what `parse_prom_response` extracts."""
+    from agent.baselines.learner import Learner, Query
+
+    learner = Learner(
+        prometheus_url="k8s-proxy://monitoring/prometheus:9090",
+        store=store,
+        queries=(Query(metric="container_memory_rss_bytes", promql="ignored"),),
+    )
+
+    now = time.time()
+
+    async def _canned(promql: str) -> dict:
+        # Use a current timestamp — tick_once's first fit pass calls
+        # prune_older_than(14d), and a 2023-era ts gets evicted before
+        # the assertion runs.
+        return {
+            "status": "success",
+            "data": {
+                "result": [
+                    {
+                        "metric": {"namespace": "workloads", "pod": "nginx-demo-1"},
+                        "value": [now, "98765.0"],
+                    }
+                ]
+            },
+        }
+
+    assert learner._proxy_client is not None
+    learner._proxy_client.query_async = _canned  # type: ignore[method-assign]
+    inserted = await learner.tick_once()
+    assert inserted == 1
+    keys = store.list_keys()
+    assert MetricKey("container_memory_rss_bytes", "workloads", "nginx-demo-1") in keys
 
 
 def test_docker_profile_targets_name_label() -> None:
