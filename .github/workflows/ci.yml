@@ -195,6 +195,22 @@ jobs:
       - run: opa fmt --diff policies/
       - run: opa check policies/
 
+  backup-restore-drill:
+    # Phase 14.11 — exercises every persisted-state file in the agent's
+    # backup envelope (audit chain, calibration DB, baselines DB,
+    # use cases JSON, incidents, traces). The drill seeds → tars →
+    # wipes → restores → verifies that every artifact round-trips.
+    # This is the V1 acceptance criterion for Phase 10.4 that was
+    # documented in BACKUP_RESTORE.md but never automated.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --extra dev || uv sync --extra dev
+      - run: uv run python scripts/backup_restore_drill.py
+
   docker-build:
     # Build the three images on PR (no push) to catch Dockerfile breakage
     # early. Real multi-arch + signed push happens in release.yml.
