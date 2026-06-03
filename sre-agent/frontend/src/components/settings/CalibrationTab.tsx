@@ -16,6 +16,7 @@ import {
   ArrowUpDown,
   ChevronUp,
   ChevronDown,
+  RotateCcw,
   Search,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -336,6 +337,29 @@ function RuleRow({ rule }: { rule: CalibrationRule }) {
           >
             {t("settings.calibration.pin", { defaultValue: "Pin" })}
           </Button>
+          {/* Reset button — only visible when an operator override
+              is in effect. Clears it (back to learned/global) and
+              empties the input so the source label flips next render. */}
+          {rule.threshold_override !== null ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-1.5 text-muted-foreground hover:text-danger"
+              title={t("settings.calibration.reset", {
+                defaultValue: "Reset to learned threshold",
+              })}
+              onClick={() => {
+                setPending("");
+                setMut.mutate(null);
+              }}
+              disabled={setMut.isPending}
+              aria-label={t("settings.calibration.reset", {
+                defaultValue: "Reset to learned threshold",
+              })}
+            >
+              <RotateCcw className="h-3 w-3" />
+            </Button>
+          ) : null}
         </div>
       </td>
     </tr>

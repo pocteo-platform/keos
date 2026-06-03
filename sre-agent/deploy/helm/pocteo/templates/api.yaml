@@ -123,6 +123,57 @@ spec:
               value: {{ .Values.retention.traceDays | quote }}
             - name: RETENTION_SWEEP_INTERVAL_S
               value: {{ .Values.retention.sweepIntervalS | quote }}
+            # ---- Phase 12 — calibration ---------------------------
+            {{- if .Values.calibration.enabled }}
+            - name: KEOS_CALIBRATION_ENABLED
+              value: "1"
+            - name: CALIBRATION_DB_PATH
+              value: {{ .Values.calibration.dbPath | quote }}
+            - name: CALIBRATION_MIN_SAMPLES
+              value: {{ .Values.calibration.minSamples | quote }}
+            {{- else }}
+            - name: KEOS_CALIBRATION_ENABLED
+              value: "0"
+            {{- end }}
+            # ---- Phase 13 — ML baselines --------------------------
+            - name: PROMETHEUS_URL
+              value: {{ .Values.baselines.prometheusUrl | quote }}
+            - name: BASELINE_SCRAPE_INTERVAL_S
+              value: {{ .Values.baselines.scrapeIntervalS | quote }}
+            - name: BASELINE_FIT_INTERVAL_S
+              value: {{ .Values.baselines.fitIntervalS | quote }}
+            - name: BASELINE_QUERY_PROFILE
+              value: {{ .Values.baselines.queryProfile | quote }}
+            - name: BASELINE_MIN_SAMPLES
+              value: {{ .Values.baselines.minSamples | quote }}
+            - name: BASELINES_DB_PATH
+              value: {{ .Values.baselines.dbPath | quote }}
+            # ---- Phase 14 — predictive forecasting ----------------
+            {{- if .Values.forecasting.enabled }}
+            - name: FORECAST_ENABLED
+              value: "1"
+            - name: FORECAST_TICK_INTERVAL_S
+              value: {{ .Values.forecasting.tickIntervalS | quote }}
+            - name: FORECAST_FIT_WINDOW
+              value: {{ .Values.forecasting.fitWindow | quote }}
+            - name: FORECAST_DEDUP_WINDOW_S
+              value: {{ .Values.forecasting.dedupWindowS | quote }}
+            - name: FORECAST_R2_MIN
+              value: {{ .Values.forecasting.r2Min | quote }}
+            {{- else }}
+            - name: FORECAST_ENABLED
+              value: "0"
+            {{- end }}
+            # ---- Phase 15 — GitOps drift detection ----------------
+            - name: DRIFT_SOURCE_TYPE
+              value: {{ .Values.drift.sourceType | quote }}
+            - name: DRIFT_SOURCE_PATH
+              value: {{ .Values.drift.sourcePath | quote }}
+            - name: DRIFT_TICK_INTERVAL_S
+              value: {{ .Values.drift.tickIntervalS | quote }}
+            - name: DRIFT_DEDUP_WINDOW_S
+              value: {{ .Values.drift.dedupWindowS | quote }}
+            # -------------------------------------------------------
             # Token file lets the SHP_API_TOKEN live in a K8s Secret
             # projected-volume mount, so `kubectl edit secret` rotates it
             # without re-rolling the Deployment.
@@ -145,6 +196,14 @@ spec:
             - name: api-token
               mountPath: /secrets
               readOnly: true
+            {{- if and (eq .Values.drift.sourceType "manifests") .Values.drift.sourceConfigMap }}
+            # Phase 15 — GitOps source-of-truth manifests. The
+            # ConfigMap holds one key per YAML file; each key is
+            # exposed at /manifests/<key>.
+            - name: drift-manifests
+              mountPath: {{ .Values.drift.sourcePath }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: audit
           emptyDir: {}
@@ -161,3 +220,8 @@ spec:
               - key: SHP_API_TOKEN
                 path: api-token
             defaultMode: 0400
+        {{- if and (eq .Values.drift.sourceType "manifests") .Values.drift.sourceConfigMap }}
+        - name: drift-manifests
+          configMap:
+            name: {{ .Values.drift.sourceConfigMap }}
+        {{- end }}

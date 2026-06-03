@@ -545,6 +545,155 @@ def test_revert_drift_refuses_kind_name_mismatch(tmp_path: Path) -> None:
     assert "does not match" in (result.error or "")
 
 
+# ─── revert_drift happy path (apply succeeds) ────────────────────────────
+
+
+def test_revert_drift_happy_path_invokes_kubectl_apply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the SoT manifest matches the requested target, the tool
+    should invoke `kubectl apply -f <tmp>` with the single-doc JSON
+    payload and return success."""
+    import json
+    from agent import tools as tools_mod
+
+    # Write a single-doc SoT manifest matching what we'll request.
+    text = (
+        "apiVersion: apps/v1\n"
+        "kind: Deployment\n"
+        "metadata:\n"
+        "  name: nginx-demo\n"
+        "  namespace: workloads\n"
+        "spec:\n"
+        "  replicas: 3\n"
+    )
+    path = tmp_path / "d.yaml"
+    path.write_text(text, encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_kubectl(args: list[str]) -> tuple[int, str, str]:
+        # Capture the temp file path the tool wrote, parse + verify
+        # only the matching doc was extracted.
+        captured["args"] = args
+        assert args[0] == "apply"
+        assert args[1] == "-f"
+        with open(args[2], encoding="utf-8") as fh:
+            captured["body"] = json.load(fh)
+        return (0, "deployment.apps/nginx-demo configured\n", "")
+
+    monkeypatch.setattr(tools_mod, "_kubectl", fake_kubectl)
+
+    result = revert_drift(
+        kind="Deployment",
+        namespace="workloads",
+        name="nginx-demo",
+        sot_source=str(path),
+        dry_run=False,
+    )
+    assert result.success
+    assert "configured" in result.stdout
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["kind"] == "Deployment"
+    assert body["metadata"]["name"] == "nginx-demo"
+    assert body["spec"]["replicas"] == 3
+    # Temp file should be cleaned up after the apply.
+    assert not Path(str(captured["args"][2])).exists()  # type: ignore[index]
+
+
+def test_revert_drift_picks_correct_doc_from_multi_doc_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Multi-doc YAML file → only the doc at the requested index is
+    passed to kubectl, NOT the whole file. Otherwise re-applying
+    would blast every drifted resource in the bundle at once."""
+    import json
+    from agent import tools as tools_mod
+
+    text = (
+        "apiVersion: v1\n"
+        "kind: ConfigMap\n"
+        "metadata:\n"
+        "  name: other-cm\n"
+        "  namespace: workloads\n"
+        "data:\n"
+        "  k: v\n"
+        "---\n"
+        "apiVersion: apps/v1\n"
+        "kind: Deployment\n"
+        "metadata:\n"
+        "  name: target-deploy\n"
+        "  namespace: workloads\n"
+        "spec:\n"
+        "  replicas: 2\n"
+    )
+    path = tmp_path / "multi.yaml"
+    path.write_text(text, encoding="utf-8")
+
+    captured_body: dict[str, object] = {}
+
+    def fake_kubectl(args: list[str]) -> tuple[int, str, str]:
+        with open(args[2], encoding="utf-8") as fh:
+            captured_body.update(json.load(fh))
+        return (0, "deployment.apps/target-deploy configured\n", "")
+
+    monkeypatch.setattr(tools_mod, "_kubectl", fake_kubectl)
+
+    result = revert_drift(
+        kind="Deployment",
+        namespace="workloads",
+        name="target-deploy",
+        sot_source=f"{path}#1",
+        dry_run=False,
+    )
+    assert result.success
+    assert captured_body["kind"] == "Deployment"
+    assert captured_body["metadata"]["name"] == "target-deploy"  # type: ignore[index]
+
+
+def test_revert_drift_surfaces_kubectl_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When kubectl returns non-zero, the tool must report success=False
+    and propagate stderr — operator UI shows this in the action result."""
+    from agent import tools as tools_mod
+
+    text = (
+        "apiVersion: apps/v1\n"
+        "kind: Deployment\n"
+        "metadata: { name: x, namespace: workloads }\n"
+        "spec: { replicas: 1 }\n"
+    )
+    path = tmp_path / "x.yaml"
+    path.write_text(text, encoding="utf-8")
+
+    def fake_kubectl(_args: list[str]) -> tuple[int, str, str]:
+        return (1, "", "error: namespaces 'workloads' not found")
+
+    monkeypatch.setattr(tools_mod, "_kubectl", fake_kubectl)
+    result = revert_drift(
+        kind="Deployment", namespace="workloads", name="x", sot_source=str(path)
+    )
+    assert not result.success
+    assert "kubectl exit 1" in (result.error or "")
+    assert "namespaces 'workloads' not found" in (result.stderr or "")
+
+
+def test_revert_drift_handles_unparseable_yaml(
+    tmp_path: Path,
+) -> None:
+    """A corrupted SoT file shouldn't crash the tool; it should return
+    a clear error so the agent can escalate."""
+    path = tmp_path / "bad.yaml"
+    path.write_text("not: : : valid: yaml: :", encoding="utf-8")
+    result = revert_drift(
+        kind="Deployment", namespace="workloads", name="x", sot_source=str(path)
+    )
+    assert not result.success
+    assert "cannot parse" in (result.error or "")
+
+
 # ─── Severity priority map ───────────────────────────────────────────────
 
 
