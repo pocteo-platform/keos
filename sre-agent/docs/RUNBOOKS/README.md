@@ -88,6 +88,7 @@ signal to file a PR — the runbook should match reality.
 | [qdrant-corruption.md](qdrant-corruption.md) | RAG hits empty; `keos_chaos_observer_errors_total` clean but agent escalates with `not_healed` repeatedly | ~5 min |
 | [audit-tampering.md](audit-tampering.md) | `verify_audit_log()` reports non-zero `indices_of_invalid` | ~30 min (forensic) |
 | [runaway-graph.md](runaway-graph.md) | Same incident escalates 5+ times in 30 min | ~10 min |
+| [drift-storm.md](drift-storm.md) | Phase 15 detector firing 100+ events in 5 min; Reliability page's GitOps drift tile in the dozens | ~10 min |
 | [upgrading.md](upgrading.md) | About to `helm upgrade` to a new version | ~15 min (incl. drill) |
 | [disaster-recovery.md](disaster-recovery.md) | The cluster / PVCs are gone, restore from backup | ~30 min |
 | [incident-response-agent.md](incident-response-agent.md) | The agent itself took a destructive action you didn't expect | ~5 min (containment); hours (postmortem) |
