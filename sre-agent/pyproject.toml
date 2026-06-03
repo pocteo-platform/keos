@@ -35,7 +35,7 @@ dev = [
     "pytest==8.3.3",
     "pytest-asyncio==0.24.0",
     "respx==0.21.1",
-    "pytest-cov==5.0.0",
+    "pytest-cov==7.1.0",
 ]
 
 [dependency-groups]
@@ -43,7 +43,7 @@ dev = [
     "pytest==8.3.3",
     "pytest-asyncio==0.24.0",
     "respx==0.21.1",
-    "pytest-cov==5.0.0",
+    "pytest-cov==7.1.0",
     # Lint + typecheck. Pinned to versions known-good against our codebase
     # (Python 3.11 + 3.12, FastAPI 0.136, Pydantic 2.11). Bumping either
     # is fine — they're advisory, not gating, in CI today (10.7 tightens).
