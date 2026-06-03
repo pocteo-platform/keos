@@ -59,6 +59,24 @@ else
   echo "[bootstrap] skipping chaos-mesh install (INSTALL_CHAOS_MESH=$INSTALL_CHAOS_MESH or helm not on PATH)"
 fi
 
+# ---- Monitoring (Phase 13c) ----
+# Prometheus + kube-state-metrics in ns/monitoring. The agent reaches
+# Prometheus through the k3d apiserver proxy (see PROMETHEUS_URL in
+# docker-compose.yml), so no NodePort or port mapping is required.
+#
+# Set INSTALL_MONITORING=0 to skip on small / air-gapped devices.
+INSTALL_MONITORING="${INSTALL_MONITORING:-1}"
+if [ "$INSTALL_MONITORING" = "1" ]; then
+  echo "[bootstrap] applying monitoring (Prometheus + kube-state-metrics)..."
+  kubectl apply -f "$MANIFESTS/monitoring.yaml"
+  kubectl -n monitoring rollout status deployment/kube-state-metrics --timeout=120s || \
+    echo "[bootstrap] kube-state-metrics rollout slow (non-fatal)"
+  kubectl -n monitoring rollout status deployment/prometheus --timeout=120s || \
+    echo "[bootstrap] prometheus rollout slow (non-fatal)"
+else
+  echo "[bootstrap] skipping monitoring install (INSTALL_MONITORING=$INSTALL_MONITORING)"
+fi
+
 echo "[bootstrap] applying default AgentMode (observe-only)..."
 kubectl apply -f "$MANIFESTS/agentmode-default.yaml"
 

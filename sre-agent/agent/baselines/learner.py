@@ -34,6 +34,7 @@ from dataclasses import dataclass
 
 import httpx
 
+from agent.baselines.k8s_proxy import K8sProxyClient, ProxyTarget
 from agent.baselines.store import (
     BASELINE_FIT_INTERVAL_S,
     BASELINE_RETAIN_DAYS,
@@ -227,6 +228,14 @@ class Learner:
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._last_fit_at: float = 0.0
+        # k8s-proxy mode — `PROMETHEUS_URL=k8s-proxy://<ns>/<svc>[:<port>]`.
+        # When set, every query goes through the kubernetes apiserver
+        # proxy instead of httpx.AsyncClient — used in Phase 13c where
+        # Prometheus runs inside the k3d cluster and isn't reachable
+        # directly from the compose-side agent.
+        self._proxy_client: K8sProxyClient | None = None
+        if self.prometheus_url.startswith("k8s-proxy://"):
+            self._proxy_client = K8sProxyClient(ProxyTarget.from_url(self.prometheus_url))
 
     async def start(self) -> None:
         if self._task is not None:
@@ -300,14 +309,35 @@ class Learner:
     # ---- internals ---------------------------------------------------------
 
     async def _scrape_all(self) -> list[Sample]:
+        if self._proxy_client is not None:
+            return await self._scrape_via_proxy()
+        return await self._scrape_via_httpx()
+
+    async def _scrape_via_httpx(self) -> list[Sample]:
         out: list[Sample] = []
         async with httpx.AsyncClient(timeout=self.http_timeout_s) as client:
             for q in self.queries:
-                series = await self._query(client, q)
+                series = await self._query_http(client, q)
                 out.extend(series)
         return out
 
-    async def _query(self, client: httpx.AsyncClient, q: Query) -> list[Sample]:
+    async def _scrape_via_proxy(self) -> list[Sample]:
+        """Same shape as `_scrape_via_httpx` but every PromQL goes
+        through the Kubernetes apiserver proxy. Each call is wrapped
+        in its own try/except so one slow / failing query doesn't
+        starve the others."""
+        assert self._proxy_client is not None
+        out: list[Sample] = []
+        for q in self.queries:
+            try:
+                body = await self._proxy_client.query_async(q.promql)
+            except Exception as exc:  # noqa: BLE001 — soft-fail per query
+                log.warning("baselines: apiserver-proxy query %r failed (%s)", q.metric, exc)
+                continue
+            out.extend(parse_prom_response(q, body))
+        return out
+
+    async def _query_http(self, client: httpx.AsyncClient, q: Query) -> list[Sample]:
         url = f"{self.prometheus_url}/api/v1/query"
         try:
             resp = await client.get(url, params={"query": q.promql})
