@@ -15,6 +15,7 @@ import { Scrubber } from "@/components/pipeline/Scrubber";
 import { IncidentPicker } from "@/components/pipeline/IncidentPicker";
 import { IncidentTimeline } from "@/components/pipeline/IncidentTimeline";
 import { TelemetrySidebar } from "@/components/pipeline/TelemetrySidebar";
+import { ScenePane } from "@/components/pipeline/ScenePane";
 import { RunningIndicator, computePhaseStates } from "@/components/pipeline/RunningIndicator";
 import { ResultsBanner } from "@/components/usecases/ResultsBanner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -115,6 +116,9 @@ function LiveCanvas() {
         <TabsList className="self-start">
           <TabsTrigger value="timeline">{t("pipeline.tabs.timeline")}</TabsTrigger>
           <TabsTrigger value="graph">{t("pipeline.tabs.graph")}</TabsTrigger>
+          <TabsTrigger value="scene">
+            {t("pipeline.tabs.scene", { defaultValue: "Scene" })}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="timeline" className="flex-1">
           <div className="grid h-full grid-cols-1 gap-4 overflow-auto lg:grid-cols-[1fr_22rem]">
@@ -130,6 +134,17 @@ function LiveCanvas() {
           <Card className="h-full">
             <CardContent className="h-full p-0">
               <PipelineCanvas state={state} onSelectNode={setSelected} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        {/* Phase 14.5 — Scene tab: the Komodor-inspired summary of
+            what the agent actually did to the cluster during this
+            incident. Binds to GET /api/scene/:id and polls while
+            the graph is still in flight. */}
+        <TabsContent value="scene" className="flex-1">
+          <Card className="h-full">
+            <CardContent className="h-full p-0">
+              <ScenePane incidentId={state.incidentId} state={state} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -323,6 +338,9 @@ function ReplayCanvas({ incidentId }: { incidentId: string }) {
         <TabsList className="self-start">
           <TabsTrigger value="timeline">{t("pipeline.tabs.timeline")}</TabsTrigger>
           <TabsTrigger value="graph">{t("pipeline.tabs.graph")}</TabsTrigger>
+          <TabsTrigger value="scene">
+            {t("pipeline.tabs.scene", { defaultValue: "Scene" })}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="timeline" className="flex-1">
           <div className="grid h-full grid-cols-1 gap-4 overflow-auto lg:grid-cols-[1fr_22rem]">
@@ -353,6 +371,16 @@ function ReplayCanvas({ incidentId }: { incidentId: string }) {
               ) : (
                 <PipelineCanvas state={state} onSelectNode={setSelected} />
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        {/* Phase 14.5 — Scene tab in replay too, so the operator can
+            re-open a past incident and see exactly what the agent
+            did to the cluster. */}
+        <TabsContent value="scene" className="flex-1">
+          <Card className="h-full">
+            <CardContent className="h-full p-0">
+              <ScenePane incidentId={incidentId} state={state} />
             </CardContent>
           </Card>
         </TabsContent>

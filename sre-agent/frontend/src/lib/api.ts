@@ -234,6 +234,74 @@ export interface UseCase {
   updated_at: string;
 }
 
+// ---------- Phase 14.5: forecasts + scene ----------
+
+export type ForecastLevel = "critical" | "warning" | "watch" | "safe" | "none";
+
+export interface ForecastRow {
+  metric: string;
+  namespace: string;
+  scope: string;
+  level: ForecastLevel;
+  slope_per_s: number | null;
+  r2: number | null;
+  t5_min: number | null;
+  t15_min: number | null;
+  t60_min: number | null;
+  sigma_above: number | null;
+  current: number | null;
+  mean: number | null;
+  std: number | null;
+  n_samples: number;
+}
+
+export interface ForecastList {
+  total: number;
+  items: ForecastRow[];
+}
+
+export type SceneOutcomeVerdict = "healed" | "escalated" | "failed" | "observe_only" | "unknown";
+
+export type SceneResourceOutcome = "reconciled" | "paged" | "failed" | "unchanged";
+
+export interface SceneResource {
+  kind: string;
+  namespace: string | null;
+  name: string;
+  state: string;
+  outcome: SceneResourceOutcome;
+  audit_event_type: string | null;
+}
+
+export interface SceneStep {
+  name: string;
+  ts: string;
+  summary: string;
+  status: "ok" | "warn" | "error" | "skipped";
+  payload_keys: string[];
+}
+
+export interface SceneOutcome {
+  verdict: SceneOutcomeVerdict;
+  reason: string;
+  time_to_outcome_seconds: number | null;
+  confidence: number | null;
+  rule: string | null;
+  tool: string | null;
+  policy_decision: Record<string, unknown> | null;
+}
+
+export interface WorkloadScene {
+  incident_id: string;
+  namespace: string | null;
+  pod: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  outcome: SceneOutcome;
+  resources: SceneResource[];
+  steps: SceneStep[];
+}
+
 // ---------- endpoint helpers ----------
 
 export const api = {
@@ -272,6 +340,9 @@ export const api = {
       severity?: string;
       status?: string;
       since?: string;
+      // Phase 14.5 — workload-drill-down filters.
+      pod?: string;
+      rule?: string;
       limit?: number;
       offset?: number;
     } = {},
@@ -317,6 +388,26 @@ export const api = {
   deleteUseCase: (id: string) => request<{ deleted: boolean }>("DELETE", `/api/usecases/${id}`),
   runUseCase: (id: string) =>
     request<{ incident_id: string; use_case_id: string }>("POST", `/api/usecases/${id}/run`),
+
+  // Phase 14.5 — forecasts read-view for the workload drill-down +
+  // pipeline scene pane. One row per (metric, namespace, scope)
+  // known to the baseline store. `level=none` covers cold-start /
+  // bad-fit keys; the SPA renders these dimmed.
+  listForecasts: (params: { ns?: string; pod?: string } = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+    });
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return request<ForecastList>("GET", `/api/forecasts${suffix}`);
+  },
+
+  // Phase 14.5 — aggregated "scene" view of one incident. The
+  // pipeline page's right-hand pane binds to this; the SPA also
+  // polls it as the incident's graph progresses (the persisted
+  // snapshot grows row-by-row as audit events land).
+  getScene: (incidentId: string) =>
+    request<WorkloadScene>("GET", `/api/scene/${encodeURIComponent(incidentId)}`),
 
   listApprovals: () => request<PendingApproval[]>("GET", "/api/approvals"),
   approveAction: (incident_id: string) =>

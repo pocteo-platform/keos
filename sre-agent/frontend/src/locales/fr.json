@@ -261,7 +261,8 @@
     },
     "tabs": {
       "timeline": "Timeline",
-      "graph": "Graphe"
+      "graph": "Graphe",
+      "scene": "Scène"
     },
     "timeline": {
       "phases": {
@@ -425,5 +426,39 @@
   "errors": {
     "fetchFailed": "Impossible de joindre l'API. Vérifiez `make up` et votre jeton bearer.",
     "wsDisconnected": "Flux temps-réel déconnecté. Reconnexion…"
+  },
+  "scene": {
+    "idle": "Aucun incident sélectionné — choisissez-en un ou lancez un cas d'usage.",
+    "loading": "Chargement de la scène…",
+    "waiting": "En attente de la fin de l'agent — la scène reste vide pour l'instant.",
+    "outcome": {
+      "healed": { "title": "Réparé" },
+      "escalated": { "title": "Escaladé" },
+      "failed": { "title": "Échec" },
+      "observe_only": { "title": "Observation uniquement" },
+      "unknown": { "title": "En cours…" },
+      "ruleLabel": "règle",
+      "confidenceLabel": "confiance"
+    },
+    "resources": {
+      "title": "Ressources touchées",
+      "empty": "Aucun objet K8s touché pour l'instant.",
+      "outcome": {
+        "reconciled": "réconcilié",
+        "paged": "escaladé",
+        "failed": "échec",
+        "unchanged": "inchangé"
+      }
+    },
+    "chain": {
+      "title": "Chaîne d'actions",
+      "empty": "Le graphe n'a pas encore démarré.",
+      "status": {
+        "ok": "ok",
+        "warn": "warn",
+        "error": "erreur",
+        "skipped": "ignoré"
+      }
+    }
   }
 }
