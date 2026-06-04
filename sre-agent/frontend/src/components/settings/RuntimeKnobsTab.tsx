@@ -263,6 +263,19 @@ export function ForecastingTab() {
           </div>
         </CardHeader>
         <CardContent>
+          {/* Educational primer — what an operator sees in the table
+              below and how the four level chips relate to action. */}
+          <div className="mb-3 border border-border bg-muted/30 px-3 py-2 text-[11px] leading-relaxed text-foreground/80">
+            <span className="font-semibold uppercase tracking-wider text-foreground">
+              {t("settings.forecast.primerTitle", { defaultValue: "How forecasts work" })}
+            </span>
+            <span className="ml-1.5 text-muted-foreground">
+              {t("settings.forecast.primer", {
+                defaultValue:
+                  "Every 60s the scheduler fits OLS over the last 60 baseline samples per metric. Three horizons: T+5m / T+15m / T+60m. Levels — critical = breach at T+5m, warning = T+15m, watch = T+60m, safe = trend stable, cold-start = R² too low or < 50 samples. Each breach fires an `infra.events.forecasted_<kind>` event the agent acts on PROACTIVELY (one severity level lower than the reactive equivalent).",
+              })}
+            </span>
+          </div>
           {fq.isLoading ? (
             <p className="text-sm text-muted-foreground">
               {t("common.loading", { defaultValue: "Loading…" })}
@@ -446,6 +459,19 @@ export function BaselinesTab() {
           </div>
         </CardHeader>
         <CardContent>
+          {/* Educational primer — what a baseline is, why σ matters,
+              what 'fitted' vs 'learning' means. */}
+          <div className="mb-3 border border-border bg-muted/30 px-3 py-2 text-[11px] leading-relaxed text-foreground/80">
+            <span className="font-semibold uppercase tracking-wider text-foreground">
+              {t("settings.baselines.primerTitle", { defaultValue: "How baselines work" })}
+            </span>
+            <span className="ml-1.5 text-muted-foreground">
+              {t("settings.baselines.primer", {
+                defaultValue:
+                  "The learner scrapes a fixed set of Prometheus metrics every 60s per (metric × namespace × pod) tuple. Each key gets an EWMA mean (recent-weighted average) + per-hour-of-day seasonal median. Status: ok = ≥ 50 samples, baseline is real; learning = < 50 samples, prompt notes 'still learning'. σ above = how far the CURRENT value is from the mean, in standard deviations — 1σ is mild, 3σ+ is anomalous. The diagnose prompt injects 'X is at Y, baseline Z ± W → N σ above' for every fitted key on the targeted pod.",
+              })}
+            </span>
+          </div>
           {bq.isLoading ? (
             <p className="text-sm text-muted-foreground">
               {t("common.loading", { defaultValue: "Loading…" })}

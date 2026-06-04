@@ -1,8 +1,17 @@
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { Activity, AlertTriangle, Cpu, Gauge, Server, ShieldCheck } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  Cpu,
+  Gauge,
+  HelpCircle,
+  Server,
+  ShieldCheck,
+} from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 
@@ -28,11 +37,23 @@ interface StatChipProps {
   value: string | number;
   /** Optional sub-line. Renders dimmer + smaller. */
   hint?: string;
+  /** Optional explainer shown on hover of a small `?` icon next to
+   *  the label. Use for tech-jargon-y stats so first-time operators
+   *  can self-serve onboarding instead of reading the docs site. */
+  explain?: string;
   variant?: "ok" | "warn" | "danger" | "info" | "default";
   index?: number;
 }
 
-function StatChip({ icon, label, value, hint, variant = "default", index = 0 }: StatChipProps) {
+function StatChip({
+  icon,
+  label,
+  value,
+  hint,
+  explain,
+  variant = "default",
+  index = 0,
+}: StatChipProps) {
   // Sharp-edged tinted background per Pocteo brand. Border-l-4 gives
   // the strong vertical color rail Komodor uses for status chips.
   const tint: Record<NonNullable<StatChipProps["variant"]>, string> = {
@@ -60,8 +81,24 @@ function StatChip({ icon, label, value, hint, variant = "default", index = 0 }: 
           <div className="flex items-start gap-2">
             <span className={cn("mt-0.5 shrink-0", iconColor[variant])}>{icon}</span>
             <div className="min-w-0 flex-1">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                {label}
+              <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <span className="truncate">{label}</span>
+                {explain ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Explain"
+                        className="shrink-0 cursor-help text-muted-foreground/70 hover:text-foreground"
+                      >
+                        <HelpCircle className="h-3 w-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs text-xs leading-snug">
+                      {explain}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
               </div>
               <div className="truncate text-lg font-semibold leading-tight">{value}</div>
               {hint ? (
@@ -169,6 +206,10 @@ export function HeroStats() {
         value={median == null ? "—" : median.toFixed(2)}
         variant={confVariant}
         hint={t("dashboard.hero.confidenceHint", { defaultValue: "Target ≥ 0.90" })}
+        explain={t("dashboard.hero.confidenceExplain", {
+          defaultValue:
+            "Median LLM-reported confidence across all rules the agent has graded ≥ 3 times. Each diagnose call returns a 0-1 score; rules with persistent low confidence escalate sooner via Phase 12 calibration. Rules with no real signal (single conf=0 noise samples) are excluded.",
+        })}
       />
       <StatChip
         index={4}
@@ -180,6 +221,10 @@ export function HeroStats() {
           defaultValue: `${samples.toLocaleString()} samples`,
           count: samples,
         })}
+        explain={t("dashboard.hero.baselinesExplain", {
+          defaultValue:
+            "How many (metric × namespace × pod) tuples the learner is tracking. Each key gets an EWMA mean + per-hour-of-day median. The diagnose prompt injects 'σ above baseline' for every fitted key on the targeted pod. Baselines fitted at ≥ 50 samples; below that they're in 'learning' mode and the LLM weights raw values as before.",
+        })}
       />
       <StatChip
         index={5}
@@ -189,6 +234,10 @@ export function HeroStats() {
         variant={forecastVariant}
         hint={t("dashboard.hero.forecastsHint", {
           defaultValue: "Warning + critical",
+        })}
+        explain={t("dashboard.hero.forecastsExplain", {
+          defaultValue:
+            "How many fitted baselines are projected to breach their threshold within 5/15/60-min horizons. The forecaster runs OLS over the last 60 samples; an R² floor discards non-linear (seasonal) fits. Each alert fires an `infra.events.forecasted_<kind>` event the agent acts on PROACTIVELY — one severity level below the reactive equivalent.",
         })}
       />
     </div>

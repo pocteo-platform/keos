@@ -158,6 +158,22 @@ export function CalibrationTab() {
           ) : null}
         </CardHeader>
         <CardContent>
+          {/* Educational primer — first-time operators need to understand
+              what "calibration" means, why we track per-rule thresholds,
+              and what an override actually does. */}
+          <div className="mb-3 border border-border bg-muted/30 px-3 py-2 text-[11px] leading-relaxed text-foreground/80">
+            <span className="font-semibold uppercase tracking-wider text-foreground">
+              {t("settings.calibration.primerTitle", {
+                defaultValue: "How calibration works",
+              })}
+            </span>
+            <span className="ml-1.5 text-muted-foreground">
+              {t("settings.calibration.primer", {
+                defaultValue:
+                  "After each incident's `verify` step the grader updates per-rule counters: n_diagnosed, n_correct, p50/p90 confidence. Once a rule has ≥ 20 graded incidents, its effective threshold flips from the global default to `p25 of correct-incident confidence` — noisy rules end up with HIGH thresholds (escalate sooner), well-calibrated rules get LOW thresholds (act on lower confidence). The Pin button lets you force a specific threshold for any rule (operator override beats the learner). Reset (↺) clears your pin and lets the learner take over again.",
+              })}
+            </span>
+          </div>
           {cal.isLoading ? (
             <p className="text-sm text-muted-foreground">
               {t("common.loading", { defaultValue: "Loading…" })}

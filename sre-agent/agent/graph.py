@@ -460,6 +460,16 @@ def node_execute(state: IncidentState) -> dict[str, Any]:
     action = ProposedAction.model_validate(state["proposed_action"])
     mode = state.get("agent_mode", mode_store.get())
     dry_run = mode != "active"
+
+    # Phase 14.12 — defensive sanitisation for revert_drift. The LLM
+    # tends to hallucinate `sot_source` (e.g. setting it to "gitops"
+    # because the diagnose prompt mentioned GitOps) rather than reading
+    # the real path off the event. Override with the value the drift
+    # detector itself put on the wire — the agent has that locally;
+    # the LLM doesn't need to guess.
+    if action.tool == "revert_drift":
+        action = _override_revert_drift_args(action, state.get("raw_event") or {})
+
     # Two execution paths:
     #   * MCP path (default): the agent calls the MCP server over HTTP. This
     #     exercises the same code path a human operator would use via Claude
@@ -786,6 +796,38 @@ def _route_after_verify(state: IncidentState) -> str:
 # ===========================================================================
 # Tool dispatcher.
 # ===========================================================================
+
+
+def _override_revert_drift_args(action: ProposedAction, event: dict[str, Any]) -> ProposedAction:
+    """Override `sot_source`, `kind`, `namespace`, `name` from the
+    drift event's output_fields. The detector puts the authoritative
+    values there; the LLM's guesses are at best redundant and at worst
+    hallucinated (e.g. sot_source="gitops" because the rule string
+    contains the word).
+
+    Only applied to drift-driven incidents — `output_fields["drift.source"]`
+    is the detector's marker. Non-drift events have an empty
+    `drift.source` so this is a no-op.
+    """
+    fields = (event.get("output_fields") or {}) if isinstance(event, dict) else {}
+    drift_source = fields.get("drift.source")
+    if not drift_source:
+        return action  # not a drift event, leave the LLM's args alone
+    real_kind = fields.get("k8s.kind")
+    real_name = fields.get("k8s.name")
+    real_ns = fields.get("k8s.namespace")
+    args = dict(action.args or {})
+    # Always prefer the detector's values when we have them — the LLM
+    # may have copied the right string, but the detector is the source
+    # of truth.
+    args["sot_source"] = drift_source
+    if isinstance(real_kind, str) and real_kind:
+        args["kind"] = real_kind
+    if isinstance(real_name, str) and real_name:
+        args["name"] = real_name
+    if isinstance(real_ns, str) and real_ns:
+        args["namespace"] = real_ns
+    return action.model_copy(update={"args": args})
 
 
 def _dispatch(action: ProposedAction, dry_run: bool):
