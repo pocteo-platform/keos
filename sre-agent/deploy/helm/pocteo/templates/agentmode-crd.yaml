@@ -1,46 +1,5 @@
-{{/* AgentMode CRD + the default `observe-only` CR. Same shape as the
-     non-Helm `manifests/agent-mode-crd.yaml` so on-cluster behaviour is
-     identical. */}}
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: agentmodes.security.poc
-  labels: {{- include "pocteo.labels" . | nindent 4 }}
-spec:
-  group: security.poc
-  scope: Cluster
-  names:
-    kind: AgentMode
-    plural: agentmodes
-    singular: agentmode
-    shortNames: [am]
-  versions:
-    - name: v1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          required: [spec]
-          properties:
-            spec:
-              type: object
-              required: [mode]
-              properties:
-                mode:
-                  type: string
-                  enum: [observe-only, active, frozen]
-                note:
-                  type: string
-            status:
-              type: object
-      additionalPrinterColumns:
-        - name: Mode
-          type: string
-          jsonPath: .spec.mode
-      subresources:
-        status: {}
----
+{{/* AgentMode default CR. The CRD itself lives in `crds/agentmode.yaml`
+     so Helm installs it before any templates land on the API server. */}}
 apiVersion: security.poc/v1
 kind: AgentMode
 metadata:
@@ -48,4 +7,4 @@ metadata:
   labels: {{- include "pocteo.labels" . | nindent 4 }}
 spec:
   mode: {{ .Values.agent.defaultMode | quote }}
-  note: "Default mode set by Helm install. Flip with `kubectl patch agentmode default --type=merge -p '{\"spec\":{\"mode\":\"active\"}}'`."
+  note: "Default mode set by Helm install. Flip with: kubectl patch agentmode default --type=merge -p '{\"spec\":{\"mode\":\"active\"}}'"

@@ -34,12 +34,17 @@ spec:
       containers:
         - name: opa
           image: {{ include "pocteo.image" (dict "global" .Values.global "repository" .Values.opa.image.repository "tag" .Values.opa.image.tag) }}
-          args: ["run", "--server", "--addr=:8181", "--log-level=info", "/policies"]
+          args: ["run", "--server", "--addr=:8181", "--log-level=info", "/policies/agent.rego"]
           ports: [{ containerPort: 8181 }]
           resources: {{- toYaml .Values.opa.resources | nindent 12 }}
           volumeMounts:
             - name: policy
-              mountPath: /policies
+              # subPath bypasses the ConfigMap ..data/..timestamp symlink
+              # chain that otherwise tricks OPA's directory scan into
+              # seeing duplicate copies of agent.rego, which crashes
+              # with "multiple default rules data.agent.authz.allow".
+              mountPath: /policies/agent.rego
+              subPath: agent.rego
               readOnly: true
       volumes:
         - name: policy
