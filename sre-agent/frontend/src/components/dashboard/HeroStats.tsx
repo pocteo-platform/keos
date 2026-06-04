@@ -205,10 +205,24 @@ export function HeroStats() {
         label={t("dashboard.hero.confidence", { defaultValue: "Median confidence" })}
         value={median == null ? "—" : median.toFixed(2)}
         variant={confVariant}
-        hint={t("dashboard.hero.confidenceHint", { defaultValue: "Target ≥ 0.90" })}
+        hint={
+          median == null
+            ? t("dashboard.hero.confidenceEmpty", {
+                defaultValue: "Awaiting first incidents",
+              })
+            : median >= 0.9
+              ? t("dashboard.hero.confidenceGood", {
+                  defaultValue: "Confidence target met",
+                })
+              : median < 0.7
+                ? t("dashboard.hero.confidenceLow", {
+                    defaultValue: "Agent often hesitates",
+                  })
+                : t("dashboard.hero.confidenceHint", { defaultValue: "Target ≥ 0.90" })
+        }
         explain={t("dashboard.hero.confidenceExplain", {
           defaultValue:
-            "How sure the agent typically is when it diagnoses an incident. Each diagnosis returns a 0-to-1 confidence score; this is the median across every rule the agent has seen at least 3 times. Rules where the agent has consistently low confidence get escalated to a human sooner. Below 0.70 = the agent often hesitates; above 0.90 = the agent is reliably acting on its own.",
+            "How sure the agent typically is when it diagnoses an incident. Each diagnosis returns a 0-to-1 confidence score; this is the median across every rule the agent has seen at least once. Rules where the agent has consistently low confidence get escalated to a human sooner. Below 0.70 = the agent often hesitates; above 0.90 = the agent is reliably acting on its own.",
         })}
       />
       <StatChip
