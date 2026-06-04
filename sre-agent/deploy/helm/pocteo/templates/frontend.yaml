@@ -34,7 +34,7 @@ spec:
       {{- include "pocteo.podSecurityContext" . | nindent 6 }}
       containers:
         - name: frontend
-          image: {{ include "pocteo.image" (dict "global" .Values.global "repository" .Values.frontend.image.repository "tag" .Values.frontend.image.tag) }}
+          image: {{ include "pocteo.image" (dict "global" .Values.global "repository" .Values.frontend.image.repository "tag" .Values.frontend.image.tag "firstParty" true) }}
           ports: [{ containerPort: 8080 }]
           resources: {{- toYaml .Values.frontend.resources | nindent 12 }}
           # nginx-unprivileged runs as uid 101 and listens on 8080 by

@@ -19,11 +19,21 @@ app.kubernetes.io/part-of: pocteo
 
 {{/* Image string: <registry>/<repo>:<tag>, falling back to upstream when
      repo is already fully-qualified. */}}
+{{/* Build the final container image reference.
+     Args (dict):
+       global      — .Values.global (provides .imageRegistry)
+       repository  — short or fully-qualified image name
+       tag         — image tag
+       firstParty  — true ⇒ prefix global.imageRegistry. false / unset ⇒
+                     emit the repository name verbatim (stock images
+                     like ollama, caddy, nats, qdrant, opa pull from
+                     their upstream registries, NOT from our org). */}}
 {{- define "pocteo.image" -}}
 {{- $registry := .global.imageRegistry | default "" -}}
 {{- $repo := .repository -}}
 {{- $tag := .tag -}}
-{{- if and $registry (not (contains "/" $repo)) -}}
+{{- $firstParty := .firstParty | default false -}}
+{{- if and $firstParty $registry -}}
 {{ printf "%s/%s:%s" $registry $repo $tag }}
 {{- else -}}
 {{ printf "%s:%s" $repo $tag }}
