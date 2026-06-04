@@ -10,6 +10,7 @@ import {
   DriftTab,
 } from "@/components/settings/RuntimeKnobsTab";
 import { AboutTab } from "@/components/settings/AboutTab";
+import { DataLifecycleTab } from "@/components/settings/DataLifecycleTab";
 import { AuditTable } from "@/components/audit/AuditTable";
 import { Card, CardContent } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
@@ -85,6 +86,9 @@ export default function SettingsPage() {
           <TabsTrigger value="notifications">
             {t("settings.tabs.notifications", { defaultValue: "Notifications" })}
           </TabsTrigger>
+          <TabsTrigger value="lifecycle">
+            {t("settings.tabs.lifecycle", { defaultValue: "Data lifecycle" })}
+          </TabsTrigger>
           <TabsTrigger value="audit">
             {t("settings.tabs.audit", { defaultValue: "Audit" })}
           </TabsTrigger>
@@ -110,6 +114,9 @@ export default function SettingsPage() {
         </TabsContent>
         <TabsContent value="notifications" className="mt-4">
           <NotificationsTab />
+        </TabsContent>
+        <TabsContent value="lifecycle" className="mt-4">
+          <DataLifecycleTab />
         </TabsContent>
         <TabsContent value="audit" className="mt-4">
           <Card>

@@ -1,0 +1,102 @@
+{{- /*
+Phase B — pre-install / pre-upgrade hook that labels the operator's
+chosen home node so the api Deployment can target it via the label
+selector. The job:
+
+  1. Runs as `helm install` / `helm upgrade` Pre, weight -5 (before
+     anything else that needs scheduling).
+  2. Uses a tiny kubectl image; the agent's own SA isn't bound yet
+     when the hook fires, so we create a one-shot SA+Role+RoleBinding
+     with patch-rights on `nodes`.
+  3. Idempotent — `kubectl label --overwrite` is fine to re-run on
+     every upgrade.
+  4. Hook delete-policy: BeforeHookCreation + HookSucceeded — the
+     resources are cleaned up automatically after the label lands.
+
+Only renders when:
+  - `agent.attachment.nodeName` is set (operator chose a target), AND
+  - `agent.bootstrapNodeLabel.enabled` is true (operator opted in).
+*/ -}}
+{{- if and .Values.agent.attachment.nodeName .Values.agent.bootstrapNodeLabel.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "pocteo.fullname" . }}-node-label-hook
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pocteo.fullname" . }}-node-label-hook
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-9"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "patch", "update", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "pocteo.fullname" . }}-node-label-hook
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-8"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pocteo.fullname" . }}-node-label-hook
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "pocteo.fullname" . }}-node-label-hook
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "pocteo.fullname" . }}-node-label-hook
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 60
+  backoffLimit: 1
+  template:
+    spec:
+      serviceAccountName: {{ include "pocteo.fullname" . }}-node-label-hook
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: label-node
+          image: bitnami/kubectl:1.30
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              NODE={{ .Values.agent.attachment.nodeName | quote }}
+              LABEL_KEY={{ .Values.agent.bootstrapNodeLabel.key | quote }}
+              LABEL_VAL={{ .Values.agent.bootstrapNodeLabel.value | quote }}
+              echo "labeling node $NODE with $LABEL_KEY=$LABEL_VAL"
+              kubectl get node "$NODE" >/dev/null
+              kubectl label node "$NODE" "$LABEL_KEY=$LABEL_VAL" --overwrite
+              echo "ok"
+{{- end }}

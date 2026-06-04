@@ -452,25 +452,37 @@ async def _retention_loop() -> None:
     incidents that an operator's about to inspect — they get one hour to
     `kubectl cp` before the first pass.
     """
-    inc_days = int(os.environ.get("INCIDENT_RETENTION_DAYS", "90") or "90")
-    tr_days = int(os.environ.get("TRACE_RETENTION_DAYS", "30") or "30")
-    interval_s = int(os.environ.get("RETENTION_SWEEP_INTERVAL_S", "3600") or "3600")
+    # Phase C — read retention config from the overlay store on EVERY
+    # iteration so the operator's UI edits take effect on the next
+    # sweep without a pod restart.
+    from agent.retention import get_default_store as _ret_store_get
+
+    store = _ret_store_get()
+    cfg = store.get()
     log.info(
-        "retention loop: interval=%ds incident_days=%d trace_days=%d", interval_s, inc_days, tr_days
+        "retention loop: interval=%ds incident_days=%d trace_days=%d audit_days=%d (overlay-aware)",
+        cfg.sweep_interval_s,
+        cfg.incident_days,
+        cfg.trace_days,
+        cfg.audit_days,
     )
     # Initial delay before the first sweep — see docstring.
-    await asyncio.sleep(interval_s)
+    await asyncio.sleep(cfg.sweep_interval_s)
     while True:
         try:
+            cfg = store.get()  # re-read each tick — picks up live UI edits
             # Run the synchronous pruners in a thread so an unexpectedly
             # large delete batch doesn't block the asyncio loop.
             from agent import incident_store as _is
 
-            await asyncio.to_thread(_is.prune_old_incidents, inc_days)
-            await asyncio.to_thread(_is.prune_old_traces, tr_days)
+            # 0 means "keep forever" → skip the bucket.
+            if cfg.incident_days > 0:
+                await asyncio.to_thread(_is.prune_old_incidents, cfg.incident_days)
+            if cfg.trace_days > 0:
+                await asyncio.to_thread(_is.prune_old_traces, cfg.trace_days)
         except Exception as exc:  # noqa: BLE001 — pruner must never crash serve
             log.warning("retention sweep failed: %s", exc)
-        await asyncio.sleep(interval_s)
+        await asyncio.sleep(cfg.sweep_interval_s)
 
 
 def main() -> int:
