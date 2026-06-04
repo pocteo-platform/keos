@@ -2099,7 +2099,16 @@ async def ws_events(websocket: WebSocket, token: str | None = Query(None)) -> No
 
 
 def _kubectl_get(kind: str, name: str, namespace: str) -> dict[str, Any]:
-    cmd = ["kubectl", "--kubeconfig", settings.kubeconfig, "get", kind]
+    # When running in-cluster the SA token under
+    # /var/run/secrets/kubernetes.io/serviceaccount is what kubectl
+    # uses automatically (if no kubeconfig is configured). Only pass
+    # --kubeconfig when an actual file is present, so the same code
+    # path works on a developer laptop (file exists) and in a pod
+    # (file absent, in-cluster auth kicks in).
+    cmd = ["kubectl"]
+    if settings.kubeconfig and os.path.isfile(settings.kubeconfig):
+        cmd += ["--kubeconfig", settings.kubeconfig]
+    cmd += ["get", kind]
     if name:
         cmd.append(name)
     if namespace:
