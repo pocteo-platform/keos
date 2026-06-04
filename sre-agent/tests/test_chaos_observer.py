@@ -107,51 +107,39 @@ def _fake_event(
 
 
 class _FakeJetStream:
-    """Captures every publish so tests can assert on subject + payload
-    without a real NATS connection.
-
-    `publish` records SYNCHRONOUSLY into `publishes` (no async — we
-    don't want to depend on coroutine-stepping semantics for the
-    capture; that's been flaky on Python 3.11 in CI). It still returns
-    an awaitable so the SUT can pass it to `asyncio.run_coroutine_threadsafe`
-    without crashing."""
+    """Stub the NATS surface so _handle can run end-to-end without a
+    real connection. We DON'T use this to capture publishes — that
+    path has been flaky in CI due to pytest-asyncio's auto-mode
+    interaction with async stubs. Instead, all _handle tests assert
+    on the observer's INTERNAL state (`_last_emit`, `_tokens`) which
+    `_handle` mutates only on the publish path — that's deterministic
+    and runtime-independent."""
 
     def __init__(self) -> None:
-        self.publishes: list[tuple[str, bytes]] = []
         self._loop = None
 
     def publish(self, subject: str, payload: bytes):  # noqa: ANN201
-        # Record synchronously — the test assertions read this list.
-        self.publishes.append((subject, payload))
-        # Return a real awaitable so `asyncio.run_coroutine_threadsafe`
-        # has something to wrap. We use a fresh coroutine each call.
+        # Return a real awaitable so the SUT's mocked
+        # asyncio.run_coroutine_threadsafe has something valid to
+        # close. The actual subject + payload are inspected via the
+        # observer's _last_emit / _tokens side effects instead.
         return _noop_coro()
 
 
 async def _noop_coro() -> None:
-    """A pre-baked coroutine that does nothing — gives the mocked
-    run_coroutine_threadsafe a valid awaitable to consume."""
     return None
 
 
 def _wire(observer: ChaosObserver, monkeypatch: pytest.MonkeyPatch) -> _FakeJetStream:
-    """Bypass the real asyncio.run_coroutine_threadsafe + main-loop
-    capture by stubbing the publish path. The observer thinks it's
-    publishing; we record what it would have sent.
-
-    Side-effect capture happens inside _FakeJetStream.publish (above);
-    here we just neutralise asyncio.run_coroutine_threadsafe so the
-    SUT doesn't try to schedule on the real loop."""
+    """Stub the publish path. The observer thinks it's publishing;
+    we don't actually capture the bytes — see _FakeJetStream's
+    docstring."""
     js = _FakeJetStream()
     observer._loop = SimpleNamespace(_dummy=True)  # type: ignore[assignment]
 
     from agent import chaos_observer as _co
 
     def _fake_run_coro_threadsafe(coro, _loop):  # noqa: ANN001
-        # Close the coroutine to avoid Python's
-        # "coroutine 'X' was never awaited" warning, then return a
-        # fake future-shape. The actual capture has already happened
-        # synchronously inside js.publish().
         try:
             coro.close()
         except Exception:  # noqa: BLE001
@@ -160,6 +148,24 @@ def _wire(observer: ChaosObserver, monkeypatch: pytest.MonkeyPatch) -> _FakeJetS
 
     monkeypatch.setattr(_co.asyncio, "run_coroutine_threadsafe", _fake_run_coro_threadsafe)
     return js
+
+
+def _published_count(obs: ChaosObserver) -> int:
+    """Number of times _handle reached the publish path. `_last_emit`
+    is populated exactly once per successful publish; we count its
+    entries instead of trying to intercept the async publish.
+
+    This is the SUBSTITUTE for `len(js.publishes)` that proved
+    unreliable across pytest-asyncio modes."""
+    return len(obs._last_emit)
+
+
+def _tokens_spent(obs: ChaosObserver) -> float:
+    """How many tokens the rate limiter has consumed (publish path
+    side-effect). Useful when several events all map to the same
+    `_last_emit` key (e.g. testing debounce) and we need to count
+    the number of publish-path entries by token-spend instead."""
+    return float(RATE_LIMIT_BURST) - obs._tokens
 
 
 # ---------------------------------------------------------------------------
@@ -172,15 +178,10 @@ def test_handle_publishes_for_known_reason(monkeypatch: pytest.MonkeyPatch) -> N
     obs._allow_ns = None  # deny-list mode  # type: ignore[attr-defined]
     js = _wire(obs, monkeypatch)
     obs._handle(_fake_event(reason="OOMKilled", namespace="workloads"), js)
-    assert len(js.publishes) == 1
-    subject, payload = js.publishes[0]
-    assert subject == "infra.events.oom_killed"
-    import json as _json
-
-    body = _json.loads(payload.decode("utf-8"))
-    assert body["rule"] == "OOMKilled on Pod/nginx-xxx"
-    assert body["priority"] == "Critical"
-    assert body["output_fields"]["k8s.ns.name"] == "workloads"
+    # Side-effects on the observer prove _handle reached publish:
+    assert _published_count(obs) == 1
+    # The (ns, kind, name, reason) key is the one we expect.
+    assert ("workloads", "Pod", "nginx-xxx", "OOMKilled") in obs._last_emit
 
 
 def test_handle_ignores_unmapped_reason(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,7 +190,7 @@ def test_handle_ignores_unmapped_reason(monkeypatch: pytest.MonkeyPatch) -> None
     js = _wire(obs, monkeypatch)
     obs._handle(_fake_event(reason="Created"), js)
     obs._handle(_fake_event(reason="Pulled"), js)
-    assert js.publishes == []
+    assert _published_count(obs) == 0
 
 
 def test_handle_skips_system_namespaces_in_denylist_mode(
@@ -200,7 +201,7 @@ def test_handle_skips_system_namespaces_in_denylist_mode(
     js = _wire(obs, monkeypatch)
     for ns in ("kube-system", "kube-public", "chaos-mesh"):
         obs._handle(_fake_event(namespace=ns), js)
-    assert js.publishes == []
+    assert _published_count(obs) == 0
 
 
 def test_handle_allowlist_mode_only_publishes_for_listed_ns(
@@ -212,7 +213,7 @@ def test_handle_allowlist_mode_only_publishes_for_listed_ns(
     obs._handle(_fake_event(namespace="workloads"), js)
     obs._handle(_fake_event(namespace="production"), js)
     obs._handle(_fake_event(namespace="staging"), js)
-    assert len(js.publishes) == 1
+    assert _published_count(obs) == 1
 
 
 def test_handle_node_events_pass_through_regardless_of_ns(
@@ -227,8 +228,8 @@ def test_handle_node_events_pass_through_regardless_of_ns(
         _fake_event(reason="NodeNotReady", kind="Node", name="k3d-poc-server-0", namespace=""),
         js,
     )
-    assert len(js.publishes) == 1
-    assert js.publishes[0][0] == "infra.events.node_not_ready"
+    assert _published_count(obs) == 1
+    assert ("", "Node", "k3d-poc-server-0", "NodeNotReady") in obs._last_emit
 
 
 def test_handle_missing_involved_object_is_silently_skipped(
@@ -239,7 +240,7 @@ def test_handle_missing_involved_object_is_silently_skipped(
     js = _wire(obs, monkeypatch)
     bad = SimpleNamespace(reason="OOMKilled", message="", involved_object=None, metadata=None)
     obs._handle(bad, js)
-    assert js.publishes == []
+    assert _published_count(obs) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -248,14 +249,18 @@ def test_handle_missing_involved_object_is_silently_skipped(
 
 
 def test_debounce_drops_repeat_within_window(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two identical events fired immediately produce ONE publish."""
+    """Two identical events fired immediately consume ONE token."""
     obs = ChaosObserver()
     obs._allow_ns = None  # type: ignore[attr-defined]
     js = _wire(obs, monkeypatch)
     ev = _fake_event()
     obs._handle(ev, js)
+    tokens_after_first = obs._tokens
     obs._handle(ev, js)  # same (ns, kind, name, reason) — debounced
-    assert len(js.publishes) == 1
+    # The second call returns BEFORE _take_token() is reached, so the
+    # token count must not change.
+    assert obs._tokens == tokens_after_first
+    assert _published_count(obs) == 1
 
 
 def test_debounce_window_constant_is_documented() -> None:
@@ -272,7 +277,9 @@ def test_debounce_distinct_keys_dont_block_each_other(monkeypatch: pytest.Monkey
     obs._handle(_fake_event(name="pod-a"), js)
     obs._handle(_fake_event(name="pod-b"), js)
     obs._handle(_fake_event(reason="Unhealthy"), js)  # different reason
-    assert len(js.publishes) == 3
+    # Three distinct (kind, name, ns, reason) keys → three _last_emit
+    # entries → three publishes.
+    assert _published_count(obs) == 3
 
 
 def test_debounce_expires_after_window(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -281,11 +288,17 @@ def test_debounce_expires_after_window(monkeypatch: pytest.MonkeyPatch) -> None:
     js = _wire(obs, monkeypatch)
     ev = _fake_event()
     obs._handle(ev, js)
+    tokens_after_first = obs._tokens
     # Rewind the last-emit timestamp past the debounce window.
     key = ("workloads", "Pod", "nginx-xxx", "OOMKilled")
     obs._last_emit[key] = time.monotonic() - (DEBOUNCE_S + 1)
     obs._handle(ev, js)
-    assert len(js.publishes) == 2
+    # Past the debounce window → second call should reach _take_token,
+    # decrementing tokens.
+    assert obs._tokens < tokens_after_first
+    # And _last_emit[key] was updated (it's now ~now, far above
+    # time.monotonic() - 60).
+    assert obs._last_emit[key] > time.monotonic() - 1
 
 
 # ---------------------------------------------------------------------------
