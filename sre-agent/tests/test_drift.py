@@ -666,9 +666,7 @@ def test_revert_drift_surfaces_kubectl_failure(
         return (1, "", "error: namespaces 'workloads' not found")
 
     monkeypatch.setattr(tools_mod, "_kubectl", fake_kubectl)
-    result = revert_drift(
-        kind="Deployment", namespace="workloads", name="x", sot_source=str(path)
-    )
+    result = revert_drift(kind="Deployment", namespace="workloads", name="x", sot_source=str(path))
     assert not result.success
     assert "kubectl exit 1" in (result.error or "")
     assert "namespaces 'workloads' not found" in (result.stderr or "")
@@ -681,9 +679,7 @@ def test_revert_drift_handles_unparseable_yaml(
     a clear error so the agent can escalate."""
     path = tmp_path / "bad.yaml"
     path.write_text("not: : : valid: yaml: :", encoding="utf-8")
-    result = revert_drift(
-        kind="Deployment", namespace="workloads", name="x", sot_source=str(path)
-    )
+    result = revert_drift(kind="Deployment", namespace="workloads", name="x", sot_source=str(path))
     assert not result.success
     assert "cannot parse" in (result.error or "")
 
