@@ -1,0 +1,16 @@
+# Talos local-dev override values.
+# Apply with: helm install/upgrade ... -f values-talos-dev.yaml
+#
+# Reference for a real Jetson+Talos install. Two things differ from
+# the chart's defaults:
+#   1. chaos-mesh chaos-daemon needs the Talos containerd socket path
+#      (not the k3s one).
+#   2. We pass this as a values file rather than --set on the command
+#      line, because Git Bash / MSYS2 on Windows mangle a leading
+#      slash (`/run/...`) into a Windows path (`C:/Program Files/Git/run/...`)
+#      before the value ever reaches helm. Values files dodge that.
+
+chaos-mesh:
+  chaosDaemon:
+    runtime: containerd
+    socketPath: /run/containerd/containerd.sock

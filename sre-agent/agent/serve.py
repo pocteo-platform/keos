@@ -487,8 +487,19 @@ async def _retention_loop() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="self-healing agent + API server")
-    parser.add_argument("--host", default=os.environ.get("API_HOST", "0.0.0.0"))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("API_PORT", "8000")))
+    # Use KEOS_API_* envs because K8s auto-injects `<SERVICE>_PORT` /
+    # `<SERVICE>_HOST` variables into every pod ("API_PORT=tcp://x:8000"),
+    # which collides with the plain API_PORT name and crashes int() parse.
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("KEOS_API_HOST", os.environ.get("API_HOST", "0.0.0.0"))
+        if not os.environ.get("API_HOST", "").startswith("tcp://")
+        else os.environ.get("KEOS_API_HOST", "0.0.0.0"),
+    )
+    _port_env = os.environ.get("KEOS_API_PORT") or os.environ.get("API_PORT", "8000")
+    if _port_env.startswith("tcp://"):
+        _port_env = "8000"
+    parser.add_argument("--port", type=int, default=int(_port_env))
     args = parser.parse_args()
     configure_logging()
     try:
