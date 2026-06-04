@@ -47,6 +47,69 @@ class NodeSummary(BaseModel):
     taints: list[str] = Field(default_factory=list)
 
 
+# ─── Phase A — cluster context probe ─────────────────────────────────────
+
+
+class NodeContext(BaseModel):
+    """Richer per-node info than NodeSummary — used by the cluster-context
+    probe so the SPA's setup wizard + dashboard cluster-context card can
+    render node-level decisions (which node hosts the agent, which has a
+    GPU, which is control-plane vs. worker)."""
+
+    name: str
+    role: str  # "control-plane" | "worker" | "unknown"
+    ready: bool
+    is_agent_home: bool
+    cpu_capacity_m: int | None = None  # millicores
+    memory_capacity_bytes: int | None = None
+    gpu_capacity: int | None = None  # nvidia.com/gpu count
+    labels: dict[str, str] = Field(default_factory=dict)
+    taints: list[str] = Field(default_factory=list)
+
+
+class DetectedOperators(BaseModel):
+    """Well-known operators we probe for at boot. Helps the setup wizard
+    suggest sensible defaults — e.g. enable drift detection when Argo CD
+    is present, start baseline learning when Prometheus is present."""
+
+    argocd: bool = False
+    flux: bool = False
+    chaos_mesh: bool = False
+    prometheus: bool = False
+    cert_manager: bool = False
+    kube_state_metrics: bool = False
+
+
+class AgentSelf(BaseModel):
+    """Where the agent process itself is running, read at boot via the
+    K8s downward API (KEOS_POD_NAMESPACE / KEOS_POD_NAME / KEOS_NODE_NAME
+    env vars). Outside a K8s pod these are empty strings."""
+
+    namespace: str = ""
+    pod: str = ""
+    node: str = ""
+
+
+class ClusterContext(BaseModel):
+    """One-shot snapshot of everything the agent knows about its host
+    cluster + its own placement within it. Surfaced by GET
+    /api/cluster/context for the dashboard's 'Cluster context' card,
+    the first-time-setup wizard, and operator troubleshooting."""
+
+    distro: str  # "k3s" | "k3d" | "talos" | "rke2" | "kubeadm" | "gke" | "eks" | "aks" | "unknown"
+    runtime: str  # "containerd" | "crio" | "docker" | "unknown"
+    kubernetes_version: str  # the kubelet's reported version
+    node_count: int
+    ready_node_count: int
+    total_cpu_m: int  # cluster-total millicores
+    total_memory_bytes: int  # cluster-total bytes
+    total_gpu_count: int  # cluster-total nvidia.com/gpu
+    nodes: list[NodeContext] = Field(default_factory=list)
+    detected_operators: DetectedOperators = Field(default_factory=DetectedOperators)
+    agent_self: AgentSelf = Field(default_factory=AgentSelf)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class NamespaceSummary(BaseModel):
     name: str
     age_seconds: int
