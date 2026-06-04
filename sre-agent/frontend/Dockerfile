@@ -15,11 +15,16 @@ COPY src ./src
 
 RUN npm run build
 
-# Runtime stage: tiny nginx image serving the built SPA.
-FROM nginx:1.27-alpine
+# Runtime stage: nginx-unprivileged variant (listens on 8080, runs as
+# uid 101, ships with the right Linux file capabilities). Plain
+# nginx:1.27-alpine can't bind to port 80 under a non-root pod
+# securityContext even with NET_BIND_SERVICE added — the cap must be
+# set on the nginx binary file itself, which unprivileged variant
+# does and the default image doesn't.
+FROM nginxinc/nginx-unprivileged:1.27-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/nginx.conf
-EXPOSE 80
+EXPOSE 8080
 # No HEALTHCHECK: nginx:alpine doesn't ship wget/curl. The Caddy proxy is the
 # integration test — if the SPA is broken, `curl http://localhost/` fails
 # externally and that's the signal we care about.

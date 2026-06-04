@@ -44,12 +44,18 @@ spec:
         app.kubernetes.io/name: pocteo
         app.kubernetes.io/component: {{ $name }}
     spec:
-      {{/* NATS + Qdrant run non-root cleanly; Ollama writes models to
-           /root/.ollama and requires uid 0. Apply the strict pod-level
-           context only to the two safe images. */}}
+      {{/* NATS + Qdrant run non-root cleanly when given an explicit
+           uid. Without runAsUser, kubelet can't verify the image's
+           default USER and refuses with "container has runAsNonRoot
+           and image will run as root" on stock images.
+           fsGroup makes the PVC writable by that uid.
+           Ollama writes models to /root/.ollama and requires uid 0. */}}
       {{- if ne $name "ollama" }}
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       {{- else }}
@@ -109,6 +115,18 @@ spec:
           volumeMounts:
             - name: data
               mountPath: {{ if eq $name "ollama" }}/root/.ollama{{ else if eq $name "qdrant" }}/qdrant/storage{{ else }}/data{{ end }}
+            {{- /* Qdrant needs /qdrant/snapshots to be writable, but
+                   readOnlyRootFilesystem blocks it. Mount a tmpfs. */}}
+            {{- if eq $name "qdrant" }}
+            - name: snapshots
+              mountPath: /qdrant/snapshots
+            {{- end }}
+          {{- end }}
+          {{- if eq $name "qdrant" }}
+      volumes:
+        - name: snapshots
+          emptyDir:
+            sizeLimit: 1Gi
           {{- end }}
   {{- if $cfg.persistence.enabled }}
   volumeClaimTemplates:
