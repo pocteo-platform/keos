@@ -31,8 +31,10 @@ def _event(scenario_id: int) -> dict:
 
 SCENARIO_EXPECTATIONS = [
     (1, "rollout_undo", False),  # memory leak → revert to previous stable
-    (2, "rollout_undo", False),  # crashloop → revert bad rollout
-    (3, "rollout_undo", False),  # ImagePullBackOff → revert to pullable image
+    # Scenarios 2 (crashloop) + 3 (image pull failure) were retired
+    # in Phase 14.13 along with their target Deployments. Use the
+    # Use Case wizard's Chaos Mesh templates to reproduce those
+    # failure shapes against nginx-demo.
     (4, "cordon_node", False),  # node pressure → cordon
     (5, "rollout_undo", False),  # rollout stalled → revert
     (7, "scale_deployment", False),  # traffic surge → bump replicas

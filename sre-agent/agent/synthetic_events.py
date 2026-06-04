@@ -32,10 +32,17 @@ log = logging.getLogger("synthetic_events")
 # SRE runbooks. Each scenario simulates the SHAPE of an infrastructure
 # event that would come from real telemetry sources (kubelet events,
 # Chaos Mesh experiments, HPA controllers, GitOps drift detectors).
+# Scenarios 2 (crashloop) and 3 (image-pull-failure) were retired in
+# Phase 14.13 along with their target pods (busybox-bad, broken-image).
+# Modern way to reproduce those failure shapes:
+#   - via the SPA's Use Case wizard, which injects through Chaos Mesh
+#     (real K8s events the chaos_observer reacts to), OR
+#   - ad-hoc:  kubectl run broken-once --image=does-not-exist:v999 \
+#                 --restart=Never -n workloads
+# The remaining scenarios (1, 4-7) target nginx-demo / k3d-poc-server-0
+# which the bootstrap guarantees exist.
 _SUBJECTS = {
     1: "infra.events.memory_leak",
-    2: "infra.events.crashloop",
-    3: "infra.events.image_pull_failure",
     4: "infra.events.node_pressure",
     5: "infra.events.rollout_regression",
     6: "infra.events.config_drift",
@@ -123,40 +130,6 @@ def build_event(scenario: int) -> dict[str, Any]:
                 "evt.time": _now_iso(),
             },
         )
-    if scenario == 2:
-        return _event(
-            2,
-            rule="Pod restart loop detected",
-            priority="Error",
-            output="Container has restarted 5 times in the last 3 minutes (CrashLoopBackOff)",
-            fields={
-                "event.kind": "BackOff",
-                "container.name": "busybox",
-                "k8s.ns.name": "workloads",
-                "k8s.pod.name": _resolve_pod_name("workloads", "busybox-bad", "busybox-bad"),
-                "k8s.deployment.name": "busybox-bad",
-                "restart.count": 5,
-                "exit.code": 1,
-                "evt.time": _now_iso(),
-            },
-        )
-    if scenario == 3:
-        return _event(
-            3,
-            rule="Image pull failure (ErrImagePull / ImagePullBackOff)",
-            priority="Warning",
-            output="Failed to pull image 'ghcr.io/example/does-not-exist:v999': manifest unknown",
-            fields={
-                "event.kind": "Failed",
-                "kubelet.reason": "ImagePullBackOff",
-                "container.name": "app",
-                "k8s.ns.name": "workloads",
-                "k8s.pod.name": _resolve_pod_name("workloads", "broken-image", "broken-image"),
-                "k8s.deployment.name": "broken-image",
-                "container.image": "ghcr.io/example/does-not-exist:v999",
-                "evt.time": _now_iso(),
-            },
-        )
     if scenario == 4:
         return _event(
             4,
@@ -222,7 +195,11 @@ def build_event(scenario: int) -> dict[str, Any]:
                 "evt.time": _now_iso(),
             },
         )
-    raise ValueError(f"unknown scenario {scenario}; use 1..7")
+    raise ValueError(
+        f"unknown scenario {scenario}; use one of {sorted(_SUBJECTS)} "
+        "(scenarios 2 + 3 were retired — reproduce CrashLoopBackOff / "
+        "ImagePullBackOff via the Use Case wizard or `kubectl run`)"
+    )
 
 
 async def _publish(scenario: int) -> None:
