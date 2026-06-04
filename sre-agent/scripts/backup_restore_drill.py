@@ -178,7 +178,10 @@ def _verify(state_root: Path, expected: dict[str, object]) -> None:
     audit_path = state_root / "audit" / "audit.log"
     _check(audit_path.exists(), "audit.log restored")
     n_records, invalid = verify_audit_log(str(audit_path), key="drill-test-key")
-    _check(n_records >= int(expected["audit_lines"]), f"audit chain has >= {expected['audit_lines']} lines")  # type: ignore[arg-type]
+    _check(
+        n_records >= int(expected["audit_lines"]),
+        f"audit chain has >= {expected['audit_lines']} lines",
+    )  # type: ignore[arg-type]
     _check(not invalid, "audit chain HMACs all valid (no tampering)")
 
     # 2. Calibration DB: re-open + read back the override.
@@ -256,7 +259,9 @@ def main() -> int:
         t0 = time.monotonic()
         _backup(state_root, backup_path)
         backup_size = backup_path.stat().st_size
-        print(f"  Backup written: {backup_path} ({backup_size} bytes, {time.monotonic() - t0:.2f}s)")
+        print(
+            f"  Backup written: {backup_path} ({backup_size} bytes, {time.monotonic() - t0:.2f}s)"
+        )
 
         print("\n--- Wipe (simulate node loss) ---")
         _wipe(state_root)
