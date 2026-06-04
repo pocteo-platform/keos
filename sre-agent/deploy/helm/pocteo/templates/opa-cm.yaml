@@ -5,4 +5,4 @@ metadata:
   labels: {{- include "pocteo.labels" . | nindent 4 }}
 data:
   agent.rego: |
-{{ .Files.Get "../../policies/agent.rego" | indent 4 }}
+{{ .Files.Get "files/policies/agent.rego" | indent 4 }}
