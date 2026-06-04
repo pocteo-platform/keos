@@ -5,11 +5,15 @@ running an **immutable Kubernetes OS — Talos or Kairos** — the same
 Helm chart that powers the laptop demo runs ~10× faster end-to-end by
 enabling the GPU.
 
-> **Want the day-1 walkthrough instead?** See
-> [`JETSON_FIRST_BOOT.md`](JETSON_FIRST_BOOT.md) — that's the operator's
-> "I just received the box" guide. The doc you're reading now is the
-> **platform reference**: every knob, sizing, GPU plumbing, fallback to
-> legacy k3s.
+> **Want the day-1 walkthrough instead?**
+> - **Recommended path:** [`KAIROS_JETSON.md`](KAIROS_JETSON.md) —
+>   Kairos+Jetson Orin NX with P2P mesh + GPU inference, end-to-end
+>   from flashing to first incident. This is the doc to follow.
+> - Generic Talos/Kairos OS-agnostic walkthrough:
+>   [`JETSON_FIRST_BOOT.md`](JETSON_FIRST_BOOT.md).
+>
+> The doc you're reading now is the **platform reference**: every knob,
+> sizing, GPU plumbing, fallback to legacy k3s.
 
 Expected behaviour, side by side:
 
@@ -360,7 +364,8 @@ CPU that GPU offload would add latency.
 
 ## See also
 
-- [`JETSON_FIRST_BOOT.md`](JETSON_FIRST_BOOT.md) — operator's day-1 walkthrough
+- [`KAIROS_JETSON.md`](KAIROS_JETSON.md) — **canonical** Kairos+Orin day-1 (P2P + GPU)
+- [`JETSON_FIRST_BOOT.md`](JETSON_FIRST_BOOT.md) — generic Talos/Kairos walkthrough
 - [`TALOS.md`](TALOS.md) — Talos-specific notes (runtime socket, machineconfig)
 - [`INSTALL.md`](INSTALL.md) — install matrix
 - [`CONFIG_REFERENCE.md`](CONFIG_REFERENCE.md) — `ollama.gpu.*` Helm keys

@@ -74,8 +74,11 @@ installer enables GPU offload (`ollama.gpu.enabled=true`,
 `runtimeClassName=nvidia`) when it sees `nvidia.com/gpu` capacity on
 any node — drops a full graph run from ~5 min CPU to ~25 s GPU.
 
-**Day-1 walkthrough** (what you'll see + type in order): see
-[`JETSON_FIRST_BOOT.md`](JETSON_FIRST_BOOT.md).
+**Day-1 walkthrough — recommended path** (Kairos + Jetson Orin NX,
+including P2P mesh + GPU): see [`KAIROS_JETSON.md`](KAIROS_JETSON.md).
+
+**Generic Talos/Kairos walkthrough** (any Jetson hardware, OS-agnostic):
+see [`JETSON_FIRST_BOOT.md`](JETSON_FIRST_BOOT.md).
 
 **Platform reference** (sizing, knobs, power modes, GPU plumbing,
 legacy k3s fallback): see [`JETSON.md`](JETSON.md).
