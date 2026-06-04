@@ -356,11 +356,19 @@ def _check_opa() -> dict[str, Any]:
 
 
 def _check_cluster() -> dict[str, Any]:
-    """Can we reach the K8s API server with the configured kubeconfig?"""
+    """Can we reach the K8s API server?
+
+    Tries in-cluster config first (production: agent runs as a Pod with
+    a projected SA token), falls back to the dev kubeconfig file
+    (laptop demo). Same precedence kubectl itself uses.
+    """
     try:
         from kubernetes import client, config
 
-        config.load_kube_config(config_file=settings.kubeconfig)
+        try:
+            config.load_incluster_config()
+        except config.ConfigException:
+            config.load_kube_config(config_file=settings.kubeconfig)
         v1 = client.CoreV1Api()
         # 2s deadline; tiny call.
         nodes = v1.list_node(_request_timeout=2)
