@@ -969,9 +969,33 @@ def _detect_distro(nodes_raw: list[dict], kube_version: str) -> str:
     return "kubeadm" if kube_version else "unknown"
 
 
+def _deployment_exists(name: str, namespace: str) -> bool:
+    """True if a Deployment OR StatefulSet with this name exists in
+    the namespace. List-and-filter rather than `kubectl get deploy <n>`
+    because the single-resource form returns a bare object (no `items`)
+    on success AND a non-zero exit on missing — both shapes our generic
+    `_kubectl_get` helper turns into an empty `items` list, making
+    success and absence indistinguishable.
+
+    Checking Deployment OR StatefulSet covers both `prometheus-server`
+    (community Helm chart, Deployment) and `prometheus-k8s`
+    (Prometheus Operator, StatefulSet)."""
+    for kind in ("deployments", "statefulsets"):
+        items = _kubectl_get(kind, "", namespace).get("items", [])
+        for it in items:
+            if (it.get("metadata") or {}).get("name") == name:
+                return True
+    return False
+
+
 def _detect_operators() -> DetectedOperators:
-    """Probe for well-known operators by looking up their CRDs. Each
-    probe is independent — failure of one doesn't bias the others."""
+    """Probe for well-known operators with a layered approach:
+      1. CRDs   — works for operator-driven installs (Prometheus Operator,
+                 Argo CD, Flux v2, cert-manager, Chaos Mesh).
+      2. Deployments / StatefulSets — works for standalone installs that
+                 ship a workload but no CRDs (plain Prometheus from the
+                 community Helm chart, standalone Argo Workflows, etc.).
+    Each probe is independent — failure of one doesn't bias the others."""
     crd_probes = {
         "argocd": "applications.argoproj.io",
         "flux": "kustomizations.kustomize.toolkit.fluxcd.io",
@@ -979,18 +1003,49 @@ def _detect_operators() -> DetectedOperators:
         "prometheus": "prometheuses.monitoring.coreos.com",
         "cert_manager": "certificates.cert-manager.io",
     }
+    # Per-operator workload probes — (field, name, candidate_namespaces).
+    # Order matters; first match wins. Standalone installs almost always
+    # land in `monitoring`; Helm umbrella charts sometimes put them in
+    # their release namespace.
+    workload_probes: list[tuple[str, str, list[str]]] = [
+        # Standalone Prometheus (community Helm chart) → Deployment 'prometheus'.
+        # Prometheus Operator → StatefulSet 'prometheus-k8s' or 'prometheus-prometheus'.
+        ("prometheus", "prometheus", ["monitoring", "prometheus", "observability"]),
+        ("prometheus", "prometheus-server", ["monitoring", "prometheus"]),
+        ("prometheus", "prometheus-k8s", ["monitoring"]),
+        # Argo CD server (no CRD = unusual but possible).
+        ("argocd", "argocd-server", ["argocd"]),
+        # Flux's source-controller is the canonical "Flux installed" signal.
+        ("flux", "source-controller", ["flux-system"]),
+        # cert-manager's webhook Deployment.
+        ("cert_manager", "cert-manager-webhook", ["cert-manager"]),
+        # Chaos Mesh controller (in case CRDs missed — rare).
+        ("chaos_mesh", "chaos-controller-manager", ["chaos-mesh"]),
+    ]
     out = DetectedOperators()
     crds = _kubectl_get("customresourcedefinitions", "", "").get("items", [])
     crd_names = {(c.get("metadata", {}) or {}).get("name", "") for c in crds}
     for field, name in crd_probes.items():
         if name in crd_names:
             setattr(out, field, True)
+    # Workload fallbacks — only run if the CRD probe didn't already
+    # set the field, to avoid wasted API calls on operator-style installs.
+    for field, workload_name, ns_candidates in workload_probes:
+        if getattr(out, field):
+            continue
+        for ns in ns_candidates:
+            try:
+                if _deployment_exists(workload_name, ns):
+                    setattr(out, field, True)
+                    break
+            except Exception:  # noqa: BLE001
+                pass
     # kube-state-metrics is a Deployment, not a CRD.
     try:
-        ksm = _kubectl_get("deployments", "kube-state-metrics", "monitoring").get("items", [])
-        if not ksm:
-            ksm = _kubectl_get("deployments", "kube-state-metrics", "kube-system").get("items", [])
-        out.kube_state_metrics = bool(ksm)
+        if _deployment_exists("kube-state-metrics", "monitoring"):
+            out.kube_state_metrics = True
+        elif _deployment_exists("kube-state-metrics", "kube-system"):
+            out.kube_state_metrics = True
     except Exception:  # noqa: BLE001
         pass
     return out
