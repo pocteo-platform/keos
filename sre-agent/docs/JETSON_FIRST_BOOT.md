@@ -1,153 +1,206 @@
-# Jetson Orin Nano — first-boot install walkthrough
+# Jetson Orin Nano — first-boot install walkthrough (Talos / Kairos)
 
-> **Scenario.** A Jetson Orin Nano arrives preconfigured with the Keos
-> edge OS. You plug it into ethernet + a screen. This doc tells you
-> exactly what you'll see, type, and click — in order — to get the
-> Keos SRE Agent running on that box and accept its first cluster
-> incident.
+> **Scenario.** A Jetson Orin Nano arrives preconfigured with an
+> **immutable Kubernetes OS** — either **Talos**
+> ([talos.dev](https://www.talos.dev)) or **Kairos**
+> ([kairos.io](https://kairos.io)). It runs a single-node Kubernetes
+> cluster.
+> You plug it into ethernet + a screen. This doc tells you exactly
+> what to do — from your workstation — to install the Keos SRE Agent
+> on that box, observe its first cluster incident, and have the
+> Jetson healing itself end-to-end.
 >
-> **Total time:** ~12 minutes on a stock Orin Nano with the model
-> images already in the OS layer, ~25 minutes on the first install
-> if Ollama has to pull `qwen2.5:3b-instruct-q4_K_M` (~1.9 GB) over
-> the wire.
+> **Total time:** ~12 min on a warm install (models cached in the OS
+> image), ~25 min on a cold install (Ollama pulls
+> `qwen2.5:3b-instruct-q4_K_M`, ~1.9 GB).
 
 ---
 
-## 0. What the OS gives you before you start
+## 0. Why immutable OS changes the install flow
 
-The Keos edge OS image ships with:
+Talos and Kairos are both **immutable** Kubernetes OSes — the root
+filesystem is read-only, upgrades are atomic, configuration is
+declarative. They differ in a few key ways:
 
-- A single-node **k3s** cluster, pre-installed, started at boot. The
-  Jetson is its own control plane + only worker.
-- The **NVIDIA Container Toolkit** wired into containerd, so any pod
-  that requests `nvidia.com/gpu` lands on the Jetson's GPU.
-- A **`nvidia` RuntimeClass** + the **NVIDIA device plugin DaemonSet**
-  so kubelet advertises `nvidia.com/gpu: 1` as a schedulable resource.
-- The standard k3s tools on `PATH`: `kubectl`, `k3s`, `crictl`.
-- `helm` 3.16+ + `git`.
-- An `operator` user with passwordless sudo.
+| | Talos | Kairos |
+|---|---|---|
+| Bundled Kubernetes | k8s direct (kubelet, no shell) | **k3s by default** (also supports k0s, RKE2) |
+| SSH access | ✗ — managed via `talosctl` API only | ✓ — SSH keys provisioned via cloud-init |
+| Host management | `talosctl` (Talos API) | cloud-init + `kairos-agent` |
+| containerd socket | `/run/containerd/containerd.sock` | `/run/k3s/containerd/containerd.sock` (k3s) |
+| Single-node K8s | ✓ | ✓ |
+| NVIDIA toolkit + `nvidia` RuntimeClass | preconfigured via System Extension | preconfigured via Kairos bundle |
+| Argo CD / Flux / Prometheus | not included | not included |
 
-What it does NOT have:
+The install pattern is the same for both: **run the installer from
+your workstation, not on the Jetson**. The Jetson exposes the
+Kubernetes API on port 6443 — that's all the workstation needs. The
+installer drives `kubectl` + `helm` against it.
 
-- The Keos SRE Agent (you install it).
-- Argo CD / Flux / Prometheus (optional; the agent detects them if
-  you do install them later).
-
-> **First-boot quick check.** If anything below isn't true, escalate
-> to whoever flashed the OS — you shouldn't have to fix it yourself:
-> ```bash
-> kubectl get nodes
-> # NAME            STATUS   ROLES                  AGE     VERSION
-> # keos-jetson-1   Ready    control-plane,master   2m      v1.30.4+k3s1
->
-> kubectl get nodes -o jsonpath='{.items[0].status.capacity.nvidia\.com/gpu}'
-> # 1
->
-> kubectl get runtimeclass
-> # NAME     HANDLER   AGE
-> # nvidia   nvidia    2m
-> ```
+If anything below isn't true, that's a flash-image issue — escalate
+to whoever built your OS image; don't try to "fix" the node from
+the inside, you can't.
 
 ---
 
-## 1. Connect to the Jetson (60 seconds)
+## 1. Prepare your workstation (one-time, 2 min)
 
-You have two equally good options:
+On your **laptop or jump host**, install:
 
-### Option A — directly on the attached screen
-The OS boots into a TTY (no GUI). Login as `operator`:
-```
-Keos edge node · keos-jetson-1
-operator login: operator
-Password: ********
-```
+- `kubectl` ≥ 1.28 — [install](https://kubernetes.io/docs/tasks/tools/)
+- `helm` ≥ 3.14 — [install](https://helm.sh/docs/intro/install/)
+- `openssl`, `curl`, `python3` (preinstalled on macOS + most Linux)
+- For **Talos** only: `talosctl` ≥ 1.7 — [install](https://www.talos.dev/v1.7/talos-guides/install/talosctl/)
+- For **Kairos** only: an `ssh` client (preinstalled on macOS + Linux,
+  `ssh.exe` on Windows 10+)
 
-### Option B — SSH from your laptop
-Find the Jetson's IP from your router's DHCP page (or via mDNS):
+That's the entire workstation prerequisite list. No Docker, no node
+modules, nothing else.
+
+---
+
+## 2. Connect to the Jetson (one-time, 2 min)
+
+Plug the Jetson into ethernet + a screen. The screen shows the OS's
+boot banner and the node's IP — write it down.
+
+### Option A — Talos
+
+Fetch the kubeconfig **from the Jetson's Talos API**:
+
 ```bash
-# from your laptop
-ping keos-jetson-1.local
-# 64 bytes from 192.168.1.42 ...
+# From your workstation. <jetson-ip> is what the screen displayed.
+# <talosconfig> is the file your OS-image builder gave you (usually
+# named talosconfig.yaml or admin.yaml — contains the operator's PKI).
+talosctl --talosconfig <talosconfig> \
+         --nodes <jetson-ip>          \
+         kubeconfig ~/.kube/keos-jetson.yaml
 
-ssh operator@192.168.1.42
+export KUBECONFIG=~/.kube/keos-jetson.yaml
+kubectl get nodes
+# NAME            STATUS   ROLES                  AGE   VERSION
+# keos-jetson-1   Ready    control-plane,worker   3m    v1.30.4
 ```
 
-SSH is nicer because you can copy-paste — recommended for the install.
+If `kubectl get nodes` works, you're done with step 2.
+
+### Option B — Kairos
+
+Kairos provisions SSH access via cloud-init at first boot (the SSH
+keys live in the OS's user-data config — your OS-image builder seeded
+the operator's public key). Kairos also bundles **k3s by default**,
+so the kubeconfig is at the standard k3s path:
+
+```bash
+# From your workstation. Pull the kubeconfig over SSH, rewrite the
+# server URL to the Jetson's IP, and point KUBECONFIG at it.
+ssh kairos@<jetson-ip> 'sudo cat /etc/rancher/k3s/k3s.yaml' \
+  | sed "s/127.0.0.1/<jetson-ip>/" \
+  > ~/.kube/keos-jetson.yaml
+
+export KUBECONFIG=~/.kube/keos-jetson.yaml
+kubectl get nodes
+# NAME            STATUS   ROLES                  AGE   VERSION
+# keos-jetson-1   Ready    control-plane,master   3m    v1.30.4+k3s1
+```
+
+The default Kairos user is `kairos` (configurable in cloud-init). If
+your image bundles k0s or RKE2 instead of k3s, the kubeconfig path
+shifts — check `kairos-agent state` over SSH.
 
 ---
 
-## 2. Install the Keos SRE Agent (one command)
+## 3. Install the Keos SRE Agent (one command, 12–25 min)
+
+From your workstation (with `KUBECONFIG` exported):
 
 ```bash
 curl -fsSL https://get.keos.pocteo.platform/install-edge.sh | bash
 ```
 
-That's it. The script does five things, prints what it's doing as it
-goes, and stops at any error:
+That's it. The script auto-detects:
+- **Distro** (Talos vs Kairos vs other) — adjusts the Chaos Mesh
+  socket path accordingly.
+- **GPU** — enables it on Ollama if `nvidia.com/gpu` capacity
+  shows up, otherwise CPU mode.
+- **Target node** — single-node clusters resolve unambiguously;
+  multi-node uses `--node <name>`.
+
+Expected output:
 
 ```
-[install-edge] Detecting Kubernetes context...
-[install-edge]   distro: k3s · k8s: v1.30.4 · nodes: 1 (keos-jetson-1)
-[install-edge]   GPU: nvidia.com/gpu = 1 ✓
-[install-edge] Generating bearer token + audit HMAC key...
-[install-edge] Adding the Keos Helm repo...
-[install-edge] Installing Keos to namespace 'keos'...
-[install-edge]   helm install keos pocteo/keos-sre-agent \
-                  --set auth.apiToken=*** \
-                  --set auth.hmacKey=*** \
-                  --set agent.attachment.mode=hard \
-                  --set agent.attachment.nodeName=keos-jetson-1 \
-                  --set ollama.gpu.enabled=true \
-                  --set ollama.gpu.runtimeClassName=nvidia
-[install-edge] Waiting for pods to become ready (~3 min cold-start)...
-[install-edge]   keos-api          1/1 Ready
-[install-edge]   keos-mcp-server   1/1 Ready
-[install-edge]   keos-ollama       1/1 Ready
-[install-edge]   keos-qdrant       1/1 Ready
-[install-edge]   keos-nats         1/1 Ready
-[install-edge]   keos-opa          1/1 Ready
-[install-edge] Pulling models (this is the slow step — ~5-10 min)...
-[install-edge]   ollama pull qwen2.5:3b-instruct-q4_K_M ✓
-[install-edge]   ollama pull nomic-embed-text ✓
-[install-edge] Seeding the runbook corpus into Qdrant... ✓
-[install-edge] Bootstrap complete!
+[install-edge] Preflight…
+[install-edge] ✓ kubectl + helm + openssl + python3 OK
+[install-edge] Probing cluster…
+[install-edge] ✓ distro: talos · k8s: v1.30.4 · nodes: 1
+[install-edge] ✓ target node: keos-jetson-1 · GPU: yes (nvidia.com/gpu)
+[install-edge] ✓ Talos detected — using containerd socket /run/containerd/containerd.sock
+[install-edge] Generating bearer token + audit HMAC key…
+[install-edge] ✓ tokens ready (operator copy cached at ~/.keos-token)
+[install-edge] Adding the Keos Helm repo…
+[install-edge] ✓ repo synced
+[install-edge] Installing Keos to namespace 'keos'…
+[install-edge] ✓ Helm release 'keos' deployed
+[install-edge] Pulling LLM models (slow — ~5-10 min on first install)…
+[install-edge] ✓ models cached on keos-jetson-1
+[install-edge] Seeding the runbook corpus into Qdrant…
+[install-edge] ✓ runbooks indexed
 
 ==================================================================
-  Open Keos in your browser:
-    http://192.168.1.42
+  Keos SRE Agent is up on talos.
+==================================================================
 
-  Your bearer token (paste it on the login screen):
+  Open in your browser:
+    http://192.168.1.42:30080
+
+  Bearer token (paste it on the login screen):
     s6BlChxanIlS8HkgJ46kuTMGXcFnqAxG
 
-  This token is also saved to /home/operator/.keos-token
-==================================================================
+  Cached at:  /home/you/.keos-token
+
+  Helm release:  keos · namespace: keos
+  Pinned to:     keos-jetson-1 (mode=hard, label=keos.pocteo/sre-home=true)
+  Agent mode:    observe-only (flip to 'active' from Settings → Agent)
 ```
 
-### What the script just did under the hood
+### What the script did
 
-1. **`kubectl version`** to confirm the cluster is reachable.
-2. **`kubectl get nodes -o yaml`** to find the Jetson's name + GPU capacity.
-3. Generated a random `apiToken` + `hmacKey` (`openssl rand -base64 32`).
-4. Ran the Helm install with:
-   - `agent.attachment.mode=hard` → the api pod **only** schedules on
-     this node. (One-Jetson clusters have one node, but pinning here
-     is good hygiene for when you add a second.)
-   - `ollama.gpu.enabled=true` + `runtimeClassName=nvidia` → Ollama
-     gets the GPU.
-5. Waited for all 6 Deployments to report Ready.
-6. Pulled the LLM models via the Ollama pod's exec.
-7. Seeded the 12 SRE runbooks into Qdrant via the api pod's exec.
+1. **Probed the cluster** — `kubectl version`, `kubectl get nodes -o json`.
+2. **Auto-detected Talos** from node labels (`talos.dev/*`) and set
+   the Chaos Mesh containerd socket to `/run/containerd/containerd.sock`
+   (Talos default; differs from k3s).
+3. **Picked the GPU-bearing node** and ran:
+   ```
+   helm upgrade --install keos pocteo/keos-sre-agent \
+     --namespace keos --create-namespace \
+     --set agent.attachment.mode=hard \
+     --set agent.attachment.nodeName=keos-jetson-1 \
+     --set agent.bootstrapNodeLabel.enabled=true \
+     --set chaos-mesh.chaosDaemon.socketPath=/run/containerd/containerd.sock \
+     --set ollama.gpu.enabled=true \
+     --set ollama.gpu.runtimeClassName=nvidia
+   ```
+   The `bootstrapNodeLabel` hook labels `keos-jetson-1` with
+   `keos.pocteo/sre-home=true` before the chart installs. The api +
+   ollama Deployments select on that label — so if you ever rename
+   the node or add more, the agent stays where you asked it to be.
+3. **Waited up to 10 min** for everything Ready.
+4. **Pulled the LLM models** via `kubectl exec` against the Ollama pod.
+5. **Seeded the runbook corpus** via `kubectl exec` against the api pod.
+6. **Resolved the access URL** — Ingress first, then NodePort, then a
+   `kubectl port-forward` fallback. Talos and Kairos usually expose
+   the agent via a NodePort on the Jetson's IP (the URL above).
 
-The whole thing is **idempotent** — re-run it and it's a no-op
-(`helm upgrade --install`). If a step fails, the script prints the
-failing command + exit code; nothing's left half-broken.
+The script is **idempotent** — re-running it does `helm upgrade --install`,
+a no-op if nothing changed. Each step prints its command + exits
+non-zero on failure; nothing's left half-broken.
 
 ---
 
-## 3. First login — what you'll see (~3 min)
+## 4. First login (~3 min)
 
-Open `http://<jetson-ip>` on your laptop. The first screen is the
-token-paste page:
+Open the URL the script printed in your browser. You land on the
+token-paste screen:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -161,20 +214,20 @@ token-paste page:
 └─────────────────────────────────────────────────────────┘
 ```
 
-Paste the token from the install script. You land on the dashboard.
+Paste the token (also cached at `~/.keos-token` on your workstation).
+You land on the dashboard.
 
-The **Cluster context** card (bottom of the dashboard) confirms the
-agent saw everything:
+The **Cluster context** card confirms what the agent discovered:
 
 ```
-CLUSTER CONTEXT                                           [k3s]
+CLUSTER CONTEXT                                         [talos]
 What the agent discovered about its host cluster.
 
-  Kubernetes: v1.30.4+k3s1     Runtime: containerd
-  Nodes: 1/1 ready             Capacity: 8 CPU · 8 GiB · 1 GPU
+  Kubernetes: v1.30.4              Runtime: containerd
+  Nodes: 1/1 ready                 Capacity: 8 CPU · 8 GiB · 1 GPU
 
   NODES
-  ● keos-jetson-1   ctrl   [1 GPU]   [● agent here]   8 CPU · 8 GiB
+  ● keos-jetson-1   ctrl/worker   [1 GPU]   [● agent here]   8 CPU · 8 GiB
 
   DETECTED OPERATORS
   [chaos_mesh ✓]   [argocd ✗]   [flux ✗]   [prometheus ✗]
@@ -186,46 +239,53 @@ What the agent discovered about its host cluster.
     baselines + forecasts.
 ```
 
-If you see this, **the install worked** — every component is wired
-correctly, the agent knows it's on the Jetson, GPU acceleration is
-on, and the agent is observing the cluster.
+If the badge says `[talos]` (or `[keros]`) and `● agent here` appears
+on the Jetson's row, **the install worked** — every component is
+wired correctly, the agent is on the Jetson, the GPU is connected,
+and the K8s API is observable.
 
 ---
 
-## 4. Optional — install Prometheus + Argo CD (so warnings disappear)
+## 5. Optional — install Prometheus + Argo CD
 
-The Keos agent runs fine without these, but it's smarter with them:
+The agent works fine without them, but the smart layer (baselines,
+forecasts, drift detection) is partly grounded by them.
 
 ### Prometheus (~2 min)
-Enables Phase 13 baselines + Phase 14 forecasts:
+
+Enables ML baselines + predictive forecasts:
 
 ```bash
 kubectl create namespace monitoring
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm install prom prometheus-community/prometheus -n monitoring \
+helm install prom prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
   --set alertmanager.enabled=false \
-  --set pushgateway.enabled=false
+  --set grafana.enabled=false
 ```
 
-Wait for the prometheus + kube-state-metrics pods to be Ready, then
-**refresh the dashboard**. The two warnings disappear automatically —
-the agent re-probes every 30 s.
+The dashboard's Prometheus warning vanishes on the next 30 s probe.
 
 ### Argo CD (~3 min)
-Enables Phase 15 GitOps drift detection:
+
+Enables GitOps drift detection:
 
 ```bash
 kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 ```
 
 The "No GitOps controller detected" warning vanishes on the next
-dashboard refresh. Configure your Argo CD applications normally;
-the agent reads from them.
+refresh.
+
+> **Talos note.** Both of these install as Pods inside the cluster —
+> they live in the same immutable-OS world. No node-side changes,
+> no kernel modules, no sysfs writes.
 
 ---
 
-## 5. Run your first incident (90 s)
+## 6. Run your first incident (~90 s)
 
 From the SPA's left sidebar: **Use Cases** → click **"Memory leak /
 OOM trajectory"** → **Run**.
@@ -236,10 +296,10 @@ You'll see:
 2. **Triage** → **Retrieve context** → **Cluster signals** →
    **Baselines** → **Diagnose** → **Plan action** → **Policy gate**
    light up green in sequence.
-3. The agent diagnoses the synthetic OOM trajectory (the LLM call
-   takes ~20–30 s on a warm Jetson GPU; ~4 min on CPU).
-4. Because the agent's default mode is `observe-only`, the action
-   plan is logged but not executed.
+3. The LLM diagnoses the synthetic OOM trajectory (~20–30 s on a warm
+   Jetson GPU, ~4 min on CPU).
+4. Because the agent's default mode is `observe-only`, the action plan
+   is logged but **not executed**.
 5. The incident lands in **Incidents** with verdict `observe_only`.
 
 Flip the agent to `active` (top-right of the dashboard → click the
@@ -248,120 +308,130 @@ agent actually executes the `rollout_undo` and **Verify** turns green
 once the cluster recovers.
 
 That's the full Observe → Predict → Heal → Learn loop, running
-locally on your Jetson, ~15 minutes after you plugged in the
-ethernet cable.
+locally on your Jetson, ~15 min after first boot.
 
 ---
 
-## 6. What if the Jetson is NOT the cluster
-
-The walkthrough above assumes the Jetson runs its own single-node
-k3s. Three other shapes are possible:
+## 7. Alternative shapes (less common)
 
 ### Shape B — Jetson is a worker in an existing remote cluster
-Your cluster's control plane lives elsewhere (datacenter, AWS, etc.)
-and the Jetson is just one node in it. **Don't** run `install-edge.sh`
-on the Jetson — the agent should run as a Pod inside the cluster,
-which means you install it from your laptop pointed at the right
-kubeconfig:
+
+The control plane lives elsewhere; the Jetson is just one node in
+that cluster. Install Keos from the workstation pointed at that
+cluster's kubeconfig:
 
 ```bash
-# from your laptop, with $KUBECONFIG pointing at the real cluster
-helm install keos pocteo/keos-sre-agent \
-  --set auth.apiToken=$(openssl rand -base64 32) \
-  --set auth.hmacKey=$(openssl rand -base64 32) \
-  --set agent.attachment.mode=hard \
-  --set agent.attachment.nodeName=keos-jetson-1 \
-  --set ollama.gpu.enabled=true \
-  --set ollama.gpu.runtimeClassName=nvidia
-```
-
-The `agent.attachment.mode=hard` + `nodeName=keos-jetson-1` pins the
-agent to the Jetson — that's the box with the GPU, so inference runs
-there. Other workloads stay where they were.
-
-### Shape C — multiple Jetsons forming a small k3s HA cluster
-Same as Shape B, but the control plane is the Jetsons themselves
-(2–3 of them in HA mode). Run `install-edge.sh` from the operator's
-choice of Jetson; the script auto-picks the local node, but you
-should override:
-
-```bash
+export KUBECONFIG=~/.kube/the-real-cluster.yaml
 curl -fsSL https://get.keos.pocteo.platform/install-edge.sh \
-  | bash -s -- --node keos-jetson-2
+  | bash -s -- --node keos-jetson-1
 ```
 
-The agent ends up on `keos-jetson-2` regardless of which Jetson you
-ran the script from.
+`--node keos-jetson-1` pins the agent to the Jetson — that's the box
+with the GPU; inference runs there.
 
-### Shape D — Jetson is independent + you want to point it at another cluster
-The SRE agent fundamentally runs *inside* a cluster, not adjacent to
-one — that's how it reads the K8s API, watches kubelet events, and
-applies remediations under scoped RBAC. There is no "point this
-Jetson at that cluster" mode; if you want the agent to manage a
-remote cluster, install it INTO that cluster. The Jetson can run a
-SECOND cluster (its own one-node k3s) for an entirely separate
-agent if you want a multi-tenant story — but that's two installs,
-two URLs, two tokens.
+### Shape C — multiple Jetsons in HA
+
+2–3 Jetsons form the control plane. The agent runs as 1 replica
+pinned to one of them. Pass `--node <chosen-jetson>` and the
+bootstrap hook labels that node.
+
+The Helm chart's `replicaCount: 2` HA mode (planned in Phase 18) will
+spread the agent across two Jetsons with NATS-backed leader election.
+Until then, 1 replica + a stable node label is the right pattern.
+
+### Shape D — Jetson is independent + you want it to manage another cluster
+
+The agent **fundamentally runs inside the cluster it manages** —
+that's how it reads the K8s API, watches kubelet events, and applies
+remediations under scoped RBAC. There is no "point this Jetson at
+that cluster" mode.
+
+If you want the agent to manage a remote cluster, install it INTO
+that cluster (Shape B). The Jetson can run a second cluster (its
+own one-node Talos / Kairos) for an entirely separate agent if you
+want a multi-tenant story — but that's two installs, two URLs, two
+tokens.
 
 ---
 
-## 7. Day 2 — what an operator does after install
+## 8. Day-2 operations
 
-Everything's in **Settings**:
+Everything is in **Settings**:
 
-- **Agent** — flip mode (observe-only → active → frozen), see
+- **Agent** — flip mode (observe-only → active → frozen); see
   pending approvals.
-- **Calibration** — per-rule confidence thresholds. Pin one when
-  you want to override the auto-learner.
-- **Data lifecycle** — change retention windows (audit / incidents /
-  traces). Live, no restart.
+- **Calibration** — per-rule confidence thresholds (auto-learned;
+  pin one to override).
+- **Data lifecycle** — change retention windows live, no restart.
 - **Drift** — recent GitOps drift events + the detector's config.
-- **Forecasting / Baselines** — live tables of what the ML layer is
-  tracking. Enable / disable via env vars (Helm `values.yaml`).
-- **Notifications** — Slack + generic webhook for `page_human` events.
+- **Forecasting / Baselines** — live tables of what the ML layer
+  is tracking.
+- **Notifications** — Slack + generic webhook for `page_human`.
 
-Every action you take here writes one line to the HMAC-chained audit
-log. You can verify the chain at any time via Settings → Audit →
-**Verify chain**.
+Every operator action writes one HMAC-chained audit line. Verify
+the chain any time via Settings → Audit → **Verify chain**.
 
 ---
 
-## 8. Uninstall — the operator's escape hatch
+## 9. Uninstall
+
+From your workstation:
 
 ```bash
 helm uninstall keos -n keos
 kubectl delete namespace keos
 ```
 
-This removes every resource — Pods, PVCs, Secrets, ConfigMaps, the
-AgentMode CR, the bootstrap node label. The Jetson is back to its
-post-flash state.
+Removes every resource — Pods, PVCs, Secrets, ConfigMaps, AgentMode
+CR, the bootstrap node label. The Jetson is back to its post-flash
+state. The OS itself is untouched.
 
-If you're paranoid: also remove the bearer token cached in your
-laptop's browser (clear `localStorage.shp_token` on the SPA's origin)
-and the token file on disk (`/home/operator/.keos-token`).
+If you're paranoid: clear `localStorage.shp_token` on the SPA's
+origin in your browser and delete `~/.keos-token` on your
+workstation.
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `kubectl get nodes` says "connection refused" | k3s not started | `sudo systemctl start k3s` then re-run the script |
-| Helm install fails: "no matches for nvidia.com/gpu" | NVIDIA device plugin missing | `kubectl get ds -n kube-system` — if there's no `nvidia-device-plugin-daemonset`, the OS image is broken; escalate |
-| Ollama pod stuck Pending | Tried to schedule without GPU runtime | `kubectl describe pod -n keos -l app=ollama` — look for "0/1 nodes are available". Re-install with `ollama.gpu.runtimeClassName=nvidia` |
-| The SPA loads but everything's "—" | Token wrong | Open the install script's output again; copy-paste fresh into the login page |
-| Dashboard never updates | API container CrashLooping | `kubectl logs -n keos -l app=api --tail=50` — usually a missing env var |
-| Pipeline pings then nothing happens | LLM hasn't pulled yet | `kubectl exec -n keos -it keos-ollama-0 -- ollama list` — if empty, re-run the model-pull step from the script |
+| `kubectl get nodes` says "Unable to connect to the server" | Wrong kubeconfig OR Jetson unreachable on port 6443 | Re-run step 2; ping the Jetson; check that you're on the same network |
+| `talosctl kubeconfig` errors with "certificate signed by unknown authority" | Wrong `--talosconfig` (operator PKI) | Use the talosconfig your OS-image builder shipped; do NOT hand-craft one |
+| Install fails: "no matches for nvidia.com/gpu" | NVIDIA device plugin not running yet | `kubectl get ds -A` — if there's no nvidia-device-plugin DaemonSet, the OS image is broken; escalate to whoever flashed it |
+| Ollama pod stuck Pending | Tried to schedule without the GPU runtime | `kubectl describe pod -n keos -l app=ollama` — look for "0/1 nodes are available". Re-run with `--no-gpu` first to confirm everything else works, then re-flash the OS image with a working device-plugin |
+| Chaos Mesh's chaos-daemon CrashLoops | Wrong containerd socket path | The installer auto-sets the right path per distro (Talos: `/run/containerd/containerd.sock`; Kairos/k3s: `/run/k3s/containerd/containerd.sock`). If your OS image uses a non-default path, override: `helm upgrade keos -n keos --reuse-values --set chaos-mesh.chaosDaemon.socketPath=<your-path>` |
+| The SPA loads but everything's "—" | Token wrong | Re-read the install script's final block; copy-paste fresh; OR `cat ~/.keos-token` |
+| Dashboard never updates after action | api pod CrashLooping | `kubectl logs -n keos -l app.kubernetes.io/component=api --tail=50` |
+| Pipeline runs forever | Ollama hasn't pulled models | `kubectl exec -n keos statefulset/ollama -- ollama list` — empty? re-run `install-edge.sh` (idempotent) |
+| You can't open the SPA's URL | Jetson's NodePort blocked by firewall | `kubectl port-forward -n keos svc/caddy 8080:80` from your workstation and open `http://localhost:8080` |
 
-If `make doctor`-equivalent diagnostics matter to you, the same flow
-is on the SPA's `/api/health/detailed` endpoint:
+For the full diagnostic, hit `/api/health/detailed`:
 
 ```bash
 curl -H "Authorization: Bearer $(cat ~/.keos-token)" \
-  http://<jetson-ip>/api/health/detailed | jq
+     http://<jetson-ip>:<port>/api/health/detailed | jq
 ```
 
-That's the canonical "all systems go" report — same checks the
-laptop demo's `make doctor` runs.
+Same checks the laptop demo's `make doctor` runs.
+
+---
+
+## Quick reference — distro-specific knobs
+
+| Concern | Talos | Kairos (default k3s) | k3s (standalone, legacy) |
+|---|---|---|---|
+| Get kubeconfig | `talosctl --talosconfig … kubeconfig …` | `ssh kairos@<ip> 'sudo cat /etc/rancher/k3s/k3s.yaml'` + rewrite IP | `scp … /etc/rancher/k3s/k3s.yaml` + rewrite IP |
+| Bundled K8s | k8s (kubelet, no shell) | **k3s** (Kairos default; k0s + RKE2 are options) | k3s |
+| containerd socket (chaos-daemon) | `/run/containerd/containerd.sock` | `/run/k3s/containerd/containerd.sock` | `/run/k3s/containerd/containerd.sock` |
+| RuntimeClass for GPU | `nvidia` (System Extension) | `nvidia` (Kairos NVIDIA bundle) | `nvidia` (device-plugin DaemonSet) |
+| SSH to node | ✗ — `talosctl` only | ✓ — via cloud-init keys | ✓ — operator-provisioned |
+| Install Keos from | workstation | workstation | workstation (or node) |
+
+The installer applies the right delta automatically — this table is
+just for diagnosing "why did the install pick X?" later.
+
+Both immutable OSes are good fits. **Talos** wins on hardening
+(no shell, no SSH, API-only management). **Kairos** wins on
+flexibility (SSH for debugging, choice of k3s/k0s/RKE2, cloud-init
+for first-boot config).

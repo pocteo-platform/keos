@@ -237,9 +237,10 @@ matrix.
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | **The bible.** Macro + per-part Mermaid diagrams of every component. |
 | **[docs/USER_GUIDE.md](docs/USER_GUIDE.md)** | Architecture overview, install paths, configuration, day-2 ops, troubleshooting, security model, FAQ. |
 | [docs/USE_CASES.md](docs/USE_CASES.md) | **Hands-on tutorial.** Five end-to-end Chaos Mesh scenarios with step-by-step wizard inputs. |
-| [docs/INSTALL.md](docs/INSTALL.md) | Install matrix: Docker Desktop, generic K8s, k3s on Jetson, Talos, air-gapped. |
+| [docs/INSTALL.md](docs/INSTALL.md) | Install matrix: Docker Desktop, generic K8s, Talos / Kairos / k3s on Jetson, air-gapped. |
+| [docs/JETSON_FIRST_BOOT.md](docs/JETSON_FIRST_BOOT.md) | **Operator day-1.** Immutable-OS (Talos/Kairos) Jetson install walkthrough. |
 | [docs/RUNBOOKS/](docs/RUNBOOKS/README.md) | **Incident response.** 10 runbooks + symptom-to-runbook decision tree. |
-| [docs/JETSON.md](docs/JETSON.md) | Jetson Orin Nano + k3s + GPU walkthrough. ~25 s graph runs. |
+| [docs/JETSON.md](docs/JETSON.md) | Jetson Orin Nano platform reference — Talos / Kairos / k3s + GPU. ~25 s graph runs. |
 | [docs/TALOS.md](docs/TALOS.md) | Talos-specific notes (containerd socket, machine config, image cache). |
 | [docs/CONFIG_REFERENCE.md](docs/CONFIG_REFERENCE.md) | Every env var + values.yaml key documented. |
 | [docs/UI_GUIDE.md](docs/UI_GUIDE.md) | Web UI walkthrough with screenshots. |
