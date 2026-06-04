@@ -1075,24 +1075,19 @@ def list_calibration() -> CalibrationList:
     # banner without re-computing client-side.
     median = None
     pct_above_90 = None
-    # Skip rules whose mean confidence is exactly 0.0 — those are
-    # almost always "noise" rules where the LLM returned conf=0 once
-    # (often because it hit an edge case like a chaos-injected event
-    # it didn't recognise). Including them in the median pulls the
-    # dashboard headline to 0 even when the agent is performing fine
-    # on every rule it actually understands.
-    # Also skip rules with n_diagnosed < MIN_SAMPLES_FOR_AGG so a
-    # single rogue first-sample doesn't dominate the cluster aggregate.
-    MIN_SAMPLES_FOR_AGG = 3
+    # Include every rule the agent has actually sampled (at least one
+    # diagnose call). Earlier we tried to filter out rules with
+    # mean_confidence == 0 and n_diagnosed < 3 thinking these were
+    # 'noise' that pulled the median down. But on a fresh install
+    # those filters drop EVERY rule, leaving the dashboard with a
+    # bare "—" and no signal at all. Reality: a conf=0 sample is a
+    # real measurement (the LLM said "I'm 0% sure"). If the median IS
+    # low, the operator deserves to see that — it tells them the
+    # agent isn't ready to act autonomously yet.
     all_samples: list[float] = []
     for it in items:
-        if it.mean_confidence is None:
-            continue
-        if it.mean_confidence <= 0.0:
-            continue
-        if it.n_diagnosed < MIN_SAMPLES_FOR_AGG:
-            continue
-        all_samples.append(it.mean_confidence)
+        if it.mean_confidence is not None:
+            all_samples.append(it.mean_confidence)
     if all_samples:
         ordered = sorted(all_samples)
         mid = len(ordered) // 2
