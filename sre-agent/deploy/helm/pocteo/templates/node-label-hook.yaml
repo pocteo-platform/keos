@@ -81,7 +81,10 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: label-node
-          image: bitnami/kubectl:1.30
+          # alpine/k8s ships kubectl in a tiny multi-arch base + has
+          # stable `<k8s-version>.0` tags. Bitnami's tag scheme drifts —
+          # `bitnami/kubectl:1.30` was removed from docker.io.
+          image: alpine/k8s:1.30.0
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
