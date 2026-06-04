@@ -159,11 +159,20 @@ When the audit tail prints:
 
 ---
 
-# Demo B — scenario 6, K8sGPT enrichment
+# Demo B — image-pull failure, K8sGPT enrichment
 
-Run with `python -m agent.demo --scenario 6 --single`. Best when the
-audience is technical and you want to make the "three diagnostic sources"
-story concrete.
+> **Note (Phase 14.13):** the static `broken-image` and `busybox-bad`
+> Deployments that this demo originally targeted have been retired —
+> reproduce the failure shape via the Use Case wizard's PodChaos /
+> StressChaos template against `nginx-demo`, or ad-hoc with:
+>
+>     kubectl run broken-once --image=does-not-exist:v999 \
+>         --restart=Never -n workloads
+>
+> Then trigger a synthetic event manually or wait for the
+> `chaos_observer` to wake up on the resulting `ImagePullBackOff`
+> kubelet event. The narrative below is unchanged; the trigger is
+> the only difference.
 
 ## Setup (30 s — say while preflight prints)
 

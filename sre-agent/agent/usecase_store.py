@@ -157,35 +157,13 @@ LIBRARY_STARTER: list[dict[str, Any]] = [
         "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z",
     },
-    {
-        "id": "lib-crashloop-recovery",
-        "name": "Pod in CrashLoopBackOff",
-        "description_en": "A workload pod is restart-looping. The agent should distinguish a bad deploy (rollout_undo) from a replica-local crash (restart_pod) using the diagnostic signals.",
-        "description_fr": "Un pod tourne en CrashLoopBackOff. L'agent doit distinguer un mauvais déploiement (rollout_undo) d'un crash local à la réplique (restart_pod) grâce aux signaux de diagnostic.",
-        "tags": ["availability", "crashloop"],
-        "target": {
-            "namespace": "workloads",
-            "pod_name": None,
-            "pod_label_selector": {"app": "busybox-bad"},
-            "owner_kind": "Deployment",
-        },
-        "falco": {
-            "rule": "Pod restart loop detected",
-            "priority": "Error",
-            "output_template": "Container in {ns}/{pod} restarted 5x in the last 3 minutes",
-            "output_fields": {"event.kind": "BackOff", "restart.count": "5", "exit.code": "1"},
-        },
-        "expectation": {
-            "diagnosis_keywords": ["crashloop", "restart"],
-            "proposed_tool": "rollout_undo",
-            "policy_allow": True,
-            "outcome": "healed",
-        },
-        "runbook_en": "# CrashLoopBackOff runbook\n\n**Symptom:** Pod restart-looping post-deploy.\n\n**Action:** rollout_undo if a recent rollout is implicated; restart_pod otherwise.",
-        "runbook_fr": "# Runbook CrashLoopBackOff\n\n**Symptôme :** Pod en boucle de redémarrage après un déploiement.\n\n**Action :** rollout_undo si un rollout récent est en cause ; sinon restart_pod.",
-        "created_at": "2026-01-01T00:00:00Z",
-        "updated_at": "2026-01-01T00:00:00Z",
-    },
+    # NOTE: the old `lib-crashloop-recovery` starter case was retired
+    # in Phase 14.13 because it pointed at `busybox-bad` — an
+    # intentionally-broken Deployment we no longer ship. Reproduce
+    # the CrashLoopBackOff shape against `nginx-demo` via the wizard's
+    # PodChaos / StressChaos template, or ad-hoc via:
+    #     kubectl run broken-once --image=does-not-exist:v999 \
+    #         --restart=Never -n workloads
     {
         "id": "lib-node-pressure",
         "name": "Node memory pressure",
