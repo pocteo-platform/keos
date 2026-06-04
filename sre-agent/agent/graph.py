@@ -392,13 +392,20 @@ def node_diagnose(state: IncidentState) -> dict[str, Any]:
     )
     if d is None:
         audit.emit(state["incident_id"], "diagnose_failed", {"reason": "validation"})
+        # Explicit escalation_reason so the SPA's outcome banner
+        # shows "LLM diagnose returned invalid JSON twice" instead of
+        # the generic "Escalated without explicit reason" fallback.
         return {
             "diagnosis": {
                 "summary": "validation failed twice",
                 "root_cause": "unknown",
                 "confidence": 0.0,
                 "evidence": [],
-            }
+            },
+            "escalation_reason": (
+                "LLM diagnose returned invalid JSON twice; "
+                "escalating instead of acting on an unparseable response."
+            ),
         }
     payload = d.model_dump()
     audit.emit(state["incident_id"], "diagnose", payload)

@@ -13,11 +13,13 @@ No live K8s, no live NATS. We drive the four moving pieces:
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
 import pytest
 
+from agent import tools as tools_mod
 from agent.drift.comparator import (
     DEFAULT_WHITELIST_PATHS,
     compare_resources,
@@ -554,9 +556,6 @@ def test_revert_drift_happy_path_invokes_kubectl_apply(
     """When the SoT manifest matches the requested target, the tool
     should invoke `kubectl apply -f <tmp>` with the single-doc JSON
     payload and return success."""
-    import json
-    from agent import tools as tools_mod
-
     # Write a single-doc SoT manifest matching what we'll request.
     text = (
         "apiVersion: apps/v1\n"
@@ -608,9 +607,6 @@ def test_revert_drift_picks_correct_doc_from_multi_doc_file(
     """Multi-doc YAML file → only the doc at the requested index is
     passed to kubectl, NOT the whole file. Otherwise re-applying
     would blast every drifted resource in the bundle at once."""
-    import json
-    from agent import tools as tools_mod
-
     text = (
         "apiVersion: v1\n"
         "kind: ConfigMap\n"
@@ -657,8 +653,6 @@ def test_revert_drift_surfaces_kubectl_failure(
 ) -> None:
     """When kubectl returns non-zero, the tool must report success=False
     and propagate stderr — operator UI shows this in the action result."""
-    from agent import tools as tools_mod
-
     text = (
         "apiVersion: apps/v1\n"
         "kind: Deployment\n"
