@@ -1,5 +1,9 @@
 # Jetson Orin Nano — first-boot install walkthrough (Talos / Kairos)
 
+> **Looking for the canonical Kairos+Jetson Orin NX install?** That
+> moved to [`KAIROS_JETSON.md`](KAIROS_JETSON.md). This doc kept as the
+> generic Talos/Kairos reference + the OS-comparison primer below.
+
 > **Scenario.** A Jetson Orin Nano arrives preconfigured with an
 > **immutable Kubernetes OS** — either **Talos**
 > ([talos.dev](https://www.talos.dev)) or **Kairos**

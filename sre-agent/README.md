@@ -238,7 +238,8 @@ matrix.
 | **[docs/USER_GUIDE.md](docs/USER_GUIDE.md)** | Architecture overview, install paths, configuration, day-2 ops, troubleshooting, security model, FAQ. |
 | [docs/USE_CASES.md](docs/USE_CASES.md) | **Hands-on tutorial.** Five end-to-end Chaos Mesh scenarios with step-by-step wizard inputs. |
 | [docs/INSTALL.md](docs/INSTALL.md) | Install matrix: Docker Desktop, generic K8s, Talos / Kairos / k3s on Jetson, air-gapped. |
-| [docs/JETSON_FIRST_BOOT.md](docs/JETSON_FIRST_BOOT.md) | **Operator day-1.** Immutable-OS (Talos/Kairos) Jetson install walkthrough. |
+| [docs/KAIROS_JETSON.md](docs/KAIROS_JETSON.md) | **Operator day-1.** Canonical Kairos + Jetson Orin NX install (P2P mesh + GPU inference). |
+| [docs/JETSON_FIRST_BOOT.md](docs/JETSON_FIRST_BOOT.md) | Generic Talos/Kairos Jetson reference (older, kept for the Talos path). |
 | [docs/RUNBOOKS/](docs/RUNBOOKS/README.md) | **Incident response.** 10 runbooks + symptom-to-runbook decision tree. |
 | [docs/JETSON.md](docs/JETSON.md) | Jetson Orin Nano platform reference — Talos / Kairos / k3s + GPU. ~25 s graph runs. |
 | [docs/TALOS.md](docs/TALOS.md) | Talos-specific notes (containerd socket, machine config, image cache). |
