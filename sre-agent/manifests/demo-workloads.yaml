@@ -2,9 +2,20 @@
 #
 # nginx-demo:   a healthy Deployment with 3 replicas. Synthetic events target
 #               one of these pods (e.g., scenario 1 "shell in container").
-# busybox-bad:  a Deployment that intentionally crashloops, used by scenario 2.
-#               The container exits non-zero on every start, so kubelet will
-#               park it in CrashLoopBackOff almost immediately.
+#               Chaos Mesh experiments target this Deployment to drive the
+#               failure scenarios at demo time — the bootstrap should ship
+#               a CLEAN cluster so reviewers see a green starting state.
+#
+# The intentionally-broken `broken-image` + `busybox-bad` Deployments that
+# used to live here have been removed (Phase 14.13 demo-cleanup). They were
+# only useful for the original `make demo` flow's static
+# CrashLoopBackOff / ImagePullBackOff scenarios; with Chaos Mesh handling
+# every failure injection through the Use Case wizard, the static broken
+# pods only clutter the Reliability page and noise up the calibration store.
+#
+# To recreate a CrashLoopBackOff or ImagePullBackOff at demo time, use the
+# Use Case wizard or run:
+#   kubectl run broken-once --image=does-not-exist:v999 --restart=Never -n workloads
 #
 # Both expose a `shp.io/tier=demo` label that the OPA policy can key on if we
 # ever want per-tier rules (not used in v1 of the matrix).
@@ -60,64 +71,3 @@ spec:
     - name: http
       port: 80
       targetPort: http
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: broken-image
-  namespace: workloads
-  labels:
-    app: broken-image
-    shp.io/tier: demo
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: broken-image
-  template:
-    metadata:
-      labels:
-        app: broken-image
-        shp.io/tier: demo
-    spec:
-      automountServiceAccountToken: false
-      containers:
-        - name: app
-          # Deliberately bad image reference. K8sGPT's Pod analyzer will
-          # flag this with ErrImagePull / ImagePullBackOff, demonstrating
-          # the K8sGPT-vs-Falco contrast in scenario 6.
-          image: ghcr.io/example/does-not-exist:v999
-          imagePullPolicy: Always
-          resources:
-            requests: { cpu: 5m,  memory: 8Mi }
-            limits:   { cpu: 50m, memory: 32Mi }
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: busybox-bad
-  namespace: workloads
-  labels:
-    app: busybox-bad
-    shp.io/tier: demo
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: busybox-bad
-  template:
-    metadata:
-      labels:
-        app: busybox-bad
-        shp.io/tier: demo
-    spec:
-      automountServiceAccountToken: false
-      containers:
-        - name: busybox
-          image: busybox:1.37
-          # Deliberately fail on every start to exercise the CrashLoopBackOff
-          # scenario. Exit code 1 is interpreted as a crash by kubelet.
-          command: ["sh", "-c", "echo 'demo crashloop' >&2; exit 1"]
-          resources:
-            requests: { cpu: 5m,  memory: 8Mi }
-            limits:   { cpu: 50m, memory: 32Mi }
