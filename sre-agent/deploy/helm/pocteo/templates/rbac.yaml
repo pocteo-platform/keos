@@ -62,6 +62,27 @@ rules:
   - apiGroups: [chaos-mesh.org]
     resources: [podchaos, networkchaos, stresschaos, iochaos, timechaos]
     verbs: [get, list, watch]
+  # Cluster-context probe needs to enumerate the cluster's surface:
+  # - CRDs (detect Argo CD / Flux / cert-manager / Chaos Mesh)
+  # - Namespaces (which ones to probe)
+  # - Deployments + StatefulSets at cluster scope (find Prometheus,
+  #   kube-state-metrics, etc. without knowing their namespace upfront)
+  # - Pods + Events at cluster scope (drift detection across namespaces)
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [namespaces, pods, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: [get, list, watch]
+  # Apiserver-proxy access to Prometheus + kube-state-metrics — the
+  # ML-baselines layer uses this rather than running Prometheus client
+  # libs, so it works without any external network access.
+  - apiGroups: [""]
+    resources: [services/proxy]
+    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

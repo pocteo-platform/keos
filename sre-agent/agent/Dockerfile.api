@@ -22,10 +22,7 @@ COPY mcp_server /app/mcp_server
 RUN uv pip install --system --no-cache .
 
 ENV PYTHONUNBUFFERED=1 \
-    KUBECONFIG=/root/.kube/config \
-    LOG_LEVEL=INFO \
-    API_HOST=0.0.0.0 \
-    API_PORT=8000
+    LOG_LEVEL=INFO
 
 EXPOSE 8000
 
