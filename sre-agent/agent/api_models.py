@@ -90,6 +90,56 @@ class AgentSelf(BaseModel):
     node: str = ""
 
 
+class RetentionDays(BaseModel):
+    """Retention windows in days. Zero on any field means keep-forever."""
+
+    audit: int = Field(ge=0, le=3650)
+    incidents: int = Field(ge=0, le=3650)
+    traces: int = Field(ge=0, le=3650)
+
+
+class RetentionDiskUsage(BaseModel):
+    """Per-bucket on-disk usage. Bytes + file count.
+
+    Field names mirror the buckets in the pruner so the UI can
+    correlate sliders 1:1 with usage rows."""
+
+    audit_bytes: int = 0
+    audit_files: int = 0
+    incident_bytes: int = 0
+    incident_files: int = 0
+    trace_bytes: int = 0
+    trace_files: int = 0
+    calibration_bytes: int = 0
+    baselines_bytes: int = 0
+    total_bytes: int = 0
+
+
+class RetentionState(BaseModel):
+    """Full state for the Settings → Data Lifecycle tab.
+
+    `source` tells the SPA whether the active config came from the
+    operator's overlay or the env defaults — surfaced as a small
+    chip next to the sliders so operators can see at a glance."""
+
+    days: RetentionDays
+    sweep_interval_s: int = Field(ge=60, le=86400)
+    source: str  # "overlay" | "env"
+    disk_usage: RetentionDiskUsage
+    last_sweep_at: str | None = None
+    next_sweep_at: str | None = None
+
+
+class RetentionUpdateRequest(BaseModel):
+    """PUT payload. Any field may be omitted; only the set fields
+    update. Use `reset: true` to delete the overlay and revert to
+    env defaults."""
+
+    days: RetentionDays | None = None
+    sweep_interval_s: int | None = Field(default=None, ge=60, le=86400)
+    reset: bool = False
+
+
 class ClusterContext(BaseModel):
     """One-shot snapshot of everything the agent knows about its host
     cluster + its own placement within it. Surfaced by GET

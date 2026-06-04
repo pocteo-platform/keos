@@ -67,6 +67,10 @@ from agent.api_models import (
     NodeSummary,
     PendingApproval,
     PodSummary,
+    RetentionDays,
+    RetentionDiskUsage,
+    RetentionState,
+    RetentionUpdateRequest,
     ScenarioDescriptor,
     ScenarioRunRequest,
     ScenarioRunResponse,
@@ -642,6 +646,135 @@ def list_nodes() -> list[NodeSummary]:
     return out
 
 
+# ─── Phase C — retention overlay endpoints ────────────────────────────────
+
+
+def _retention_disk_usage() -> RetentionDiskUsage:
+    """Walk the on-disk buckets the pruner manages. Best-effort; a
+    missing directory returns zero rather than raising."""
+    from pathlib import Path
+
+    def _walk(directory: Path, pattern: str) -> tuple[int, int]:
+        if not directory.exists():
+            return (0, 0)
+        total = 0
+        count = 0
+        for p in directory.glob(pattern):
+            if p.is_file():
+                try:
+                    total += p.stat().st_size
+                    count += 1
+                except OSError:
+                    pass
+        return (total, count)
+
+    audit_dir = Path(settings.audit_log_path).parent
+    audit_bytes, audit_files = _walk(audit_dir, "audit.log*")
+    incident_bytes, incident_files = _walk(Path("agent/incidents"), "inc-*.json")
+    trace_bytes, trace_files = _walk(Path("agent/traces"), "inc-*.jsonl")
+
+    # SQLite stores — single file each.
+    def _size(path: str) -> int:
+        try:
+            return Path(path).stat().st_size
+        except OSError:
+            return 0
+
+    cal_bytes = _size(os.environ.get("CALIBRATION_DB_PATH", "/data/calibration.db"))
+    base_bytes = _size(os.environ.get("BASELINES_DB_PATH", "/data/baselines.db"))
+
+    total = audit_bytes + incident_bytes + trace_bytes + cal_bytes + base_bytes
+    return RetentionDiskUsage(
+        audit_bytes=audit_bytes,
+        audit_files=audit_files,
+        incident_bytes=incident_bytes,
+        incident_files=incident_files,
+        trace_bytes=trace_bytes,
+        trace_files=trace_files,
+        calibration_bytes=cal_bytes,
+        baselines_bytes=base_bytes,
+        total_bytes=total,
+    )
+
+
+@app.get(
+    "/api/retention",
+    response_model=RetentionState,
+    dependencies=[Depends(require_bearer)],
+)
+def get_retention() -> RetentionState:
+    """Phase C — current retention config + on-disk usage. The SPA's
+    Settings → Data Lifecycle tab renders this directly."""
+    from agent.retention import get_default_store
+
+    store = get_default_store()
+    cfg = store.get()
+    # `source` lets the SPA tell the operator whether their UI edit
+    # is in effect (overlay) or we're still on env defaults.
+    source = "overlay" if Path(store._path).exists() else "env"
+    return RetentionState(
+        days=RetentionDays(
+            audit=cfg.audit_days,
+            incidents=cfg.incident_days,
+            traces=cfg.trace_days,
+        ),
+        sweep_interval_s=cfg.sweep_interval_s,
+        source=source,
+        disk_usage=_retention_disk_usage(),
+        last_sweep_at=None,
+        next_sweep_at=None,
+    )
+
+
+@app.put(
+    "/api/retention",
+    response_model=RetentionState,
+    dependencies=[Depends(require_bearer)],
+)
+def put_retention(body: RetentionUpdateRequest) -> RetentionState:
+    """Live-update retention. The pruner reads from this store on
+    each tick so the new values apply at the NEXT sweep — no pod
+    restart needed.
+
+    Set `reset: true` to delete the overlay and revert to env
+    defaults (also useful when the operator wants to 'try out' a
+    setting and back out cleanly)."""
+    from agent.retention import RetentionConfig, get_default_store
+
+    store = get_default_store()
+    if body.reset:
+        store.reset_to_defaults()
+        return get_retention()
+
+    current = store.get()
+    days = body.days or RetentionDays(
+        audit=current.audit_days,
+        incidents=current.incident_days,
+        traces=current.trace_days,
+    )
+    sweep = body.sweep_interval_s if body.sweep_interval_s is not None else current.sweep_interval_s
+    cfg = RetentionConfig(
+        audit_days=days.audit,
+        incident_days=days.incidents,
+        trace_days=days.traces,
+        sweep_interval_s=sweep,
+    )
+    store.put(cfg)
+    # Audit-trail this operator action — useful when forensic-ing why
+    # an old audit file disappeared.
+    _audit.emit(
+        "system",
+        "retention.update",
+        {
+            "audit_days": cfg.audit_days,
+            "incident_days": cfg.incident_days,
+            "trace_days": cfg.trace_days,
+            "sweep_interval_s": cfg.sweep_interval_s,
+        },
+    )
+    return get_retention()
+
+
 @app.get(
     "/api/cluster/context",
     response_model=ClusterContext,
@@ -703,7 +836,9 @@ def cluster_context() -> ClusterContext:
         cpu_m = (
             int(cpu_str[:-1])
             if cpu_str.endswith("m")
-            else int(float(cpu_str) * 1000) if cpu_str else 0
+            else int(float(cpu_str) * 1000)
+            if cpu_str
+            else 0
         )
         # Memory: "16384528Ki" / "16Gi"; normalize to bytes.
         mem_bytes = _parse_k8s_memory(str(cap.get("memory", "0")))

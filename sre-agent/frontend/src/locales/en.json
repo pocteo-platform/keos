@@ -532,6 +532,7 @@
       "forecasting": "Forecasting",
       "baselines": "Baselines",
       "drift": "Drift",
+      "lifecycle": "Data lifecycle",
       "notifications": "Notifications",
       "audit": "Audit",
       "about": "About"

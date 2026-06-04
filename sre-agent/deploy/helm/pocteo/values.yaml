@@ -131,6 +131,36 @@ agent:
   # list (e.g. ["workloads","production"]) to lock it down.
   watchNamespaces: []
 
+  # ---- Phase B — node attachment ------------------------------------
+  #
+  # Pin the agent to a specific edge node. Most useful on heterogeneous
+  # edge fleets — a 2-node Jetson cluster where one node has the GPU
+  # for inference + the other is CPU-only, or a 5-node Talos cluster
+  # where one node is the operator's "trusted box". The cluster IS the
+  # unit of deployment (one agent per cluster), but the agent has a
+  # preferred home.
+  #
+  # mode:
+  #   "soft"  prefer this node (nodeAffinity), fall back if unschedulable
+  #   "hard"  only this node (nodeSelector), fail to schedule otherwise
+  #   "none"  no preference — scheduler picks. Default.
+  #
+  # nodeName: the Kubernetes Node name (run `kubectl get nodes -o name`
+  # to list). Required when mode != "none". Or use `nodeSelector` to
+  # match by an arbitrary label instead.
+  #
+  # bootstrapNodeLabel: when enabled + nodeName set, a pre-install
+  # Helm hook labels the chosen node so the Deployment can target it
+  # via the label rather than the raw name (survives node renames).
+  attachment:
+    mode: none
+    nodeName: ""
+    nodeSelector: {}
+  bootstrapNodeLabel:
+    enabled: true
+    key: keos.pocteo/sre-home
+    value: "true"
+
 # ---------------------------------------------------------------------------
 # Phase 12 — per-rule calibration.
 #

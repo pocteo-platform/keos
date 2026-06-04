@@ -88,6 +88,41 @@ export interface AgentSelf {
   node: string;
 }
 
+// ─── Phase C — retention ─────────────────────────────────────────────────
+
+export interface RetentionDays {
+  audit: number;
+  incidents: number;
+  traces: number;
+}
+
+export interface RetentionDiskUsage {
+  audit_bytes: number;
+  audit_files: number;
+  incident_bytes: number;
+  incident_files: number;
+  trace_bytes: number;
+  trace_files: number;
+  calibration_bytes: number;
+  baselines_bytes: number;
+  total_bytes: number;
+}
+
+export interface RetentionState {
+  days: RetentionDays;
+  sweep_interval_s: number;
+  source: "overlay" | "env";
+  disk_usage: RetentionDiskUsage;
+  last_sweep_at: string | null;
+  next_sweep_at: string | null;
+}
+
+export interface RetentionUpdateRequest {
+  days?: RetentionDays;
+  sweep_interval_s?: number;
+  reset?: boolean;
+}
+
 export interface ClusterContext {
   distro: string;
   runtime: string;
@@ -395,6 +430,11 @@ export const api = {
   // Phase A — cluster context probe. Used by the dashboard's
   // "Cluster context" card + (future) the first-time-setup wizard.
   getClusterContext: () => request<ClusterContext>("GET", "/api/cluster/context"),
+
+  // Phase C — retention overlay. Live-edits the pruner's windows.
+  getRetention: () => request<RetentionState>("GET", "/api/retention"),
+  putRetention: (body: RetentionUpdateRequest) =>
+    request<RetentionState>("PUT", "/api/retention", body),
 
   // Phase 12 — calibration
   listCalibration: () => request<CalibrationList>("GET", "/api/calibration"),

@@ -39,6 +39,47 @@ spec:
     spec:
       serviceAccountName: pocteo-agent
       {{- include "pocteo.podSecurityContext" . | nindent 6 }}
+      {{- /* Phase B — node attachment. The pre-install hook
+            (`_node-label-hook.yaml`) labels the chosen node;
+            the Deployment then selects on that label.
+              hard → nodeSelector (cannot fall back)
+              soft → preferredDuringScheduling nodeAffinity
+              none → no constraints (default)
+            Operators using arbitrary label matchers via
+            `agent.attachment.nodeSelector` get applied
+            independently of the bootstrap label. */ -}}
+      {{- if eq .Values.agent.attachment.mode "hard" }}
+      nodeSelector:
+        {{ .Values.agent.bootstrapNodeLabel.key }}: {{ .Values.agent.bootstrapNodeLabel.value | quote }}
+        {{- range $k, $v := .Values.agent.attachment.nodeSelector }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
+      {{- else if eq .Values.agent.attachment.mode "soft" }}
+      {{- if .Values.agent.attachment.nodeName }}
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: {{ .Values.agent.bootstrapNodeLabel.key }}
+                    operator: In
+                    values: [{{ .Values.agent.bootstrapNodeLabel.value | quote }}]
+      {{- end }}
+      {{- if .Values.agent.attachment.nodeSelector }}
+      nodeSelector:
+        {{- range $k, $v := .Values.agent.attachment.nodeSelector }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
+      {{- end }}
+      {{- else }}
+      {{- if .Values.agent.attachment.nodeSelector }}
+      nodeSelector:
+        {{- range $k, $v := .Values.agent.attachment.nodeSelector }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
+      {{- end }}
+      {{- end }}
       containers:
         - name: api
           image: {{ include "pocteo.image" (dict "global" .Values.global "repository" .Values.api.image.repository "tag" .Values.api.image.tag) }}
