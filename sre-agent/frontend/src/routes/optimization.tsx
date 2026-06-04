@@ -311,7 +311,7 @@ export default function OptimizationPage() {
         </CardHeader>
         <CardContent>
           {recommendations.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-muted-foreground">
+            <div className="mx-auto flex max-w-2xl flex-col items-center gap-3 py-8 text-center text-sm text-muted-foreground">
               <TrendingUp className="h-6 w-6" />
               <p>
                 {t("optimization.table.empty", {
@@ -319,6 +319,43 @@ export default function OptimizationPage() {
                     "No recommendations yet — the learner needs ≥ 50 samples per metric before it can rightsize.",
                 })}
               </p>
+              {/* Educational onboarding panel: tell first-time
+                  operators WHY there are no recommendations and what
+                  has to happen for them to appear. Komodor / Datadog
+                  do this on their cost-rightsizing pages too. */}
+              <div className="w-full border border-border bg-muted/30 px-3 py-2.5 text-left text-[11px] leading-relaxed">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-foreground/80">
+                  {t("optimization.table.howItWorks", {
+                    defaultValue: "How rightsizing works",
+                  })}
+                </div>
+                <ol className="list-inside list-decimal space-y-1">
+                  <li>
+                    {t("optimization.table.step1", {
+                      defaultValue:
+                        "The baseline learner scrapes container_memory_rss / working_set per pod every 60s.",
+                    })}
+                  </li>
+                  <li>
+                    {t("optimization.table.step2", {
+                      defaultValue:
+                        "Once a pod has ≥ 50 samples, an EWMA mean + std deviation get fitted.",
+                    })}
+                  </li>
+                  <li>
+                    {t("optimization.table.step3", {
+                      defaultValue:
+                        "Headroom = 1 - (baseline mean / 2 × current usage). > 0.70 means over-provisioned; ≤ 0.20 means under-provisioned.",
+                    })}
+                  </li>
+                  <li>
+                    {t("optimization.table.step4", {
+                      defaultValue:
+                        "Apply recommendations via the Use Case wizard's `set_resources` template or `kubectl patch`.",
+                    })}
+                  </li>
+                </ol>
+              </div>
               <Button asChild variant="outline" size="sm">
                 <Link to="/dashboard">
                   {t("optimization.table.emptyAction", {
