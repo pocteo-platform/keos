@@ -38,6 +38,7 @@ from agent import (
 from agent.api_auth import check_ws_token, get_token, require_bearer
 from agent.api_models import (
     ActiveIncident,
+    AgentSelf,
     ApprovalRequest,
     ApprovalResponse,
     AuditList,
@@ -48,8 +49,10 @@ from agent.api_models import (
     CalibrationList,
     CalibrationRule,
     CalibrationThresholdRequest,
+    ClusterContext,
     DenialRequest,
     DeploymentSummary,
+    DetectedOperators,
     EventSummary,
     ForecastList,
     ForecastRow,
@@ -60,6 +63,7 @@ from agent.api_models import (
     ModeChangeRequest,
     ModeResponse,
     NamespaceSummary,
+    NodeContext,
     NodeSummary,
     PendingApproval,
     PodSummary,
@@ -635,6 +639,225 @@ def list_nodes() -> list[NodeSummary]:
                 taints=[t.get("key", "") for t in (n.get("spec", {}).get("taints") or [])],
             )
         )
+    return out
+
+
+@app.get(
+    "/api/cluster/context",
+    response_model=ClusterContext,
+    dependencies=[Depends(require_bearer)],
+)
+def cluster_context() -> ClusterContext:
+    """Phase A — one-shot snapshot of the host cluster's identity +
+    every node + every well-known operator we can detect. Used by:
+      - dashboard's 'Cluster context' card (live)
+      - first-time-setup wizard (one-time, on first login)
+      - Settings → Cluster context tab (re-probe on demand)
+    Best-effort: every field has a sane default if the underlying
+    kubectl call fails, so the endpoint always returns 200."""
+    nodes_raw = _kubectl_get("nodes", "", "").get("items", [])
+
+    # Pull the agent's own placement from the downward API env vars
+    # we set in the Helm Deployment template. Outside a K8s pod
+    # (laptop demo via docker-compose) these are empty.
+    agent_self = AgentSelf(
+        namespace=os.environ.get("KEOS_POD_NAMESPACE", ""),
+        pod=os.environ.get("KEOS_POD_NAME", ""),
+        node=os.environ.get("KEOS_NODE_NAME", ""),
+    )
+
+    # Per-node context. The role heuristic: nodes with the
+    # `node-role.kubernetes.io/control-plane` or `master` label are
+    # control-plane; everything else is "worker". `is_agent_home` is
+    # true when the node name matches agent_self.node.
+    nodes: list[NodeContext] = []
+    total_cpu_m = 0
+    total_mem_bytes = 0
+    total_gpu = 0
+    ready_count = 0
+    kube_version = ""
+    runtime = "unknown"
+    for n in nodes_raw:
+        md = n.get("metadata", {}) or {}
+        spec = n.get("spec", {}) or {}
+        st = n.get("status", {}) or {}
+        info = st.get("nodeInfo", {}) or {}
+        cap = st.get("capacity", {}) or {}
+        labels = md.get("labels", {}) or {}
+        conds = st.get("conditions", []) or []
+        ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in conds)
+        if ready:
+            ready_count += 1
+        if not kube_version:
+            kube_version = info.get("kubeletVersion", "")
+        if runtime == "unknown":
+            cri = info.get("containerRuntimeVersion", "")
+            if cri.startswith("containerd"):
+                runtime = "containerd"
+            elif cri.startswith("cri-o"):
+                runtime = "crio"
+            elif cri.startswith("docker"):
+                runtime = "docker"
+        # CPU capacity comes as a string like "8" or "4500m"; normalize to millicores.
+        cpu_str = str(cap.get("cpu", "0"))
+        cpu_m = (
+            int(cpu_str[:-1])
+            if cpu_str.endswith("m")
+            else int(float(cpu_str) * 1000) if cpu_str else 0
+        )
+        # Memory: "16384528Ki" / "16Gi"; normalize to bytes.
+        mem_bytes = _parse_k8s_memory(str(cap.get("memory", "0")))
+        gpu = int(cap.get("nvidia.com/gpu", 0) or 0)
+        total_cpu_m += cpu_m
+        total_mem_bytes += mem_bytes
+        total_gpu += gpu
+        role = (
+            "control-plane"
+            if "node-role.kubernetes.io/control-plane" in labels
+            or "node-role.kubernetes.io/master" in labels
+            else "worker"
+        )
+        nodes.append(
+            NodeContext(
+                name=md.get("name", ""),
+                role=role,
+                ready=ready,
+                is_agent_home=(md.get("name") == agent_self.node) if agent_self.node else False,
+                cpu_capacity_m=cpu_m or None,
+                memory_capacity_bytes=mem_bytes or None,
+                gpu_capacity=gpu or None,
+                labels=labels,
+                taints=[t.get("key", "") for t in (spec.get("taints") or [])],
+            )
+        )
+
+    # Distro heuristic. Order: k3s label > k3d (label key on first
+    # node) > Talos (kube-system Deployment name) > RKE2 > kubeadm.
+    distro = _detect_distro(nodes_raw, kube_version)
+
+    # Detected operators — well-known CRDs / kube-system Deployments.
+    ops = _detect_operators()
+
+    # Warnings: things that AREN'T errors but matter for ops.
+    warnings: list[str] = []
+    if not ops.argocd and not ops.flux:
+        warnings.append(
+            "No GitOps controller detected (Argo CD / Flux). Drift detection "
+            "will fall back to filesystem-mounted manifests."
+        )
+    if not ops.prometheus:
+        warnings.append(
+            "Prometheus not detected. Set PROMETHEUS_URL or install "
+            "kube-prometheus-stack to enable baselines + forecasts."
+        )
+    if not ops.chaos_mesh:
+        warnings.append(
+            "Chaos Mesh not detected. Use Case wizard's chaos experiments "
+            "won't work until it's installed."
+        )
+    if agent_self.node and not any(n.is_agent_home for n in nodes):
+        warnings.append(
+            f"Agent reports it's on node {agent_self.node!r} but that "
+            "node isn't in the cluster's node list — odd; check the kubeconfig."
+        )
+
+    return ClusterContext(
+        distro=distro,
+        runtime=runtime,
+        kubernetes_version=kube_version or "?",
+        node_count=len(nodes),
+        ready_node_count=ready_count,
+        total_cpu_m=total_cpu_m,
+        total_memory_bytes=total_mem_bytes,
+        total_gpu_count=total_gpu,
+        nodes=nodes,
+        detected_operators=ops,
+        agent_self=agent_self,
+        warnings=warnings,
+    )
+
+
+def _parse_k8s_memory(s: str) -> int:
+    """Best-effort parser for the K8s memory capacity strings:
+    '16384528Ki' / '16Gi' / '8589934592' (raw bytes). Returns 0 on
+    failure rather than raising; the endpoint always succeeds."""
+    if not s:
+        return 0
+    multipliers = {
+        "Ki": 1024,
+        "Mi": 1024**2,
+        "Gi": 1024**3,
+        "Ti": 1024**4,
+        "K": 1000,
+        "M": 1000**2,
+        "G": 1000**3,
+        "T": 1000**4,
+    }
+    try:
+        for suffix, mult in multipliers.items():
+            if s.endswith(suffix):
+                return int(float(s[: -len(suffix)]) * mult)
+        return int(s)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _detect_distro(nodes_raw: list[dict], kube_version: str) -> str:
+    """Best-effort K8s-distro fingerprinting. Mostly cosmetic — the
+    setup wizard uses it to pick sensible defaults (containerd socket
+    path on Talos, NetworkPolicy enforcement on Calico clusters, etc.)."""
+    # k3s embeds itself into the kubelet version string.
+    if "k3s" in kube_version.lower():
+        # k3d nodes have a label `k3d.io/node-name`; k3s does not.
+        for n in nodes_raw:
+            labels = (n.get("metadata", {}) or {}).get("labels", {}) or {}
+            if any(k.startswith("k3d.io/") for k in labels):
+                return "k3d"
+        return "k3s"
+    if "rke2" in kube_version.lower():
+        return "rke2"
+    # Talos: every node has the `node.kubernetes.io/instance-type=talos.dev` label.
+    for n in nodes_raw:
+        labels = (n.get("metadata", {}) or {}).get("labels", {}) or {}
+        if any("talos" in k.lower() or "talos" in str(v).lower() for k, v in labels.items()):
+            return "talos"
+    # EKS / GKE / AKS: identifiable via provider-specific labels.
+    for n in nodes_raw:
+        labels = (n.get("metadata", {}) or {}).get("labels", {}) or {}
+        if any(k.startswith("eks.amazonaws.com/") for k in labels):
+            return "eks"
+        if any(k.startswith("cloud.google.com/gke-") for k in labels):
+            return "gke"
+        if any(k.startswith("kubernetes.azure.com/") for k in labels):
+            return "aks"
+    # If nothing matched and we can talk to the API, call it kubeadm.
+    return "kubeadm" if kube_version else "unknown"
+
+
+def _detect_operators() -> DetectedOperators:
+    """Probe for well-known operators by looking up their CRDs. Each
+    probe is independent — failure of one doesn't bias the others."""
+    crd_probes = {
+        "argocd": "applications.argoproj.io",
+        "flux": "kustomizations.kustomize.toolkit.fluxcd.io",
+        "chaos_mesh": "podchaos.chaos-mesh.org",
+        "prometheus": "prometheuses.monitoring.coreos.com",
+        "cert_manager": "certificates.cert-manager.io",
+    }
+    out = DetectedOperators()
+    crds = _kubectl_get("customresourcedefinitions", "", "").get("items", [])
+    crd_names = {(c.get("metadata", {}) or {}).get("name", "") for c in crds}
+    for field, name in crd_probes.items():
+        if name in crd_names:
+            setattr(out, field, True)
+    # kube-state-metrics is a Deployment, not a CRD.
+    try:
+        ksm = _kubectl_get("deployments", "kube-state-metrics", "monitoring").get("items", [])
+        if not ksm:
+            ksm = _kubectl_get("deployments", "kube-state-metrics", "kube-system").get("items", [])
+        out.kube_state_metrics = bool(ksm)
+    except Exception:  # noqa: BLE001
+        pass
     return out
 
 

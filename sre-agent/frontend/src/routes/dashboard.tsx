@@ -5,6 +5,7 @@ import { RecentOutcomesCard } from "@/components/dashboard/RecentOutcomesCard";
 import { ForecastWatchlist } from "@/components/dashboard/ForecastWatchlist";
 import { NamespaceProblemMap } from "@/components/dashboard/NamespaceProblemMap";
 import { LiveActivityRibbon } from "@/components/dashboard/LiveActivityRibbon";
+import { ClusterContextCard } from "@/components/dashboard/ClusterContextCard";
 import { useApp } from "@/lib/store";
 
 /**
@@ -57,6 +58,8 @@ export default function DashboardPage() {
       </div>
 
       <NamespaceProblemMap />
+
+      <ClusterContextCard />
     </div>
   );
 }

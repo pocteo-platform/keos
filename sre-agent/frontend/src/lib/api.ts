@@ -59,6 +59,50 @@ export interface NodeSummary {
   taints: string[];
 }
 
+// ─── Phase A — cluster context probe ────────────────────────────────────
+
+export interface NodeContext {
+  name: string;
+  role: "control-plane" | "worker" | "unknown";
+  ready: boolean;
+  is_agent_home: boolean;
+  cpu_capacity_m: number | null;
+  memory_capacity_bytes: number | null;
+  gpu_capacity: number | null;
+  labels: Record<string, string>;
+  taints: string[];
+}
+
+export interface DetectedOperators {
+  argocd: boolean;
+  flux: boolean;
+  chaos_mesh: boolean;
+  prometheus: boolean;
+  cert_manager: boolean;
+  kube_state_metrics: boolean;
+}
+
+export interface AgentSelf {
+  namespace: string;
+  pod: string;
+  node: string;
+}
+
+export interface ClusterContext {
+  distro: string;
+  runtime: string;
+  kubernetes_version: string;
+  node_count: number;
+  ready_node_count: number;
+  total_cpu_m: number;
+  total_memory_bytes: number;
+  total_gpu_count: number;
+  nodes: NodeContext[];
+  detected_operators: DetectedOperators;
+  agent_self: AgentSelf;
+  warnings: string[];
+}
+
 export interface NamespaceSummary {
   name: string;
   age_seconds: number;
@@ -347,6 +391,10 @@ export const api = {
       `/api/cluster/events?ns=${encodeURIComponent(ns)}&limit=${limit}`,
     ),
   listActiveIncidents: () => request<ActiveIncident[]>("GET", "/api/incidents/active"),
+
+  // Phase A — cluster context probe. Used by the dashboard's
+  // "Cluster context" card + (future) the first-time-setup wizard.
+  getClusterContext: () => request<ClusterContext>("GET", "/api/cluster/context"),
 
   // Phase 12 — calibration
   listCalibration: () => request<CalibrationList>("GET", "/api/calibration"),
