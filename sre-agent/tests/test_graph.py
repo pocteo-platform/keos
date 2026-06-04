@@ -225,7 +225,7 @@ def test_synthetic_event_shape_is_infra() -> None:
         assert "k8s.ns.name" in of or "k8s.node.name" in of
 
 
-def test_imagepull_scenario_uses_cluster_signals_to_pick_rollout_undo(
+def test_imagepull_event_uses_cluster_signals_to_pick_rollout_undo(
     patch_warmup,
     patch_llm,
     patch_opa,
@@ -235,11 +235,17 @@ def test_imagepull_scenario_uses_cluster_signals_to_pick_rollout_undo(
     fake_k8sgpt,
     tmp_audit,
 ) -> None:
-    """Scenario 3: image pull failure. Cluster signals (the diagnostic
-    layer that used to be called "K8sGPT") supply an ImagePullBackOff
-    finding; the (canned) LLM uses that finding to choose `rollout_undo`
-    rather than e.g. restart_pod. This proves the diagnostic-signals
-    path can sway the LLM choice."""
+    """Cluster signals (the diagnostic layer that used to be called
+    "K8sGPT") supply an ImagePullBackOff finding; the (canned) LLM
+    uses that finding to choose `rollout_undo` rather than e.g.
+    restart_pod. Proves the diagnostic-signals path can sway the LLM
+    choice.
+
+    The image-pull scenario was retired from build_event() in
+    Phase 14.13 (its target `broken-image` Deployment is no longer
+    shipped), but the LLM-choice behaviour is still worth pinning —
+    we construct the synthetic event inline instead.
+    """
     from agent.schemas import Finding
 
     patch_llm(3)
@@ -253,7 +259,30 @@ def test_imagepull_scenario_uses_cluster_signals_to_pick_rollout_undo(
         )
     ]
 
-    final = run_once(_event(3))
+    # Construct the ImagePullBackOff event inline — same shape that
+    # the chaos_observer would publish for a real kubelet
+    # ImagePullBackOff event, and the canned LLM response keyed at
+    # scenario_id=3 returns the matching diagnosis + rollout_undo plan.
+    image_pull_event = {
+        "scenario_id": 3,
+        "uuid": "test-uuid-3",
+        "time": "2026-06-04T00:00:00Z",
+        "rule": "Image pull failure (ErrImagePull / ImagePullBackOff)",
+        "priority": "Warning",
+        "source": "kubelet",
+        "output": "Failed to pull image 'ghcr.io/example/does-not-exist:v999': manifest unknown",
+        "output_fields": {
+            "event.kind": "Failed",
+            "kubelet.reason": "ImagePullBackOff",
+            "container.name": "app",
+            "k8s.ns.name": "workloads",
+            "k8s.pod.name": "broken-image-7bdc-xyz",
+            "k8s.deployment.name": "broken-image",
+            "container.image": "ghcr.io/example/does-not-exist:v999",
+        },
+    }
+
+    final = run_once(image_pull_event)
 
     # The LLM (canned, scenario 3) picks rollout_undo.
     assert final["proposed_action"]["tool"] == "rollout_undo"

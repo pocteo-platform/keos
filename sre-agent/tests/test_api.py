@@ -227,9 +227,14 @@ def test_list_scenarios(client, monkeypatch) -> None:
     r = client.get("/api/scenarios", headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     items = r.json()
-    assert len(items) >= 6  # the six we defined in Phase 7.2
+    # Five scenarios ship today: 1, 4, 5, 6, 7. Scenarios 2 + 3 were
+    # retired with their target Deployments (busybox-bad, broken-image).
+    # `>= 5` keeps the test forward-compatible if a new scenario lands.
+    assert len(items) >= 5
     ids = {s["id"] for s in items}
     assert 1 in ids and 6 in ids
+    # Retired scenarios must not reappear without an explicit revival.
+    assert 2 not in ids and 3 not in ids
 
 
 def test_run_scenario_unknown_id(client) -> None:
@@ -250,17 +255,20 @@ def test_usecases_seed_library(client) -> None:
     r = client.get("/api/usecases", headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     items = r.json()
-    # The library starter set ships 4 SRE scenarios — memory leak, crashloop
-    # recovery, node pressure, and drain-low-severity. Asserting >= 4 keeps
-    # the test forward-compatible if a fifth scenario is added later.
-    assert len(items) >= 4
+    # The library starter set ships three SRE scenarios — memory leak,
+    # node pressure, and drain-low-severity. `lib-crashloop-recovery`
+    # was retired when its target Deployment (busybox-bad) was deleted;
+    # reproduce that failure shape via the Use Case wizard's PodChaos
+    # template against nginx-demo instead.
+    assert len(items) >= 3
     names = {i["id"] for i in items}
     assert {
         "lib-memory-leak",
-        "lib-crashloop-recovery",
         "lib-node-pressure",
         "lib-drain-low-severity",
     }.issubset(names)
+    # The retired use case must not be re-seeded silently.
+    assert "lib-crashloop-recovery" not in names
 
 
 def test_usecase_create_and_delete(client) -> None:
