@@ -79,7 +79,7 @@ spec:
       {{- end }}
       containers:
         - name: {{ $name }}
-          image: {{ include "pocteo.image" (dict "global" $.Values.global "repository" $cfg.image.repository "tag" $cfg.image.tag) }}
+          image: {{ include "pocteo.image" (dict "global" $.Values.global "repository" $cfg.image.repository "tag" $cfg.image.tag "firstParty" false) }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

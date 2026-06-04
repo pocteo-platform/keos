@@ -147,7 +147,7 @@ declares duplicate `default allow` rules.
   symlinks) to `mountPath: /policies/agent.rego` with `subPath: agent.rego`
   (just the file, no symlinks involved).
 
-### Finding 4 — `global.imageRegistry` is applied to stock images too · **TODO**
+### Finding 4 — `global.imageRegistry` is applied to stock images too · **FIXED**
 
 **Symptom.** `helm install ... --set global.imageRegistry=10.5.0.1:5000`
 rewrites our 3 Pocteo images correctly (`pocteo-api`, `pocteo-mcp-server`,
@@ -166,10 +166,12 @@ unconditionally re-prefix.
 each stock image into the local registry under the bare names the chart
 expects after re-prefixing (`caddy:2.8-alpine`, `ollama:0.4.7`, etc.).
 
-**Recommended fix.** Helper template `pocteo.image` should distinguish
-"first-party images we publish" (apply global.imageRegistry override)
-from "upstream stock images" (don't override; only honor a per-image
-`registry:` override).
+**Fix.** The `pocteo.image` helper now takes a `firstParty` bool
+argument. When true (api/mcp-server/frontend), it prefixes the
+repository with `global.imageRegistry`. When false (ollama, qdrant,
+nats, opa, caddy), it emits the repository verbatim so the image
+pulls from its upstream (docker.io / ghcr.io / wherever values.yaml
+says). Verified with `helm template` against both modes.
 
 ### Finding 5 — Frontend nginx can't bind to port 80 under the restricted SecurityContext · **TODO**
 
@@ -192,7 +194,7 @@ ships an nginx config that listens on 80.
 The 8080 path is cleaner and matches the conventional non-root nginx
 pattern.
 
-### Finding 6 — `bootstrapNodeLabel` hook silently doesn't run · **TODO**
+### Finding 6 — `bootstrapNodeLabel` hook silently doesn't run · **FIXED**
 
 **Symptom.** With `agent.bootstrapNodeLabel.enabled=true` set, no Job
 ever runs in the `keos` namespace + the target node never gets the
@@ -209,9 +211,19 @@ issue.
 keos-talos-controlplane-1 keos.pocteo/sre-home=true --overwrite`
 manually after install.
 
-**Recommended fix.** Audit `templates/_node-label-hook.yaml` —
-verify the Job has correct `helm.sh/hook` annotations + that the
-ServiceAccount has the needed RBAC.
+**Fix.** Two bugs in one:
+1. **Filename had a leading underscore** (`_node-label-hook.yaml`).
+   Helm treats `templates/_*.yaml` as partial-template helpers + skips
+   them — so the Job + RBAC inside never rendered. Renamed via `git mv`
+   to `node-label-hook.yaml`.
+2. **`bitnami/kubectl:1.30` no longer exists on Docker Hub** —
+   Bitnami deprecated that tag scheme. Switched to `alpine/k8s:1.30.0`
+   (multi-arch amd64+arm64 — important for Jetson).
+
+Verified end-to-end on the live Talos cluster: stripped the manual
+label, helm upgraded with `bootstrapNodeLabel.enabled=true`, watched
+the Job complete + the label land + the hook auto-cleanup by the
+`hook-delete-policy: hook-succeeded` annotation.
 
 ---
 

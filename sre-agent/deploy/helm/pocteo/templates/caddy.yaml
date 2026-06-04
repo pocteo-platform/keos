@@ -63,7 +63,7 @@ spec:
     spec:
       containers:
         - name: caddy
-          image: {{ include "pocteo.image" (dict "global" .Values.global "repository" .Values.caddy.image.repository "tag" .Values.caddy.image.tag) }}
+          image: {{ include "pocteo.image" (dict "global" .Values.global "repository" .Values.caddy.image.repository "tag" .Values.caddy.image.tag "firstParty" false) }}
           ports: [{ containerPort: 80 }]
           volumeMounts:
             - name: caddyfile
