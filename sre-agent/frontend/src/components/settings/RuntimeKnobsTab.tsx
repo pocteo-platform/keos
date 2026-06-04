@@ -272,7 +272,7 @@ export function ForecastingTab() {
             <span className="ml-1.5 text-muted-foreground">
               {t("settings.forecast.primer", {
                 defaultValue:
-                  "Every 60s the scheduler fits OLS over the last 60 baseline samples per metric. Three horizons: T+5m / T+15m / T+60m. Levels — critical = breach at T+5m, warning = T+15m, watch = T+60m, safe = trend stable, cold-start = R² too low or < 50 samples. Each breach fires an `infra.events.forecasted_<kind>` event the agent acts on PROACTIVELY (one severity level lower than the reactive equivalent).",
+                  "Every minute the agent looks at each metric's recent trend and projects where it's heading. Three horizons — 5 min, 15 min, 60 min. Critical means the metric will cross its danger line within the next 5 minutes; warning is 15 minutes; watch is 60 minutes; safe means the trend is stable; cold-start means there isn't enough data yet to forecast reliably. When a forecast crosses critical or warning, the agent acts BEFORE the workload actually breaks — typically before an operator would notice anything wrong.",
               })}
             </span>
           </div>
@@ -468,7 +468,7 @@ export function BaselinesTab() {
             <span className="ml-1.5 text-muted-foreground">
               {t("settings.baselines.primer", {
                 defaultValue:
-                  "The learner scrapes a fixed set of Prometheus metrics every 60s per (metric × namespace × pod) tuple. Each key gets an EWMA mean (recent-weighted average) + per-hour-of-day seasonal median. Status: ok = ≥ 50 samples, baseline is real; learning = < 50 samples, prompt notes 'still learning'. σ above = how far the CURRENT value is from the mean, in standard deviations — 1σ is mild, 3σ+ is anomalous. The diagnose prompt injects 'X is at Y, baseline Z ± W → N σ above' for every fitted key on the targeted pod.",
+                  "The agent measures each pod's memory, CPU, and traffic every minute and learns what's normal for that specific workload at that specific time of day. Status: ok means the agent has enough data (≥ 50 readings) to know what 'normal' looks like; learning means it's still gathering data. The 'σ above' column shows how far the current value is from normal — 1σ is mild, 3σ or more is anomalous. When the agent diagnoses an incident, it tells itself things like 'memory is 23σ above its normal range' instead of just looking at the raw number, which makes the diagnosis far more accurate.",
               })}
             </span>
           </div>
@@ -525,7 +525,7 @@ export function BaselinesTab() {
         knobs={BASELINE_KNOBS}
         configHint={t("settings.knobs.baselines.config", {
           defaultValue:
-            "Baselines require Prometheus. Apply manifests/monitoring.yaml for in-cluster install (Phase 13c).",
+            "Baselines require Prometheus. Apply manifests/monitoring.yaml for in-cluster install.",
         })}
       />
     </div>

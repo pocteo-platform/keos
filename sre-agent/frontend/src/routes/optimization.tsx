@@ -333,25 +333,25 @@ export default function OptimizationPage() {
                   <li>
                     {t("optimization.table.step1", {
                       defaultValue:
-                        "The baseline learner scrapes container_memory_rss / working_set per pod every 60s.",
+                        "The agent measures each pod's memory and CPU usage every minute.",
                     })}
                   </li>
                   <li>
                     {t("optimization.table.step2", {
                       defaultValue:
-                        "Once a pod has ≥ 50 samples, an EWMA mean + std deviation get fitted.",
+                        "After 50 measurements per pod it learns what 'normal' looks like — average usage and how much it varies.",
                     })}
                   </li>
                   <li>
                     {t("optimization.table.step3", {
                       defaultValue:
-                        "Headroom = 1 - (baseline mean / 2 × current usage). > 0.70 means over-provisioned; ≤ 0.20 means under-provisioned.",
+                        "If a pod is consistently using less than half its limit, it's over-provisioned — you can safely cut its requests. If it's bumping against the limit, it's under-provisioned and at risk of being killed.",
                     })}
                   </li>
                   <li>
                     {t("optimization.table.step4", {
                       defaultValue:
-                        "Apply recommendations via the Use Case wizard's `set_resources` template or `kubectl patch`.",
+                        "Apply recommendations via the Use Case wizard or directly with kubectl patch.",
                     })}
                   </li>
                 </ol>

@@ -517,8 +517,13 @@
     },
     "table": {
       "title": "Recommandations par workload",
-      "empty": "Pas encore de recommandations — le learner a besoin de ≥ 50 échantillons par métrique avant de pouvoir dimensionner.",
-      "emptyAction": "Retour au tableau de bord"
+      "empty": "Pas encore de recommandations — l'agent a besoin d'au moins 50 mesures par métrique avant de pouvoir dimensionner.",
+      "emptyAction": "Retour au tableau de bord",
+      "howItWorks": "Comment fonctionne le dimensionnement",
+      "step1": "L'agent mesure la mémoire et le CPU de chaque pod chaque minute.",
+      "step2": "Après 50 mesures par pod, il apprend à quoi ressemble la « normale » — utilisation moyenne et amplitude de variation.",
+      "step3": "Si un pod utilise régulièrement moins de la moitié de sa limite, il est sur-provisionné — vous pouvez réduire ses requests sans risque. S'il atteint régulièrement sa limite, il est sous-provisionné et risque d'être tué.",
+      "step4": "Appliquez les recommandations via l'assistant Cas d'usage ou directement avec kubectl patch."
     },
     "cols": {
       "workload": "Workload",
@@ -566,6 +571,14 @@
       "confirmObserve": "Observe-only = dry-run ; les actions sont consignées mais pas exécutées.",
       "confirmApply": "Appliquer"
     },
+    "forecast": {
+      "primerTitle": "Comment fonctionnent les prédictions",
+      "primer": "Chaque minute, l'agent examine la tendance récente de chaque métrique et projette où elle se dirige. Trois horizons — 5 min, 15 min, 60 min. Critique signifie que la métrique va franchir sa limite de danger dans les 5 prochaines minutes ; alerte = 15 minutes ; surveillance = 60 minutes ; sûr = la tendance est stable ; cold-start = il n'y a pas encore assez de données pour prédire de manière fiable. Lorsqu'une prédiction passe en critique ou alerte, l'agent agit AVANT que le workload ne casse réellement — généralement avant qu'un opérateur ne remarque quoi que ce soit."
+    },
+    "baselines": {
+      "primerTitle": "Comment fonctionnent les baselines",
+      "primer": "L'agent mesure la mémoire, le CPU et le trafic de chaque pod chaque minute et apprend ce qui est normal pour ce workload spécifique à ce moment précis de la journée. Statut : ok signifie que l'agent a suffisamment de données (≥ 50 lectures) pour savoir à quoi ressemble la « normale » ; learning signifie qu'il en collecte encore. La colonne « σ au-dessus » montre à quel point la valeur actuelle s'éloigne de la normale — 1σ est léger, 3σ ou plus est anormal. Lorsque l'agent diagnostique un incident, il se dit des choses comme « la mémoire est à 23σ au-dessus de sa plage normale » au lieu de simplement regarder le chiffre brut, ce qui rend le diagnostic bien plus précis."
+    },
     "calibration": {
       "summary": {
         "median": "Confiance médiane",
@@ -573,6 +586,9 @@
         "above90": "Règles au-dessus de 90%",
         "rules": "Règles suivies"
       },
+      "primerTitle": "Comment fonctionne la calibration",
+      "primer": "Après chaque incident, l'agent s'auto-évalue : a-t-il réparé le cluster, ou a-t-il dû escalader ? Chaque règle (par ex. OOMKilled, CrashLoopBackOff) suit sa propre précision et sa distribution de confiance. Une fois que l'agent a vu une règle au moins 20 fois, il apprend automatiquement un seuil de confiance par règle — les règles bruitées où il se trompe souvent exigent une confiance PLUS ÉLEVÉE avant d'agir ; les règles où il a constamment raison peuvent agir sur une confiance PLUS FAIBLE. Le bouton Épingler vous permet de forcer un seuil spécifique pour n'importe quelle règle (votre override l'emporte toujours sur le système d'apprentissage). Réinitialiser (↺) efface votre épingle et redonne la main au système d'apprentissage.",
+      "reset": "Réinitialiser au seuil appris",
       "table": {
         "title": "Calibration par règle",
         "empty": "Aucune règle évaluée — lancez un cas d'usage pour amorcer la collecte."
@@ -601,7 +617,7 @@
       },
       "baselines": {
         "title": "Apprentissage des baselines",
-        "config": "Les baselines nécessitent Prometheus. Appliquez manifests/monitoring.yaml pour l'installation in-cluster (Phase 13c)."
+        "config": "Les baselines nécessitent Prometheus. Appliquez manifests/monitoring.yaml pour l'installation in-cluster."
       },
       "notifications": {
         "title": "Notifications",
@@ -743,6 +759,9 @@
       "activeBusy": "Runs de graphe en cours",
       "confidence": "Confiance médiane",
       "confidenceHint": "Cible ≥ 0,90",
+      "confidenceExplain": "À quel point l'agent est généralement sûr de lui lorsqu'il diagnostique un incident. Chaque diagnostic renvoie un score de confiance entre 0 et 1 ; ceci est la médiane sur toutes les règles que l'agent a rencontrées au moins 3 fois. Les règles où l'agent a une confiance constamment faible sont escaladées vers un humain plus tôt. En dessous de 0,70 = l'agent hésite souvent ; au-dessus de 0,90 = l'agent agit de façon autonome de manière fiable.",
+      "baselinesExplain": "Nombre de flux de métriques pour lesquels l'agent apprend les profils normaux vs anormaux. La mémoire, le CPU et le trafic de chaque pod sont suivis séparément afin que l'agent sache à quoi ressemble la « normale » pour ce workload spécifique. Une fois qu'un flux atteint 50 échantillons, il devient ajusté — l'agent peut alors dire au diagnostic « cette métrique est à N écarts-types au-dessus de sa plage normale », ce qui est bien plus utile qu'un chiffre brut.",
+      "forecastsExplain": "Métriques que l'agent prévoit voir sortir de leur plage normale dans les 5, 15 ou 60 prochaines minutes. L'agent surveille la tendance de chaque baseline ajustée ; lorsqu'un workload se dirige vers un OOM kill, une saturation CPU ou un pic de trafic, une alerte se déclenche et l'agent agit de manière proactive — avant que l'opérateur ne remarque normalement quoi que ce soit.",
       "baselines": "Baselines",
       "baselinesHint": "{{count}} échantillons",
       "forecasts": "Alertes de prédiction",

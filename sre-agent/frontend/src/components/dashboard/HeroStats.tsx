@@ -208,7 +208,7 @@ export function HeroStats() {
         hint={t("dashboard.hero.confidenceHint", { defaultValue: "Target ≥ 0.90" })}
         explain={t("dashboard.hero.confidenceExplain", {
           defaultValue:
-            "Median LLM-reported confidence across all rules the agent has graded ≥ 3 times. Each diagnose call returns a 0-1 score; rules with persistent low confidence escalate sooner via Phase 12 calibration. Rules with no real signal (single conf=0 noise samples) are excluded.",
+            "How sure the agent typically is when it diagnoses an incident. Each diagnosis returns a 0-to-1 confidence score; this is the median across every rule the agent has seen at least 3 times. Rules where the agent has consistently low confidence get escalated to a human sooner. Below 0.70 = the agent often hesitates; above 0.90 = the agent is reliably acting on its own.",
         })}
       />
       <StatChip
@@ -223,7 +223,7 @@ export function HeroStats() {
         })}
         explain={t("dashboard.hero.baselinesExplain", {
           defaultValue:
-            "How many (metric × namespace × pod) tuples the learner is tracking. Each key gets an EWMA mean + per-hour-of-day median. The diagnose prompt injects 'σ above baseline' for every fitted key on the targeted pod. Baselines fitted at ≥ 50 samples; below that they're in 'learning' mode and the LLM weights raw values as before.",
+            "How many metric streams the agent is learning normal-vs-abnormal patterns for. Each pod's memory, CPU, and traffic are tracked separately so the agent knows what 'normal' looks like for that specific workload. Once a stream reaches 50 samples it becomes fitted — the agent can then tell the diagnosis 'this metric is N standard deviations above its normal range', which is far more useful than a raw number.",
         })}
       />
       <StatChip
@@ -237,7 +237,7 @@ export function HeroStats() {
         })}
         explain={t("dashboard.hero.forecastsExplain", {
           defaultValue:
-            "How many fitted baselines are projected to breach their threshold within 5/15/60-min horizons. The forecaster runs OLS over the last 60 samples; an R² floor discards non-linear (seasonal) fits. Each alert fires an `infra.events.forecasted_<kind>` event the agent acts on PROACTIVELY — one severity level below the reactive equivalent.",
+            "Metrics the agent expects to breach their normal range within the next 5, 15, or 60 minutes. The agent watches each fitted baseline's trend; when a workload is heading toward an OOM kill, a CPU saturation, or a traffic surge, an alert fires and the agent acts proactively — before the operator would normally see anything wrong.",
         })}
       />
     </div>

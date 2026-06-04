@@ -170,7 +170,7 @@ export function CalibrationTab() {
             <span className="ml-1.5 text-muted-foreground">
               {t("settings.calibration.primer", {
                 defaultValue:
-                  "After each incident's `verify` step the grader updates per-rule counters: n_diagnosed, n_correct, p50/p90 confidence. Once a rule has ≥ 20 graded incidents, its effective threshold flips from the global default to `p25 of correct-incident confidence` — noisy rules end up with HIGH thresholds (escalate sooner), well-calibrated rules get LOW thresholds (act on lower confidence). The Pin button lets you force a specific threshold for any rule (operator override beats the learner). Reset (↺) clears your pin and lets the learner take over again.",
+                  "After each incident the agent grades itself: did it heal the cluster, or did it need to escalate? Each rule (e.g. OOMKilled, CrashLoopBackOff) tracks its own accuracy and confidence distribution. Once the agent has seen a rule at least 20 times, it learns a per-rule confidence threshold automatically — noisy rules where it's often wrong require HIGHER confidence before acting; rules where it's consistently right can act on LOWER confidence. The Pin button lets you force a specific threshold for any rule (your override always beats the learner). Reset (↺) clears your pin and gives the learner control again.",
               })}
             </span>
           </div>
