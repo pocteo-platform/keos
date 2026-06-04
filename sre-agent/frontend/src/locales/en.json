@@ -505,8 +505,13 @@
     },
     "table": {
       "title": "Per-workload recommendations",
-      "empty": "No recommendations yet — the learner needs ≥ 50 samples per metric before it can rightsize.",
-      "emptyAction": "Back to dashboard"
+      "empty": "No recommendations yet — the agent needs at least 50 measurements per metric before it can rightsize.",
+      "emptyAction": "Back to dashboard",
+      "howItWorks": "How rightsizing works",
+      "step1": "The agent measures each pod's memory and CPU usage every minute.",
+      "step2": "After 50 measurements per pod it learns what 'normal' looks like — average usage and how much it varies.",
+      "step3": "If a pod is consistently using less than half its limit, it's over-provisioned — you can safely cut its requests. If it's bumping against the limit, it's under-provisioned and at risk of being killed.",
+      "step4": "Apply recommendations via the Use Case wizard or directly with kubectl patch."
     },
     "cols": {
       "workload": "Workload",
@@ -554,6 +559,14 @@
       "confirmObserve": "Observe-only is dry-run; actions are logged but not executed.",
       "confirmApply": "Apply"
     },
+    "forecast": {
+      "primerTitle": "How forecasts work",
+      "primer": "Every minute the agent looks at each metric's recent trend and projects where it's heading. Three horizons — 5 min, 15 min, 60 min. Critical means the metric will cross its danger line within the next 5 minutes; warning is 15 minutes; watch is 60 minutes; safe means the trend is stable; cold-start means there isn't enough data yet to forecast reliably. When a forecast crosses critical or warning, the agent acts BEFORE the workload actually breaks — typically before an operator would notice anything wrong."
+    },
+    "baselines": {
+      "primerTitle": "How baselines work",
+      "primer": "The agent measures each pod's memory, CPU, and traffic every minute and learns what's normal for that specific workload at that specific time of day. Status: ok means the agent has enough data (≥ 50 readings) to know what 'normal' looks like; learning means it's still gathering data. The 'σ above' column shows how far the current value is from normal — 1σ is mild, 3σ or more is anomalous. When the agent diagnoses an incident, it tells itself things like 'memory is 23σ above its normal range' instead of just looking at the raw number, which makes the diagnosis far more accurate."
+    },
     "calibration": {
       "summary": {
         "median": "Median confidence",
@@ -561,6 +574,9 @@
         "above90": "Rules above 90%",
         "rules": "Tracked rules"
       },
+      "primerTitle": "How calibration works",
+      "primer": "After each incident the agent grades itself: did it heal the cluster, or did it need to escalate? Each rule (e.g. OOMKilled, CrashLoopBackOff) tracks its own accuracy and confidence distribution. Once the agent has seen a rule at least 20 times, it learns a per-rule confidence threshold automatically — noisy rules where it's often wrong require HIGHER confidence before acting; rules where it's consistently right can act on LOWER confidence. The Pin button lets you force a specific threshold for any rule (your override always beats the learner). Reset (↺) clears your pin and gives the learner control again.",
+      "reset": "Reset to learned threshold",
       "table": {
         "title": "Per-rule calibration",
         "empty": "No rules graded yet — run a use case to populate."
@@ -589,7 +605,7 @@
       },
       "baselines": {
         "title": "Baseline learner",
-        "config": "Baselines require Prometheus. Apply manifests/monitoring.yaml for in-cluster install (Phase 13c)."
+        "config": "Baselines require Prometheus. Apply manifests/monitoring.yaml for in-cluster install."
       },
       "notifications": {
         "title": "Notifications",
@@ -731,6 +747,9 @@
       "activeBusy": "Graph runs in progress",
       "confidence": "Median confidence",
       "confidenceHint": "Target ≥ 0.90",
+      "confidenceExplain": "How sure the agent typically is when it diagnoses an incident. Each diagnosis returns a 0-to-1 confidence score; this is the median across every rule the agent has seen at least 3 times. Rules where the agent has consistently low confidence get escalated to a human sooner. Below 0.70 = the agent often hesitates; above 0.90 = the agent is reliably acting on its own.",
+      "baselinesExplain": "How many metric streams the agent is learning normal-vs-abnormal patterns for. Each pod's memory, CPU, and traffic are tracked separately so the agent knows what 'normal' looks like for that specific workload. Once a stream reaches 50 samples it becomes fitted — the agent can then tell the diagnosis 'this metric is N standard deviations above its normal range', which is far more useful than a raw number.",
+      "forecastsExplain": "Metrics the agent expects to breach their normal range within the next 5, 15, or 60 minutes. The agent watches each fitted baseline's trend; when a workload is heading toward an OOM kill, a CPU saturation, or a traffic surge, an alert fires and the agent acts proactively — before the operator would normally see anything wrong.",
       "baselines": "Baselines",
       "baselinesHint": "{{count}} samples",
       "forecasts": "Forecast alerts",
