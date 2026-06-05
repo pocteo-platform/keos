@@ -6,6 +6,112 @@ version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-06-06
+
+**General Availability.** First chart that has been installed against
+a real immutable-OS cluster (Talos in Docker mode), end-to-end, with
+the agent reaching all-green doctor + serving the SPA + accepting
+auth + populating the cluster-context probe from in-pod RBAC. Six
+chart bugs surfaced + fixed in this cycle; full methodology +
+findings in `docs/TALOS_LIVE_TEST.md`.
+
+### Added
+
+- **`docs/KAIROS_JETSON.md`** — canonical operator install guide for
+  the production hardware target (Kairos + Jetson Orin NX). Covers
+  the L4T SDK download, auroraboot partition image build, complete
+  `defaults.yaml` cloud-config (operator SSH key + EdgeVPN P2P
+  network token + NVIDIA Container Toolkit via `stages.boot` +
+  `nvidia` RuntimeClass + k8s device plugin), `flash.sh` invocation,
+  first-boot verification, GPU inference confirmation
+  (`ollama ps` shows 100% GPU), and the add-a-second-Jetson workflow
+  via the same `network_token`.
+- **`docs/TALOS_LIVE_TEST.md`** — test methodology + the six
+  findings discovered during the end-to-end install on real Talos.
+  Every finding includes symptom, root cause, and the exact fix.
+- **`docs/RELEASE_NOTES_1.0.0.md`** — release notes for this
+  version.
+- **`deploy/helm/pocteo/crds/agentmode.yaml`** — CRD now lives in
+  the chart's `crds/` directory (Helm always installs these first).
+- **`deploy/helm/pocteo/files/policies/agent.rego`** — rego policy
+  is now bundled inside the chart so `.Files.Get` can reach it.
+- **`deploy/helm/pocteo/values-talos-dev.yaml`** — reference values
+  file for Talos local-dev installs. Documents the Git-Bash path
+  mangling that breaks `--set` for slash-prefixed values.
+
+### Fixed
+
+- **Chart Finding 1** (CRD+CR in same template): split into `crds/`
+  + `templates/`. Helm applies CRDs before any template, so the
+  `AgentMode` CR's API group is registered before the CR itself
+  validates.
+- **Chart Finding 2** (OPA ConfigMap empty): `.Files.Get` is
+  sandboxed to the chart directory. Moved `policies/agent.rego`
+  inside the chart at `files/policies/`.
+- **Chart Finding 3** (OPA symlink-loop crash): switched OPA's
+  `args` from directory scan to single-file load + ConfigMap mount
+  uses `subPath: agent.rego` to bypass K8s's `..data/` symlink chain.
+- **Chart Finding 4** (`global.imageRegistry` over-applied):
+  helper `pocteo.image` now takes an explicit `firstParty` bool.
+  Only `keos-api`, `keos-mcp-server`, `keos-frontend` get the
+  registry prefix; stock images (ollama, qdrant, nats, opa, caddy)
+  render verbatim from their per-image `repository`.
+- **Chart Finding 5** (frontend nginx port-80 bind failure under
+  non-root): switched from `nginx:1.27-alpine` to
+  `nginxinc/nginx-unprivileged:1.27-alpine` which listens on 8080
+  by default and has the right Linux file capabilities. Chart's
+  `containerPort`, `targetPort`, and probes updated.
+- **Chart Finding 6** (bootstrapNodeLabel hook silently never
+  fires): renamed `_node-label-hook.yaml` to drop the leading
+  underscore (Helm treats `_*.yaml` as partial templates and skips
+  them); switched hook image from `bitnami/kubectl:1.30` (removed
+  from Docker Hub) to `alpine/k8s:1.30.0` (multi-arch, stable tag).
+- **Agent in-pod auth**: removed the baked `KUBECONFIG=/root/.kube/config`
+  ENV from `agent/Dockerfile.api` so kubectl uses in-cluster SA auth.
+  `_kubectl_get` only passes `--kubeconfig` when the file exists.
+  `_check_cluster` tries `load_incluster_config()` first.
+- **`agent/serve.py` K8s env collision**: K8s auto-injects
+  `<SERVICE>_PORT=tcp://...` envs. Switched to `KEOS_API_PORT` to
+  avoid the collision that crashed `int()` parse at boot.
+- **`agent/api.py` qdrant + nats StatefulSets**: added
+  `runAsUser: 1000` + `fsGroup: 1000` to the pod-level security
+  context so kubelet doesn't reject stock images for "runAsNonRoot
+  but image runs as root".
+- **`agent/api.py` qdrant snapshots**: added an emptyDir tmpfs at
+  `/qdrant/snapshots` so qdrant can write there even with the
+  chart's `readOnlyRootFilesystem: true`.
+- **Chart ClusterRole**: granted the agent SA the verbs it actually
+  needs cluster-wide: `customresourcedefinitions`, `namespaces`,
+  `pods`, `events`, `deployments/statefulsets/daemonsets/replicasets`
+  (cluster-scoped list), `services/proxy` (for apiserver-proxy
+  Prometheus reads). Without these the cluster-context probe
+  returned empty on every real install.
+
+### Documentation
+
+- README doc index now leads with `docs/KAIROS_JETSON.md`.
+- `docs/INSTALL.md` §3 → Kairos+Jetson is the recommended edge path.
+- `docs/JETSON.md` callout box at the top points at the new canonical
+  doc.
+- `docs/JETSON_FIRST_BOOT.md` header redirects to the Kairos doc.
+- `website/docs/platforms/kairos-jetson.md` mirror added with the
+  Docusaurus frontmatter.
+
+### Removed
+
+- Nothing. v1.0.0 is purely additive + fixes; values-schema is
+  unchanged from rc.1 (the `global.imageRegistry` semantics shift is
+  the only edge case — see "Upgrade path" in
+  [`docs/RELEASE_NOTES_1.0.0.md`](docs/RELEASE_NOTES_1.0.0.md)).
+
+---
+
+## [1.0.0-rc.1] — earlier
+
+Cut by Phase 10.10. See [`docs/RELEASE_NOTES_1.0.0-rc.1.md`](docs/RELEASE_NOTES_1.0.0-rc.1.md).
+
+---
+
 ### Added — V1 UI polish (Phases 14.5 through 14.10)
 
 - **Phase 14.5 — Komodor-inspired UI uplift**: workload drill-down route
