@@ -52,7 +52,16 @@ class ModeStore:
         callers get a real value, not the default."""
         if self._thread is not None:
             return
-        config.load_kube_config(config_file=settings.kubeconfig)
+        # Try in-cluster auth first (production: agent runs as a Pod with a
+        # projected SA token), fall back to the dev kubeconfig file.
+        # Without this fallback, the watcher silently runs against no
+        # cluster, never observes a CRD change, and /api/mode keeps
+        # returning the boot default even after the AgentMode CR is
+        # patched (so the SPA's mode toggle appears to do nothing).
+        try:
+            config.load_incluster_config()
+        except config.ConfigException:
+            config.load_kube_config(config_file=settings.kubeconfig)
         self._thread = threading.Thread(target=self._run, name="agent-mode-watcher", daemon=True)
         self._thread.start()
         if not self._ready.wait(timeout=5.0):
