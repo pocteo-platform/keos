@@ -1048,12 +1048,20 @@ def _detect_operators() -> DetectedOperators:
                     break
             except Exception:  # noqa: BLE001
                 pass
-    # kube-state-metrics is a Deployment, not a CRD.
+    # kube-state-metrics is a Deployment (not a CRD). Match any name
+    # ending in "kube-state-metrics" — the kube-prometheus-stack chart
+    # prefixes the release name (e.g. "prom-kube-state-metrics"), and
+    # other distributions may add their own suffix/prefix.
     try:
-        if _deployment_exists("kube-state-metrics", "monitoring"):
-            out.kube_state_metrics = True
-        elif _deployment_exists("kube-state-metrics", "kube-system"):
-            out.kube_state_metrics = True
+        for ns in ("monitoring", "kube-system"):
+            items = _kubectl_get("deployments", "", ns).get("items", [])
+            for d in items:
+                dname = ((d.get("metadata") or {}).get("name") or "").lower()
+                if "kube-state-metrics" in dname:
+                    out.kube_state_metrics = True
+                    break
+            if out.kube_state_metrics:
+                break
     except Exception:  # noqa: BLE001
         pass
     return out
