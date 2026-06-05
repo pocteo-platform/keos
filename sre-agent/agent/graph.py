@@ -183,13 +183,12 @@ def _is_pod_state_resolved(namespace: str, pod_name: str) -> tuple[bool, str]:
     try:
         import subprocess
 
-        from agent.config import settings as _s
+        from agent.config import kubectl_auth_args
 
         p = subprocess.run(
             [
                 "kubectl",
-                "--kubeconfig",
-                _s.kubeconfig,
+                *kubectl_auth_args(),
                 "get",
                 "pod",
                 pod_name,

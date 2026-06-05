@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 from qdrant_client import QdrantClient
 
-from agent.config import settings
+from agent.config import settings, kubectl_auth_args
 from agent.schemas import ActionResult
 
 log = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def _run(cmd: list[str], timeout: float = 30.0) -> tuple[int, str, str]:
 
 
 def _kubectl(args: list[str], timeout: float = 30.0) -> tuple[int, str, str]:
-    return _run(["kubectl", "--kubeconfig", settings.kubeconfig, *args], timeout=timeout)
+    return _run(["kubectl", *kubectl_auth_args(), *args], timeout=timeout)
 
 
 # ---------------------------------------------------------------------------

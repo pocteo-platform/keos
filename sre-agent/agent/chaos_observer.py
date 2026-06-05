@@ -152,10 +152,20 @@ class ChaosObserver:
             log.warning("chaos_observer disabled (missing dep: %s)", exc)
             return
 
+        # Try in-cluster auth first (Pod with projected SA token),
+        # fall back to the dev kubeconfig file. Without this fallback
+        # the observer is silently dead on every real cluster install
+        # and the agent never sees real kubelet events.
         try:
-            config.load_kube_config(config_file=settings.kubeconfig)
+            try:
+                config.load_incluster_config()
+            except config.ConfigException:
+                config.load_kube_config(config_file=settings.kubeconfig)
         except Exception as exc:  # noqa: BLE001
-            log.warning("chaos_observer: kubeconfig load failed (%s) — disabled", exc)
+            log.warning(
+                "chaos_observer: in-cluster + kubeconfig both failed (%s) — disabled",
+                exc,
+            )
             return
 
         try:

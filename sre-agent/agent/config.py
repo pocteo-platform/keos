@@ -62,3 +62,22 @@ class Settings:
 
 
 settings = Settings()
+
+
+def kubectl_auth_args() -> list[str]:
+    """Return the `--kubeconfig <path>` argv slice to splice into a
+    kubectl invocation — but ONLY if the configured kubeconfig file
+    actually exists on disk. In an in-cluster Pod the file is absent
+    and kubectl auto-discovers the ServiceAccount token at
+    `/var/run/secrets/kubernetes.io/serviceaccount`. On the laptop
+    demo path the file exists and gets passed through.
+
+    Centralising this here keeps every subprocess kubectl call site
+    (api.post_mode, tools._kubectl, usecase_runner, chaos_observer,
+    graph verify, synthetic_events…) consistent. Adding a new
+    kubectl call in the agent codebase? Use this helper, not
+    `--kubeconfig settings.kubeconfig` directly.
+    """
+    if settings.kubeconfig and os.path.isfile(settings.kubeconfig):
+        return ["--kubeconfig", settings.kubeconfig]
+    return []
