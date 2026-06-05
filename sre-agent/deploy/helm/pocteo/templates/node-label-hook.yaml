@@ -83,8 +83,9 @@ spec:
         - name: label-node
           # alpine/k8s ships kubectl in a tiny multi-arch base + has
           # stable `<k8s-version>.0` tags. Bitnami's tag scheme drifts —
-          # `bitnami/kubectl:1.30` was removed from docker.io.
-          image: alpine/k8s:1.30.0
+          # `bitnami/kubectl:1.30` was removed from docker.io. Override
+          # via `agent.bootstrapNodeLabel.image` for airgap installs.
+          image: {{ .Values.agent.bootstrapNodeLabel.image | default "alpine/k8s:1.30.0" | quote }}
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
