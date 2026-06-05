@@ -25,7 +25,7 @@ from typing import Any
 import nats
 
 from agent.api_models import UseCase
-from agent.config import settings
+from agent.config import kubectl_auth_args, settings
 
 log = logging.getLogger(__name__)
 
@@ -47,8 +47,7 @@ def _resolve_target(use_case: UseCase) -> tuple[str, str]:
             p = subprocess.run(
                 [
                     "kubectl",
-                    "--kubeconfig",
-                    settings.kubeconfig,
+                    *kubectl_auth_args(),
                     "get",
                     "pods",
                     "-n",
@@ -182,7 +181,7 @@ def _apply_chaos_if_requested(use_case: UseCase, ns: str, pod: str, incident_id:
 
     try:
         p = subprocess.run(
-            ["kubectl", "--kubeconfig", settings.kubeconfig, "apply", "-f", "-"],
+            ["kubectl", *kubectl_auth_args(), "apply", "-f", "-"],
             input=json.dumps(cr),
             capture_output=True,
             text=True,
