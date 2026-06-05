@@ -599,22 +599,21 @@ def get_mode() -> ModeResponse:
 def post_mode(body: ModeChangeRequest) -> ModeResponse:
     """Patch the AgentMode CRD. Returns 502 if kubectl fails."""
     patch = {"spec": {"mode": body.mode, "note": body.note or f"set via API at {_now_iso()}"}}
-    p = subprocess.run(
-        [
-            "kubectl",
-            "--kubeconfig",
-            settings.kubeconfig,
-            "patch",
-            "agentmode",
-            settings.agent_mode_name,
-            "--type=merge",
-            "--patch",
-            json.dumps(patch),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    # Same pattern as `_kubectl_get`: only pass --kubeconfig when an
+    # actual file exists. In-cluster the SA token at
+    # /var/run/secrets/kubernetes.io/serviceaccount kicks in automatically.
+    cmd = ["kubectl"]
+    if settings.kubeconfig and os.path.isfile(settings.kubeconfig):
+        cmd += ["--kubeconfig", settings.kubeconfig]
+    cmd += [
+        "patch",
+        "agentmode",
+        settings.agent_mode_name,
+        "--type=merge",
+        "--patch",
+        json.dumps(patch),
+    ]
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
     if p.returncode != 0:
         raise HTTPException(status_code=502, detail=f"kubectl patch failed: {p.stderr.strip()}")
     # Wait briefly for the watch to observe the change.

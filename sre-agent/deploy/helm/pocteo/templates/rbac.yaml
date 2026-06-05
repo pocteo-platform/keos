@@ -55,7 +55,9 @@ metadata:
 rules:
   - apiGroups: [security.poc]
     resources: [agentmodes]
-    verbs: [get, list, watch]
+    # patch + update are needed for POST /api/mode (the operator flips
+    # the agent into observe-only / active / frozen via the SPA).
+    verbs: [get, list, watch, patch, update]
   - apiGroups: [""]
     resources: [nodes]
     verbs: [get, list, watch, patch, update]
