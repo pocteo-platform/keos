@@ -3,7 +3,7 @@
 [![CI](https://github.com/pocteo-platform/keos/actions/workflows/ci.yml/badge.svg)](https://github.com/pocteo-platform/keos/actions/workflows/ci.yml)
 [![Docs site](https://github.com/pocteo-platform/keos/actions/workflows/docs.yml/badge.svg)](https://pocteo-platform.github.io/keos/)
 [![Release](https://img.shields.io/github/v/release/pocteo-platform/keos?include_prereleases&sort=semver)](https://github.com/pocteo-platform/keos/releases)
-[![Status](https://img.shields.io/badge/status-v1.0.0--rc.1-blueviolet)](docs/RELEASE_NOTES_1.0.0-rc.1.md)
+[![Status](https://img.shields.io/badge/status-v1.0.0-success)](docs/RELEASE_NOTES_1.0.0.md)
 [![Docs](https://img.shields.io/badge/docs-pocteo--platform.github.io%2Fkeos-15117A)](https://pocteo-platform.github.io/keos/)
 [![Multi-arch](https://img.shields.io/badge/images-linux%2Famd64%20%7C%20linux%2Farm64-informational)](deploy/buildx-bake.hcl)
 
@@ -256,9 +256,13 @@ matrix.
 
 ## Status
 
-**v1.0.0-rc.1** — first release candidate; suitable for architect review and
-internal pilots. See [release notes](docs/RELEASE_NOTES_1.0.0-rc.1.md) for
-what's tested, what isn't, and known limitations.
+**v1.0.0** — first GA release. Chart now installs cleanly on real
+immutable-OS clusters end-to-end (verified against Talos v1.6.2 in
+Docker mode); six chart bugs discovered during that test are all
+fixed. See [release notes](docs/RELEASE_NOTES_1.0.0.md) for the full
+changelog. The previous rc release notes
+([1.0.0-rc.1](docs/RELEASE_NOTES_1.0.0-rc.1.md)) remain available for
+upgrade context.
 
 **Not production-ready out of the box**: the dev `AUDIT_HMAC_KEY` in
 `.env.example` is a placeholder; the SPA bearer token is shared rather than
