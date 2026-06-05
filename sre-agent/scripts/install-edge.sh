@@ -74,6 +74,8 @@ ENABLE_GPU="auto"
 SKIP_MODEL_PULL=0
 PROBE_ONLY=0
 PRINT_HELP=0
+AIRGAP=0
+IMAGE_REGISTRY=""
 LOCAL_CHART_PATH="${KEOS_LOCAL_CHART:-}"   # for `make install-edge` against k3d
 
 # ─── Argparse ──────────────────────────────────────────────────────────────
@@ -89,6 +91,8 @@ while [[ $# -gt 0 ]]; do
     --gpu)         ENABLE_GPU="true"; shift ;;
     --skip-models) SKIP_MODEL_PULL=1; shift ;;
     --probe-only)  PROBE_ONLY=1; shift ;;
+    --airgap)      AIRGAP=1; SKIP_MODEL_PULL=1; shift ;;
+    --image-registry) IMAGE_REGISTRY="$2"; shift 2 ;;
     --local-chart) LOCAL_CHART_PATH="$2"; shift 2 ;;
     -h|--help)     PRINT_HELP=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
@@ -283,7 +287,15 @@ ok "tokens ready (operator copy cached at $TOKEN_CACHE)"
 
 # ─── Helm install ──────────────────────────────────────────────────────────
 
-if [[ -z "$LOCAL_CHART_PATH" ]]; then
+if [[ "$AIRGAP" -eq 1 ]]; then
+  # Airgap mode: refuse to reach the public chart repo OR docker.io.
+  # Operator MUST supply a packaged chart (--local-chart) and a
+  # registry mirror (--image-registry) that holds the 12 stock + 3
+  # first-party images. Validates both before any side effect.
+  [[ -n "$LOCAL_CHART_PATH" ]] || die "--airgap requires --local-chart <path>"
+  [[ -n "$IMAGE_REGISTRY"  ]] || die "--airgap requires --image-registry <host:port>"
+  ok "airgap mode — using local chart $LOCAL_CHART_PATH + registry $IMAGE_REGISTRY"
+elif [[ -z "$LOCAL_CHART_PATH" ]]; then
   step "Adding the Keos Helm repo…"
   if ! helm repo list 2>/dev/null | grep -q '^pocteo'; then
     helm repo add pocteo "$CHART_REPO" >/dev/null
@@ -314,6 +326,23 @@ HELM_ARGS+=(
   --set "chaos-mesh.chaosDaemon.socketPath=$CONTAINERD_SOCKET"
   --set-string "chaos-mesh.chaosDaemon.runtime=containerd"
 )
+# Airgap: every image gets prefixed by the operator's registry mirror.
+# First-party images (api/mcp/frontend) use global.imageRegistry (which
+# the chart's `pocteo.image` helper applies only to firstParty=true).
+# Stock images need explicit per-image repo overrides because they're
+# pulled verbatim from values.yaml.
+if [[ "$AIRGAP" -eq 1 ]]; then
+  HELM_ARGS+=(
+    --set-string "global.imageRegistry=${IMAGE_REGISTRY}/pocteo-platform"
+    --set-string "caddy.image.repository=${IMAGE_REGISTRY}/library/caddy"
+    --set-string "nats.image.repository=${IMAGE_REGISTRY}/library/nats"
+    --set-string "ollama.image.repository=${IMAGE_REGISTRY}/ollama/ollama"
+    --set-string "qdrant.image.repository=${IMAGE_REGISTRY}/qdrant/qdrant"
+    --set-string "opa.image.repository=${IMAGE_REGISTRY}/openpolicyagent/opa"
+    --set-string "chaos-mesh.images.registry=${IMAGE_REGISTRY}"
+    --set-string "agent.bootstrapNodeLabel.image=${IMAGE_REGISTRY}/alpine/k8s:1.30.0"
+  )
+fi
 if [[ "$ENABLE_GPU" == "true" ]]; then
   HELM_ARGS+=(
     --set "ollama.gpu.enabled=true"

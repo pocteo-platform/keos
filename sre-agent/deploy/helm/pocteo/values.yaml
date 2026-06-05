@@ -160,6 +160,9 @@ agent:
     enabled: true
     key: keos.pocteo/sre-home
     value: "true"
+    # The kubectl image the pre-install Job runs. Override for airgap
+    # installs — e.g. `--set agent.bootstrapNodeLabel.image=mirror:5000/alpine/k8s:1.30.0`.
+    image: alpine/k8s:1.30.0
 
 # ---------------------------------------------------------------------------
 # Phase 12 — per-rule calibration.
