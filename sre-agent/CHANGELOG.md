@@ -6,6 +6,59 @@ version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-06-06
+
+**Patch:** the chart defaults that v1.0.0 shipped pointed at
+placeholder image names (`ghcr.io/your-org/pocteo-api:0.1.0`)
+instead of the CI-published `ghcr.io/pocteo-platform/keos-api:1.0.0`.
+Verified by spinning up a fresh Talos cluster + running
+`scripts/install-edge.sh` against the local chart — first-party
+pods went into ImagePullBackOff with a 403 on the nonexistent
+placeholder paths. v1.0.0 worked only if you re-ran with manual
+`--set` overrides for every first-party image; v1.0.1 ships the
+right defaults.
+
+### Fixed
+
+- **values.yaml `global.imageRegistry`** changed from
+  `ghcr.io/your-org` to `ghcr.io/pocteo-platform`.
+- **values.yaml first-party repository defaults**:
+  - `api.image.repository`: `pocteo-api` -> `keos-api`
+  - `mcpServer.image.repository`: `pocteo-mcp-server` -> `keos-mcp-server`
+  - `frontend.image.repository`: `pocteo-frontend` -> `keos-frontend`
+- **All first-party image tags** bumped `0.1.0` -> `1.0.0` (the
+  default tag was a rc-era leftover that never matched the publish
+  tag).
+
+### Operator action — one-time GitHub setting
+
+The chart at `oci://ghcr.io/pocteo-platform/charts/pocteo` and the
+3 first-party images at `ghcr.io/pocteo-platform/keos-*` are
+**private** by default per GitHub Container Registry policy. Flip
+each to public once at:
+
+  https://github.com/orgs/pocteo-platform/packages
+
+(Settings -> Change visibility -> Public.)
+
+Until that's done, the operator either has to:
+- Use a `global.imagePullSecrets:` referring to a GitHub PAT
+  with package read access, OR
+- Mirror the images to their own registry + override
+  `global.imageRegistry`.
+
+### Verified
+
+`helm template` with default values now renders:
+
+  image: ghcr.io/pocteo-platform/keos-api:1.0.0
+  image: ghcr.io/pocteo-platform/keos-mcp-server:1.0.0
+  image: ghcr.io/pocteo-platform/keos-frontend:1.0.0
+
+— exactly what the release.yml CI workflow pushes.
+
+
+
 ## [1.0.0] — 2026-06-06
 
 **General Availability.** First chart that has been installed against

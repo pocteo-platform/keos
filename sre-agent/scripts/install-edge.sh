@@ -63,8 +63,13 @@ set -euo pipefail
 
 # ─── Defaults ──────────────────────────────────────────────────────────────
 
-CHART_REPO="${KEOS_CHART_REPO:-https://pocteo-platform.github.io/keos-charts}"
-CHART_NAME="${KEOS_CHART_NAME:-pocteo/keos-sre-agent}"
+# v1.0.0+ ships as an OCI artifact at ghcr.io/pocteo-platform/charts/pocteo.
+# Helm 3.8+ installs OCI charts directly: `helm install <release> oci://...`
+# — no `helm repo add` needed. Override with KEOS_CHART_NAME if you mirror
+# the chart elsewhere; override KEOS_CHART_VERSION to pin a specific tag.
+CHART_REPO=""   # unused for OCI; kept for compat with older versions
+CHART_NAME="${KEOS_CHART_NAME:-oci://ghcr.io/pocteo-platform/charts/pocteo}"
+CHART_VERSION="${KEOS_CHART_VERSION:-1.0.0}"
 RELEASE="${KEOS_RELEASE:-keos}"
 NAMESPACE="${KEOS_NAMESPACE:-keos}"
 KUBECONFIG_OVERRIDE=""
@@ -296,12 +301,7 @@ if [[ "$AIRGAP" -eq 1 ]]; then
   [[ -n "$IMAGE_REGISTRY"  ]] || die "--airgap requires --image-registry <host:port>"
   ok "airgap mode — using local chart $LOCAL_CHART_PATH + registry $IMAGE_REGISTRY"
 elif [[ -z "$LOCAL_CHART_PATH" ]]; then
-  step "Adding the Keos Helm repo…"
-  if ! helm repo list 2>/dev/null | grep -q '^pocteo'; then
-    helm repo add pocteo "$CHART_REPO" >/dev/null
-  fi
-  helm repo update >/dev/null
-  ok "repo synced"
+  ok "using OCI chart $CHART_NAME (version $CHART_VERSION) — no helm repo add needed"
 else
   ok "using local chart at $LOCAL_CHART_PATH (skip repo)"
 fi
@@ -318,6 +318,11 @@ HELM_ARGS=(
   --set "agent.bootstrapNodeLabel.enabled=true"
   --wait --timeout 10m
 )
+# OCI charts: helm pulls + installs by version. Local-chart path
+# embeds the version in the .tgz filename so this is a no-op.
+if [[ "$CHART_NAME" == oci://* ]]; then
+  HELM_ARGS+=(--version "$CHART_VERSION")
+fi
 # Chaos Mesh's chaos-daemon needs the containerd socket path for the
 # detected distro. The chart's sub-chart values.yaml accepts these as
 # top-level keys. We always set them — even when they match the

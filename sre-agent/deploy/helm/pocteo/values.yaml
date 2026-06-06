@@ -6,7 +6,7 @@
 
 global:
   # Where component images are pulled from. Override per-env in CI.
-  imageRegistry: ghcr.io/your-org
+  imageRegistry: ghcr.io/pocteo-platform
   imagePullSecrets: []
   # Labels added to every resource — handy for cluster-wide filtering.
   labels: {}
@@ -407,8 +407,8 @@ opa:
 # MCP server (action catalog).
 mcpServer:
   image:
-    repository: pocteo-mcp-server
-    tag: "0.1.0"
+    repository: keos-mcp-server
+    tag: "1.0.0"
   resources:
     requests: { cpu: 50m, memory: 128Mi }
     limits:   { cpu: 500m, memory: 512Mi }
@@ -417,8 +417,8 @@ mcpServer:
 # FastAPI + agent runtime.
 api:
   image:
-    repository: pocteo-api
-    tag: "0.1.0"
+    repository: keos-api
+    tag: "1.0.0"
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits:   { cpu: "1",  memory: 1Gi }
@@ -450,8 +450,8 @@ api:
 # SPA (nginx + built React).
 frontend:
   image:
-    repository: pocteo-frontend
-    tag: "0.1.0"
+    repository: keos-frontend
+    tag: "1.0.0"
   resources:
     requests: { cpu: 25m,  memory: 32Mi }
     limits:   { cpu: 200m, memory: 128Mi }
