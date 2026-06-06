@@ -5,4 +5,4 @@ the LangGraph agent. The audit log is shared (records get a
 ``source: "mcp"`` field so agent-vs-operator actions are distinguishable).
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
