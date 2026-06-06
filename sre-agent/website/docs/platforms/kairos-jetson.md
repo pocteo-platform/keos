@@ -477,23 +477,28 @@ Wipes `/usr/local/.state` + re-runs cloud-init from `defaults.yaml`.
 
 ## 7. Air-gapped install
 
-Skip the public image pulls during step 4.2 by pre-loading them into
-a registry the Jetson can reach.
+**Full recipe lives in [`AIRGAP_INSTALL.md`](AIRGAP_INSTALL.md)** —
+covers the bundle-build script (`scripts/build-airgap-bundle.sh`
+packages all 12 OCI images + chart + Ollama models into a single
+~5.5 GB tarball), the `install-edge.sh --airgap` flag (refuses any
+public registry contact), the Kairos-image NVIDIA toolkit pre-bake,
+the per-image override flags, and a verification checklist.
+
+TL;DR:
 
 ```bash
-# On a connected host
-docker pull ollama/ollama:0.4.7
-docker pull qdrant/qdrant:v1.12.4
-docker pull nats:2.10.22-alpine
-docker pull openpolicyagent/opa:0.69.0
-docker pull caddy:2.8-alpine
-docker pull ghcr.io/pocteo-platform/keos-api:1.0.0
-docker pull ghcr.io/pocteo-platform/keos-mcp-server:1.0.0
-docker pull ghcr.io/pocteo-platform/keos-frontend:1.0.0
-# ... save + sneakernet to your registry mirror
+# On a connected build host
+bash scripts/build-airgap-bundle.sh 1.0.0
+# → /tmp/keos-airgap-v1.0.0.tar (~5.5 GB)
 
-# On the Jetson, add a registry mirror via cloud-config:
-#   registries.mirrors.docker.io.endpoint = ["http://<mirror>:5000"]
+# Sneakernet to airgapped side, then
+tar xf keos-airgap-v1.0.0.tar
+cd keos-airgap-v1.0.0
+bash scripts/load-airgap-images.sh <MIRROR>:5000
+bash scripts/install-edge.sh --airgap \
+  --local-chart ./chart/keos-sre-agent-1.0.0.tgz \
+  --image-registry <MIRROR>:5000
+bash scripts/seed-ollama-models.sh
 ```
 
 Ollama models — pre-populate `/var/lib/rancher/k3s/storage/<pvc>/`

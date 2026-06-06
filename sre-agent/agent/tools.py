@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 from qdrant_client import QdrantClient
 
-from agent.config import settings, kubectl_auth_args
+from agent.config import kubectl_auth_args, settings
 from agent.schemas import ActionResult
 
 log = logging.getLogger(__name__)

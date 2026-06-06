@@ -69,13 +69,18 @@ jobs:
         with:
           path: sre-agent/website/build
 
-  deploy:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+  # Deploy disabled: Settings → Pages → Source needs to be flipped to
+  # "GitHub Actions" in the repo for this to work, and the docs aren't
+  # canonical for v1 (the published Markdown in sre-agent/docs/ is).
+  # Re-enable when the Pages site has a configured custom domain + the
+  # docs/ → website/ mirror is fully automated.
+  # deploy:
+  #   if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   environment:
+  #     name: github-pages
+  #     url: ${{ steps.deployment.outputs.page_url }}
+  #   steps:
+  #     - id: deployment
+  #       uses: actions/deploy-pages@v4

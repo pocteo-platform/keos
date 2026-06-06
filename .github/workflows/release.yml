@@ -107,24 +107,13 @@ jobs:
           cosign sign --yes \
             ${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}
 
-      - name: Generate + attach SBOM (syft)
-        if: steps.meta.outputs.dry_run == 'false'
-        uses: anchore/sbom-action@v0
-        with:
-          image: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
-          format: spdx-json
-          output-file: sbom-${{ matrix.component.name }}.spdx.json
-          upload-artifact: true
-
-      - name: Attest SBOM to image
-        if: steps.meta.outputs.dry_run == 'false'
-        env:
-          COSIGN_EXPERIMENTAL: "1"
-        run: |
-          cosign attest --yes \
-            --predicate sbom-${{ matrix.component.name }}.spdx.json \
-            --type spdxjson \
-            ${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}
+      # SBOM + provenance attestations are produced inline by
+      # docker/build-push-action above (`sbom: true` + `provenance: true`).
+      # They land in the registry as standard OCI attestation manifests
+      # alongside the image; cosign verify-attestation can read them
+      # without a separate attest step. The previous redundant anchore
+      # + cosign-attest pair broke on a path mismatch in the runner
+      # working dir.
 
   github-release:
     runs-on: ubuntu-latest
