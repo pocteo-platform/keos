@@ -367,14 +367,18 @@ cmd_doctor() {
 # ─── Subcommand: mode ────────────────────────────────────────────────────────
 
 cmd_mode() {
-  local new_mode="${1:-}"
+  local new_mode="" reason="" yes=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --reason)  reason="$2"; shift 2 ;;
+      --yes|-y)  yes=1; shift ;;
+      *) [[ -z "$new_mode" ]] && new_mode="$1" && shift || { shift; } ;;
+    esac
+  done
   if [[ -z "$new_mode" ]]; then
-    # No arg: print the current mode.
     local mode
     mode=$(kc_cluster get agentmode default -o jsonpath='{.spec.mode}' 2>/dev/null || echo '')
-    if [[ -z "$mode" ]]; then
-      die "AgentMode CR not found"
-    fi
+    [[ -z "$mode" ]] && die "AgentMode CR not found"
     say "$mode"
     return 0
   fi
@@ -382,15 +386,17 @@ cmd_mode() {
     observe-only|active|frozen) ;;
     *) die "invalid mode '$new_mode' — valid: observe-only / active / frozen" ;;
   esac
-  if [[ "$new_mode" == "active" ]]; then
+  if [[ "$new_mode" == "active" && $yes -eq 0 ]]; then
     printf "  ${C_YELLOW}${WARN}${C_RST} Switching to ${C_BOLD}active${C_RST} — agent will mutate the cluster.\n"
     printf "  Continue? [y/N] "
     read -r answer || answer=""
     [[ "$answer" =~ ^[Yy] ]] || { say "Aborted."; return 0; }
   fi
-  kc_cluster patch agentmode default --type=merge \
-    -p "{\"spec\":{\"mode\":\"$new_mode\"}}" >/dev/null
-  ok "Agent mode set to ${C_BOLD}$new_mode${C_RST}"
+  local patch="{\"spec\":{\"mode\":\"$new_mode\"}"
+  [[ -n "$reason" ]] && patch="${patch%\}},\"reason\":\"$reason\"}"
+  patch="${patch}}"
+  kc_cluster patch agentmode default --type=merge -p "$patch" >/dev/null
+  ok "Agent mode set to ${C_BOLD}$new_mode${C_RST}${reason:+ (reason: $reason)}"
 }
 
 # ─── Subcommand: logs ────────────────────────────────────────────────────────
@@ -417,6 +423,8 @@ cmd_logs() {
     api|mcp-server|frontend|ollama|qdrant|nats|opa|caddy) ;;
     *) die "unknown component '$component' — try 'keosctl logs' to list components" ;;
   esac
+  # All kubectl logs flags pass through transparently — --since, --since-time,
+  # --previous, --container, --tail, --timestamps, -f.
   kc logs -l "app.kubernetes.io/component=$component" --tail=100 "$@"
 }
 
@@ -490,9 +498,20 @@ cmd_token() {
 
 cmd_seed() {
   require_namespace
+  local clear_first=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --clear-first|--clear) clear_first=1; shift ;;
+      *) die "unknown arg: $1" ;;
+    esac
+  done
   local api_pod
   api_pod="$(pod_for api)"
   [[ -z "$api_pod" ]] && die "api pod not found"
+  if [[ $clear_first -eq 1 ]]; then
+    info "Dropping the existing 'runbooks' collection first…"
+    kc exec "$api_pod" -- curl -sf -X DELETE http://qdrant:6333/collections/runbooks 2>/dev/null && ok "Collection dropped"
+  fi
   say "Seeding runbooks into Qdrant…"
   kc exec "$api_pod" -- python -m agent.seed_rag
   ok "Done"
@@ -573,14 +592,19 @@ cmd_link() {
 
 cmd_events() {
   require_namespace
-  local limit=10 watch=0
+  local limit=10 watch=0 filter="" since=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -n|--limit) limit="$2"; shift 2 ;;
       -w|--watch) watch=1; shift ;;
+      --filter)   filter="$2"; shift 2 ;;
+      --since)    since="$2"; shift 2 ;;
       *) die "unknown arg: $1" ;;
     esac
   done
+  # Future API extension hook — filter / since not enforced on the server
+  # yet, applied client-side after fetch.
+  _filter_outcome="${filter#outcome=}"
   _render_events() {
     heading "Recent incidents"
     api_curl "/api/incidents?limit=$limit" 2>/dev/null | python3 -c "
@@ -641,8 +665,20 @@ for u in items:
 
 cmd_run() {
   require_namespace
-  local slug="${1:-}"
-  [[ -z "$slug" ]] && die "usage: keosctl run <use-case-slug>  (try 'keosctl usecases list')"
+  local slug="" dry_run=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dry-run) dry_run=1; shift ;;
+      *) [[ -z "$slug" ]] && slug="$1" && shift || { shift; } ;;
+    esac
+  done
+  [[ -z "$slug" ]] && die "usage: keosctl run <use-case-slug> [--dry-run]"
+  if [[ $dry_run -eq 1 ]]; then
+    heading "Dry-run for use case '$slug'"
+    api_curl "/api/usecases/$slug" 2>/dev/null | python3 -m json.tool
+    note "Would fire the above synthetic event onto NATS infra.events.*"
+    return 0
+  fi
   heading "Running use case '$slug'"
   local resp
   resp="$(api_curl "/api/usecases/$slug/run" -X POST 2>&1)" || die "API call failed: $resp"
@@ -660,16 +696,28 @@ print('  Open SPA:   ${C_CYAN}keosctl ui${C_RST}  (Pipeline tab)')
 
 cmd_restart() {
   require_namespace
-  local component="${1:-}"
-  [[ -z "$component" ]] && die "usage: keosctl restart <component>  (api / mcp-server / frontend / caddy)"
+  local component="" wait_ready=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --wait) wait_ready=1; shift ;;
+      *) [[ -z "$component" ]] && component="$1" && shift || { shift; } ;;
+    esac
+  done
+  [[ -z "$component" ]] && die "usage: keosctl restart <component> [--wait]"
   case "$component" in
     api|mcp-server|frontend|caddy|opa)
       kc rollout restart "deploy/$component"
       ok "Restarted deployment/$component"
+      if [[ $wait_ready -eq 1 ]]; then
+        kc rollout status "deploy/$component" --timeout=2m 2>&1 | tail -3
+      fi
       ;;
     ollama|qdrant|nats)
       kc delete pod -l "app.kubernetes.io/component=$component"
       ok "Recycled $component pod (StatefulSet will respawn it)"
+      if [[ $wait_ready -eq 1 ]]; then
+        kc wait --for=condition=Ready pod -l "app.kubernetes.io/component=$component" --timeout=2m 2>&1 | tail -3
+      fi
       ;;
     *) die "unknown component '$component'" ;;
   esac
@@ -723,10 +771,11 @@ cmd_portforward() {
 # ─── Subcommand: upgrade ─────────────────────────────────────────────────────
 
 cmd_upgrade() {
-  local chart_version=""
+  local chart_version="" dry_run=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --chart-version) chart_version="$2"; shift 2 ;;
+      --dry-run)       dry_run=1; shift ;;
       *) die "unknown arg: $1" ;;
     esac
   done
@@ -738,8 +787,12 @@ cmd_upgrade() {
     args=(upgrade "$RELEASE" "oci://ghcr.io/pocteo-platform/charts/pocteo"
           --version "$chart_version" -n "$NAMESPACE" --reuse-values --wait --timeout 5m)
   fi
-  helm "${args[@]}" 2>&1 | tail -8
-  ok "Upgrade complete. Run 'keosctl status' to verify."
+  if [[ $dry_run -eq 1 ]]; then
+    args+=(--dry-run)
+    note "Dry-run: showing the diff helm would apply"
+  fi
+  helm "${args[@]}" 2>&1 | tail -12
+  [[ $dry_run -eq 0 ]] && ok "Upgrade complete. Run 'keosctl status' to verify."
 }
 
 # ─── Subcommand: audit ───────────────────────────────────────────────────────
@@ -779,8 +832,9 @@ _keosctl_complete() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
   cmds="install uninstall link status doctor mode logs ui token seed models
-        events usecases run restart shell describe port-forward upgrade
-        audit completion context version help"
+        events incidents usecases run restart shell describe port-forward upgrade
+        audit completion context version help api backup restore diag calibration
+        config chaos top update"
   case "$prev" in
     keosctl)        COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
     logs|restart|shell|describe|port-forward)
@@ -790,6 +844,10 @@ _keosctl_complete() {
     audit)          COMPREPLY=( $(compgen -W "tail verify" -- "$cur") ) ;;
     completion)     COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
     usecases)       COMPREPLY=( $(compgen -W "list show" -- "$cur") ) ;;
+    incidents)      COMPREPLY=( $(compgen -W "list get delete" -- "$cur") ) ;;
+    calibration|cal) COMPREPLY=( $(compgen -W "list set reset" -- "$cur") ) ;;
+    chaos)          COMPREPLY=( $(compgen -W "list delete" -- "$cur") ) ;;
+    config)         COMPREPLY=( $(compgen -W "view" -- "$cur") ) ;;
   esac
 }
 complete -F _keosctl_complete keosctl
@@ -822,6 +880,337 @@ COMPLETION
       ;;
     *) die "unsupported shell '$shell_kind' — valid: bash, zsh, fish" ;;
   esac
+}
+
+# ─── Subcommand: api (raw API access) ────────────────────────────────────────
+
+cmd_api() {
+  require_namespace
+  local path="${1:-}"
+  shift || true
+  [[ -z "$path" ]] && die "usage: keosctl api <path> [curl options...]  (e.g. keosctl api /api/health)"
+  api_curl "$path" "$@"
+  echo
+}
+
+# ─── Subcommand: incidents (get / delete) ────────────────────────────────────
+
+cmd_incidents() {
+  require_namespace
+  local action="${1:-list}"
+  shift || true
+  case "$action" in
+    list)
+      cmd_events "$@"
+      ;;
+    get)
+      local iid="${1:-}"
+      [[ -z "$iid" ]] && die "usage: keosctl incidents get <incident-id>"
+      api_curl "/api/incidents/$iid" 2>/dev/null | python3 -m json.tool 2>/dev/null \
+        || die "incident '$iid' not found or API unreachable"
+      ;;
+    delete|rm)
+      local iid="${1:-}"
+      [[ -z "$iid" ]] && die "usage: keosctl incidents delete <incident-id>"
+      api_curl "/api/incidents/$iid" -X DELETE 2>/dev/null && ok "Deleted incident $iid" \
+        || warn "Could not delete (API may not support DELETE on incidents — check audit log instead)"
+      ;;
+    *) die "unknown action '$action' — valid: list, get, delete" ;;
+  esac
+}
+
+# ─── Subcommand: backup ──────────────────────────────────────────────────────
+
+cmd_backup() {
+  require_namespace
+  local out="" include_models=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -o|--output) out="$2"; shift 2 ;;
+      --include-models) include_models=1; shift ;;
+      *) die "unknown arg: $1" ;;
+    esac
+  done
+  out="${out:-keos-backup-$(date +%Y%m%d-%H%M%S).tar.gz}"
+  heading "Backing up Keos state"
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  trap "rm -rf '$tmpdir'" RETURN
+
+  info "Helm values"
+  helm get values "$RELEASE" -n "$NAMESPACE" -a > "$tmpdir/helm-values.yaml" 2>/dev/null || warn "helm values failed"
+
+  info "AgentMode CR"
+  kc_cluster get agentmode default -o yaml > "$tmpdir/agentmode.yaml" 2>/dev/null || warn "no AgentMode CR"
+
+  info "Audit log"
+  local api_pod="$(pod_for api)"
+  if [[ -n "$api_pod" ]]; then
+    kc cp "$api_pod:/app/audit.log" "$tmpdir/audit.log" 2>/dev/null || warn "audit.log not found in api pod"
+  fi
+
+  info "Qdrant snapshot"
+  local qdrant_pod="$(pod_for qdrant)"
+  if [[ -n "$qdrant_pod" ]]; then
+    kc exec "$qdrant_pod" -- curl -sf -X POST http://localhost:6333/collections/runbooks/snapshots >/dev/null 2>&1 || true
+    kc cp "$qdrant_pod:/qdrant/snapshots" "$tmpdir/qdrant-snapshots" 2>/dev/null || warn "qdrant snapshots not found"
+  fi
+
+  if [[ $include_models -eq 1 ]]; then
+    info "Ollama models (this can be GIGABYTES)"
+    local ollama_pod="$(pod_for ollama)"
+    [[ -n "$ollama_pod" ]] && kc cp "$ollama_pod:/root/.ollama" "$tmpdir/ollama-models" 2>/dev/null
+  fi
+
+  info "Manifest snapshot"
+  kc get all,cm,secret,pvc,networkpolicy,pdb -o yaml > "$tmpdir/manifests.yaml" 2>/dev/null
+
+  echo "keos-backup-version: 1" > "$tmpdir/META"
+  echo "ts: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$tmpdir/META"
+  echo "namespace: $NAMESPACE" >> "$tmpdir/META"
+  echo "release: $RELEASE" >> "$tmpdir/META"
+  echo "include_models: $include_models" >> "$tmpdir/META"
+
+  tar -czf "$out" -C "$tmpdir" . 2>/dev/null
+  local size=$(du -h "$out" 2>/dev/null | awk '{print $1}')
+  ok "Backup written to $out ($size)"
+}
+
+# ─── Subcommand: restore ─────────────────────────────────────────────────────
+
+cmd_restore() {
+  require_namespace
+  local archive="${1:-}"
+  [[ -z "$archive" ]] && die "usage: keosctl restore <backup.tar.gz>"
+  [[ -r "$archive" ]] || die "cannot read $archive"
+  heading "Restoring Keos state from $archive"
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  trap "rm -rf '$tmpdir'" RETURN
+  tar -xzf "$archive" -C "$tmpdir"
+  [[ -f "$tmpdir/META" ]] || die "$archive doesn't look like a keosctl backup (no META file)"
+  say "Restoring from: $(grep ^ts: "$tmpdir/META")"
+
+  if [[ -f "$tmpdir/agentmode.yaml" ]]; then
+    kc_cluster apply -f "$tmpdir/agentmode.yaml" >/dev/null 2>&1 && ok "AgentMode CR restored"
+  fi
+
+  local api_pod="$(pod_for api)"
+  if [[ -n "$api_pod" && -f "$tmpdir/audit.log" ]]; then
+    kc cp "$tmpdir/audit.log" "$api_pod:/app/audit.log" 2>/dev/null && ok "audit.log restored"
+  fi
+
+  if [[ -d "$tmpdir/qdrant-snapshots" ]]; then
+    local qdrant_pod="$(pod_for qdrant)"
+    if [[ -n "$qdrant_pod" ]]; then
+      kc cp "$tmpdir/qdrant-snapshots" "$qdrant_pod:/qdrant/snapshots" 2>/dev/null && \
+        warn "qdrant snapshot files copied — restore via: kubectl exec $qdrant_pod -- curl -X PUT http://localhost:6333/collections/runbooks/snapshots/recover -d '{\"location\":\"<file>\"}'"
+    fi
+  fi
+
+  if [[ -d "$tmpdir/ollama-models" ]]; then
+    local ollama_pod="$(pod_for ollama)"
+    [[ -n "$ollama_pod" ]] && kc cp "$tmpdir/ollama-models" "$ollama_pod:/root/.ollama" 2>/dev/null && ok "ollama models restored"
+  fi
+  ok "Restore complete. Run 'keosctl doctor' to verify."
+}
+
+# ─── Subcommand: diag (support bundle) ───────────────────────────────────────
+
+cmd_diag() {
+  require_namespace
+  local out="${1:-keos-diag-$(date +%Y%m%d-%H%M%S).tar.gz}"
+  heading "Generating support bundle"
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  trap "rm -rf '$tmpdir'" RETURN
+
+  info "Cluster snapshot"
+  kc_cluster cluster-info dump --output-directory="$tmpdir/cluster" >/dev/null 2>&1 || true
+  kc_cluster get nodes -o yaml > "$tmpdir/nodes.yaml" 2>/dev/null
+  kc_cluster version > "$tmpdir/k8s-version.txt" 2>&1
+
+  info "Keos namespace state"
+  kc get all,cm,secret,pvc,networkpolicy,pdb,events -o yaml > "$tmpdir/ns-all.yaml" 2>/dev/null
+  kc describe pods > "$tmpdir/pods-describe.txt" 2>/dev/null
+
+  info "Helm release"
+  helm get all "$RELEASE" -n "$NAMESPACE" > "$tmpdir/helm-all.yaml" 2>/dev/null
+
+  info "Component logs (last 500 lines each)"
+  mkdir -p "$tmpdir/logs"
+  for c in api mcp-server frontend caddy ollama qdrant nats opa; do
+    kc logs -l "app.kubernetes.io/component=$c" --tail=500 > "$tmpdir/logs/$c.log" 2>&1 || true
+  done
+
+  info "AgentMode CR + audit chain head"
+  kc_cluster get agentmode default -o yaml > "$tmpdir/agentmode.yaml" 2>/dev/null
+  local api_pod="$(pod_for api)"
+  if [[ -n "$api_pod" ]]; then
+    kc exec "$api_pod" -- tail -n 100 /app/audit.log > "$tmpdir/audit-tail.jsonl" 2>/dev/null || true
+  fi
+
+  info "Doctor output"
+  cmd_doctor > "$tmpdir/doctor.txt" 2>&1 || true
+
+  info "Versions"
+  cmd_version > "$tmpdir/versions.txt" 2>&1
+
+  echo "keos-diag-version: 1" > "$tmpdir/META"
+  echo "ts: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$tmpdir/META"
+  echo "namespace: $NAMESPACE" >> "$tmpdir/META"
+  echo "release: $RELEASE" >> "$tmpdir/META"
+
+  tar -czf "$out" -C "$tmpdir" . 2>/dev/null
+  local size=$(du -h "$out" 2>/dev/null | awk '{print $1}')
+  ok "Support bundle written to $out ($size)"
+  note "Attach this when filing a GitHub issue or contacting support."
+}
+
+# ─── Subcommand: calibration ─────────────────────────────────────────────────
+
+cmd_calibration() {
+  require_namespace
+  local action="${1:-list}"
+  shift || true
+  case "$action" in
+    list|ls)
+      heading "Per-rule calibration"
+      api_curl "/api/calibration" 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin) if sys.stdin.isatty() == False else []
+rows = data if isinstance(data, list) else data.get('items', [])
+if not rows:
+    print('  ${C_DIM}No calibration data yet (need ≥10 incidents per rule).${C_RST}')
+else:
+    print('  ${C_BOLD}RULE                            n   p50_conf  p90_conf  threshold${C_RST}')
+    for r in rows:
+        print(f'  {r.get(\"rule_id\",\"?\"):<30}  {r.get(\"n_incidents\",0):>3}    {r.get(\"p50_conf\",0):.2f}      {r.get(\"p90_conf\",0):.2f}      {r.get(\"threshold\",0):.2f}')
+" 2>/dev/null || warn "calibration API not reachable"
+      ;;
+    set)
+      local rule="${1:-}" threshold="${2:-}"
+      [[ -z "$rule" || -z "$threshold" ]] && die "usage: keosctl calibration set <rule_id> <threshold>"
+      api_curl "/api/calibration/$rule/threshold" -X POST -H "Content-Type: application/json" \
+        -d "{\"threshold\":$threshold}" >/dev/null 2>&1 \
+        && ok "Threshold for '$rule' set to $threshold" \
+        || die "API rejected — is the threshold a number between 0 and 1?"
+      ;;
+    reset)
+      local rule="${1:-}"
+      if [[ -z "$rule" || "$rule" == "--all" ]]; then
+        api_curl "/api/calibration/reset" -X POST >/dev/null 2>&1 && ok "All per-rule thresholds reset"
+      else
+        api_curl "/api/calibration/$rule/threshold" -X DELETE >/dev/null 2>&1 && ok "Threshold for '$rule' reset"
+      fi
+      ;;
+    *) die "unknown action '$action' — valid: list, set, reset" ;;
+  esac
+}
+
+# ─── Subcommand: config (view effective configuration) ───────────────────────
+
+cmd_config() {
+  local action="${1:-view}"
+  shift || true
+  case "$action" in
+    view|show)
+      heading "Effective configuration"
+      info "Namespace      $NAMESPACE"
+      info "Release        $RELEASE"
+      local ctx
+      ctx=$(kc_cluster config current-context 2>/dev/null || echo '?')
+      info "Kubeconfig     ${KUBECONFIG_OVERRIDE:-${KUBECONFIG:-$HOME/.kube/config}}"
+      info "Context        $ctx"
+      local mode chart
+      mode=$(kc_cluster get agentmode default -o jsonpath='{.spec.mode}' 2>/dev/null || echo '(unknown)')
+      info "Agent mode     $mode"
+      chart=$(helm list -n "$NAMESPACE" -f "^${RELEASE}\$" -o json 2>/dev/null | \
+                jq_inline 'print(d[0]["chart"]) if d else print("(not installed)")' 2>/dev/null || echo "?")
+      info "Helm chart     $chart"
+      local models
+      models=$(kc exec "$(pod_for ollama)" -- ollama list 2>/dev/null | tail -n +2 | awk '{print $1}' | paste -sd ',' -)
+      info "Models         ${models:-(none)}"
+      printf "\n  ${C_DIM}Env overrides honoured: KEOS_NAMESPACE, KEOS_RELEASE${C_RST}\n"
+      ;;
+    *) die "unknown action '$action' — valid: view" ;;
+  esac
+}
+
+# ─── Subcommand: chaos (list / delete chaos-mesh experiments) ────────────────
+
+cmd_chaos() {
+  local action="${1:-list}"
+  shift || true
+  case "$action" in
+    list|ls)
+      heading "Chaos Mesh experiments"
+      kc_cluster get podchaos,stresschaos,networkchaos,iochaos -A 2>/dev/null \
+        | grep -v "^NAMESPACE.*NAME" || say "  ${C_DIM}No chaos experiments running.${C_RST}"
+      ;;
+    delete|rm)
+      local name="${1:-}" ns="${2:-${NAMESPACE}}"
+      [[ -z "$name" ]] && die "usage: keosctl chaos delete <name> [namespace]"
+      kc_cluster -n "$ns" delete podchaos,stresschaos,networkchaos,iochaos "$name" 2>&1 | tail -3
+      ;;
+    *) die "unknown action '$action' — valid: list, delete" ;;
+  esac
+}
+
+# ─── Subcommand: top (live one-screen dashboard) ─────────────────────────────
+
+cmd_top() {
+  require_namespace
+  local interval=2
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --interval) interval="$2"; shift 2 ;;
+      *) die "unknown arg: $1" ;;
+    esac
+  done
+  while true; do
+    clear
+    heading "Keos · live"
+    local mode
+    mode=$(kc_cluster get agentmode default -o jsonpath='{.spec.mode}' 2>/dev/null || echo '?')
+    printf "  Mode: ${C_BOLD}%s${C_RST}   |   Namespace: ${C_DIM}%s${C_RST}\n\n" "$mode" "$NAMESPACE"
+    printf "${C_BOLD}Pods${C_RST}\n"
+    kc get pods --no-headers 2>/dev/null | awk '{printf "  %-44s %-10s %s\n", $1, $2, $3}' | head -15
+    printf "\n${C_BOLD}Latest incidents${C_RST}\n"
+    api_curl "/api/incidents?limit=5" 2>/dev/null | python3 -c "
+import json, sys
+items = json.load(sys.stdin) if sys.stdin else []
+items = items if isinstance(items, list) else items.get('items', [])
+for i in items[:5]:
+    ts = (i.get('triage_ts') or '?')[:19]
+    print(f'  {ts}  {i.get(\"rule_id\",\"?\"):<28} {i.get(\"outcome\",\"?\")}')
+" 2>/dev/null || say "  ${C_DIM}(API unreachable)${C_RST}"
+    printf "\n${C_DIM}Refreshing every %ss · Ctrl-C to stop${C_RST}\n" "$interval"
+    sleep "$interval"
+  done
+}
+
+# ─── Subcommand: update (check newer keosctl) ────────────────────────────────
+
+cmd_update() {
+  heading "Checking for updates"
+  local latest
+  latest=$(curl -fsSL --max-time 5 \
+    https://api.github.com/repos/pocteo-platform/keos/releases/latest 2>/dev/null \
+    | grep -E '"tag_name"' | head -1 | sed -E 's/.*"v?([^"]+)".*/\1/')
+  if [[ -z "$latest" ]]; then
+    warn "Could not reach github.com — try 'git pull' in the repo manually"
+    return 0
+  fi
+  info "Installed     v$KEOSCTL_VERSION"
+  info "Latest        v$latest"
+  if [[ "$latest" == "$KEOSCTL_VERSION" ]]; then
+    ok "You're on the latest version."
+    return 0
+  fi
+  warn "Newer version available."
+  note "Update with:"
+  note "  cd $REPO_ROOT && git pull && keosctl link"
 }
 
 # ─── Subcommand: help ────────────────────────────────────────────────────────
@@ -873,6 +1262,20 @@ EOF
   printf "  ${C_CYAN}models${C_RST} list                   List installed LLM models\n"
   printf "  ${C_CYAN}models${C_RST} pull <model>           Pull a new LLM into Ollama\n"
   printf "  ${C_CYAN}models${C_RST} rm <model>             Remove an LLM\n\n"
+
+  printf "${C_BOLD}DATA LIFECYCLE${C_RST}\n"
+  printf "  ${C_CYAN}backup${C_RST} [-o path] [--include-models]   Tarball audit + qdrant + helm values + CR\n"
+  printf "  ${C_CYAN}restore${C_RST} <path>                Restore from a keosctl backup\n"
+  printf "  ${C_CYAN}diag${C_RST} [path]                   Generate a support bundle for filing issues\n\n"
+
+  printf "${C_BOLD}POWER USER${C_RST}\n"
+  printf "  ${C_CYAN}api${C_RST} <path> [curl-opts]        Raw API call (bearer auth handled)\n"
+  printf "  ${C_CYAN}incidents${C_RST} {get|delete} <id>   Inspect / delete a single incident\n"
+  printf "  ${C_CYAN}calibration${C_RST} list|set|reset    Per-rule confidence thresholds\n"
+  printf "  ${C_CYAN}chaos${C_RST} list|delete             Chaos Mesh experiments\n"
+  printf "  ${C_CYAN}top${C_RST}                           Live one-screen dashboard\n"
+  printf "  ${C_CYAN}config${C_RST} view                   Effective configuration summary\n"
+  printf "  ${C_CYAN}update${C_RST}                        Check for newer keosctl release\n\n"
 
   printf "${C_BOLD}MISC${C_RST}\n"
   printf "  ${C_CYAN}context${C_RST}                       Show the kubectl context Keos is in\n"
@@ -939,7 +1342,8 @@ main() {
     token)           cmd_token "$@" ;;
     seed)            cmd_seed "$@" ;;
     models)          cmd_models "$@" ;;
-    events|incidents) cmd_events "$@" ;;
+    events)          cmd_events "$@" ;;
+    incidents)       cmd_incidents "$@" ;;
     usecases)        cmd_usecases "$@" ;;
     run)             cmd_run "$@" ;;
     restart)         cmd_restart "$@" ;;
@@ -952,11 +1356,20 @@ main() {
     context)         cmd_context "$@" ;;
     version|--version|-v) cmd_version "$@" ;;
     link)            cmd_link "$@" ;;
+    api)             cmd_api "$@" ;;
+    backup)          cmd_backup "$@" ;;
+    restore)         cmd_restore "$@" ;;
+    diag|support-bundle) cmd_diag "$@" ;;
+    calibration|cal) cmd_calibration "$@" ;;
+    config)          cmd_config "$@" ;;
+    chaos)           cmd_chaos "$@" ;;
+    top)             cmd_top "$@" ;;
+    update)          cmd_update "$@" ;;
     help|--help|-h|"") cmd_help ;;
     *)
       printf "${C_RED}${CROSS}${C_RST} unknown command '%s'\n\n" "$cmd"
       printf "Did you mean one of these?\n"
-      for c in install uninstall status doctor mode logs ui token seed models events usecases run restart shell describe port-forward upgrade audit completion context version link help; do
+      for c in install uninstall status doctor mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update help; do
         # Cheap fuzzy: print commands that share a prefix or contain the typo.
         if [[ "$c" == "$cmd"* || "$c" == *"$cmd"* ]]; then
           printf "  ${C_CYAN}%s${C_RST}\n" "$c"
