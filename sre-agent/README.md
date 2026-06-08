@@ -24,20 +24,70 @@ CPU-only inference, multi-arch images (amd64 + arm64), no GPU dependency.
 
 ---
 
-## Install — pick your platform
+## Install — pick your path
+
+### Already have a Kubernetes cluster? (Jetson + k3s, Talos, Kairos, kubeadm…)
+
+**Three commands. The script auto-detects everything else.**
+
+```bash
+git clone https://github.com/pocteo-platform/keos
+cd keos
+bash sre-agent/scripts/install-edge.sh
+```
+
+That's it. The script:
+
+- Probes your cluster's distro (k3s / Talos / Kairos / kubeadm / generic) and
+  picks the right containerd socket path for Chaos Mesh.
+- Detects whether the target node exposes `nvidia.com/gpu` capacity and
+  enables GPU offload for Ollama if so (Jetson Orin gets ~5-10 s LLM calls;
+  CPU-only gets ~60 s).
+- Probes whether the public `ghcr.io/pocteo-platform/keos-*` images are
+  anonymously pullable. If yes (packages flipped public), uses them; if no
+  (private packages, or air-gapped network), **auto-falls-back to
+  `--local-build`** — `docker build` the 3 images from the repo + `k3s ctr
+  image import` them straight into the cluster's containerd. No PAT, no
+  `helm repo add`, no manual `--set` overrides.
+- Generates a random `SHP_API_TOKEN` (cached at `~/.keos-token` for your
+  copy-paste into the SPA).
+- Installs the chart via Helm OCI:
+  `helm upgrade --install keos oci://ghcr.io/pocteo-platform/charts/pocteo`.
+
+**Operator-overridable flags** (defaults work for most installs):
+
+| Flag | When you'd use it |
+|---|---|
+| `--probe-only` | Dry-run — show what it would do, exit before any change |
+| `--local-build` | Force the build path (skip the public-images probe) |
+| `--no-local-build-fallback` | Strict — fail loudly if the published images aren't reachable |
+| `--airgap` | Air-gapped install: requires `--local-chart` + `--image-registry <host:port>` |
+| `--mode active` | Start the agent in `active` mode (default is `observe-only`) |
+| `--no-gpu` | Force CPU-only Ollama (useful for testing without GPU) |
+| `--kubeconfig <path>` | Explicit kubeconfig (e.g. for a remote Talos cluster) |
+
+Full reference: `bash sre-agent/scripts/install-edge.sh --help`.
+
+### Or run the laptop demo (no Kubernetes cluster needed)
 
 | Your host | Install guide | One-liner |
 |---|---|---|
 | **Linux** (native Docker) | [docs/platforms/linux](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/linux.md) | `git clone …/keos && cd keos/sre-agent && make install` |
 | **macOS** (Docker Desktop, Intel + Apple Silicon) | [docs/platforms/macos](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/macos.md) | `git clone …/keos && cd keos/sre-agent && make install` |
 | **Windows** (Docker Desktop + WSL2) | [docs/platforms/windows](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/windows.md) | `git clone …/keos && cd keos/sre-agent && .\make.ps1 install` |
-| **Talos Linux** (production edge) | [docs/platforms/talos](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/talos.md) | Helm install — see guide |
-| **Jetson Orin Nano** (GPU edge) | [docs/platforms/jetson](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/jetson.md) | Helm install with `ollama.gpu.enabled=true` |
-| **Any conformant K8s** (production) | [docs/platforms/kubernetes-helm](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/kubernetes-helm.md) | `helm install pocteo oci://ghcr.io/pocteo-platform/charts/pocteo` |
 
-The first three are local-demo paths (laptop / dev workstation); the last
-three are production / edge paths. The full docs site is at
-**http://localhost:3000** after `make install`.
+These bring up a self-contained k3d cluster + the full SRE-agent stack on
+your laptop with `make install`, then `make demo-ui` opens the SPA. ~10 min
+on a cold machine (mostly LLM model download).
+
+### Platform-specific guides for the edge path
+
+| Target | Guide |
+|---|---|
+| **Jetson Orin Nano** (GPU edge, k3s or Kairos) | [docs/platforms/jetson](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/jetson.md) · [docs/KAIROS_JETSON.md](docs/KAIROS_JETSON.md) |
+| **Talos Linux** (immutable production edge) | [docs/platforms/talos](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/talos.md) |
+| **Air-gapped install** | [docs/AIRGAP_INSTALL.md](docs/AIRGAP_INSTALL.md) |
+| **Any conformant K8s** (managed / on-prem) | [docs/platforms/kubernetes-helm](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/kubernetes-helm.md) |
 
 ### Resource budget (all local-demo paths)
 
