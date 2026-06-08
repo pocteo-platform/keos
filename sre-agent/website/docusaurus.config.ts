@@ -129,6 +129,12 @@ const config: Config = {
         },
         {
           type: "docSidebar",
+          sidebarId: "cli",
+          position: "left",
+          label: "CLI",
+        },
+        {
+          type: "docSidebar",
           sidebarId: "operations",
           position: "left",
           label: "Operations",

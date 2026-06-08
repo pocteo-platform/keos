@@ -1,0 +1,10 @@
+{
+  "label": "CLI · keosctl",
+  "position": 4,
+  "link": {
+    "type": "doc",
+    "id": "cli/overview"
+  },
+  "collapsible": true,
+  "collapsed": false
+}
