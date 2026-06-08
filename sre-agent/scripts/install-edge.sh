@@ -526,8 +526,12 @@ if [[ "$SKIP_MODEL_PULL" -eq 0 ]]; then
     OLLAMA_POD=$(kubectl get pod -n "$NAMESPACE" \
                   -l app.kubernetes.io/component=ollama \
                   -o jsonpath='{.items[0].metadata.name}')
-    kubectl exec -n "$NAMESPACE" "$OLLAMA_POD" -- ollama pull qwen2.5:3b-instruct-q4_K_M
-    kubectl exec -n "$NAMESPACE" "$OLLAMA_POD" -- ollama pull nomic-embed-text
+    # Models overridable for the interactive wizard (install.sh).
+    # Defaults match the Jetson Orin sweet spot (3B chat + nomic embed).
+    _chat="${KEOS_CHAT_MODEL:-qwen2.5:3b-instruct-q4_K_M}"
+    _embed="${KEOS_EMBED_MODEL:-nomic-embed-text}"
+    kubectl exec -n "$NAMESPACE" "$OLLAMA_POD" -- ollama pull "$_chat"
+    kubectl exec -n "$NAMESPACE" "$OLLAMA_POD" -- ollama pull "$_embed"
     ok "models cached on $NODE"
   fi
 fi
