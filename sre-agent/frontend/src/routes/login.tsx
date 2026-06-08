@@ -65,8 +65,7 @@ export default function LoginPage() {
             alt={PLATFORM_NAME}
             width={64}
             height={64}
-            className="rounded-md"
-            className="mb-4 select-none"
+            className="mb-4 select-none rounded-md"
             draggable={false}
           />
           <div className="flex items-baseline gap-2">
