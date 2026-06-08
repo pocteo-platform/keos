@@ -81,7 +81,7 @@ jobs:
       # Skip live-OPA + live-cluster suites. They run in the integration
       # job below against a real k3d cluster.
       - run: uv run pytest --cov --cov-report=xml -k 'not test_policy'
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v7
         if: matrix.python == '3.12'
         with:
           files: coverage.xml
