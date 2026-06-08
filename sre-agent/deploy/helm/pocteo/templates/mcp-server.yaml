@@ -36,6 +36,9 @@ spec:
       containers:
         - name: mcp-server
           image: {{ include "pocteo.image" (dict "global" .Values.global "repository" .Values.mcpServer.image.repository "tag" .Values.mcpServer.image.tag "firstParty" true) }}
+          {{- with .Values.mcpServer.image.pullPolicy }}
+          imagePullPolicy: {{ . }}
+          {{- end }}
           ports: [{ containerPort: 8090 }]
           resources: {{- toYaml .Values.mcpServer.resources | nindent 12 }}
           {{- include "pocteo.containerSecurityContext" . | nindent 10 }}

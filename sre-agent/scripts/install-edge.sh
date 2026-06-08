@@ -50,6 +50,13 @@
 #   # CPU-only (force, for testing without GPU)
 #   bash install-edge.sh --no-gpu
 #
+#   # Build images locally + import into the cluster's containerd
+#   # (auto-falls-back when the public ghcr.io images aren't pullable —
+#   # e.g. the org's packages are still set to private. Skip the probe
+#   # + force the build with --local-build; skip the auto-fallback
+#   # with --no-local-build-fallback).
+#   bash install-edge.sh --local-build
+#
 #   # Probe-only — show what the script would install, then exit.
 #   # Useful for verifying the kubeconfig + distro detection before
 #   # committing to a real install.
@@ -81,6 +88,8 @@ PROBE_ONLY=0
 PRINT_HELP=0
 AIRGAP=0
 IMAGE_REGISTRY=""
+LOCAL_BUILD=0
+LOCAL_BUILD_AUTO=1     # default: auto-fall-back to local build if public images aren't reachable
 LOCAL_CHART_PATH="${KEOS_LOCAL_CHART:-}"   # for `make install-edge` against k3d
 
 # ─── Argparse ──────────────────────────────────────────────────────────────
@@ -98,6 +107,8 @@ while [[ $# -gt 0 ]]; do
     --probe-only)  PROBE_ONLY=1; shift ;;
     --airgap)      AIRGAP=1; SKIP_MODEL_PULL=1; shift ;;
     --image-registry) IMAGE_REGISTRY="$2"; shift 2 ;;
+    --local-build) LOCAL_BUILD=1; LOCAL_BUILD_AUTO=0; shift ;;
+    --no-local-build-fallback) LOCAL_BUILD_AUTO=0; shift ;;
     --local-chart) LOCAL_CHART_PATH="$2"; shift 2 ;;
     -h|--help)     PRINT_HELP=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
@@ -306,6 +317,83 @@ else
   ok "using local chart at $LOCAL_CHART_PATH (skip repo)"
 fi
 
+# ─── Public-image probe + local-build fallback ─────────────────────────────
+#
+# If the operator passed --local-build, OR if the published first-party
+# images at ghcr.io/pocteo-platform/keos-* aren't pullable (private
+# package or no network), we build the 3 images from the repo source +
+# import them into the cluster's containerd. Saves the operator from
+# fighting GHCR package visibility for a first-time install.
+#
+# How we import varies by distro:
+#   - k3s:    docker save | sudo k3s ctr -n k8s.io image import -
+#   - kairos: same as k3s (Kairos bundles k3s by default)
+#   - other:  spin up a tiny localhost:5000 registry container, push to it,
+#             set imageRegistry to host.docker.internal:5000 / localhost:5000
+#
+# Skipped entirely in --airgap mode (the operator brings their own
+# pre-built images via --image-registry).
+
+REPO_ROOT=""
+if [[ "$AIRGAP" -eq 0 ]]; then
+  # Find the repo root: the directory ABOVE wherever this script lives,
+  # but only if it looks like the Keos repo (has agent/Dockerfile.api).
+  _script_dir="$(cd "$(dirname "$0")" && pwd)"
+  _candidate="$(dirname "$_script_dir")"
+  if [[ -f "$_candidate/agent/Dockerfile.api" ]]; then
+    REPO_ROOT="$_candidate"
+  fi
+fi
+
+_probe_public_images() {
+  # Quick anonymous-pull probe against the registry's token endpoint.
+  # Returns 0 if pull would succeed, non-zero on 401/403/etc.
+  local img="${1:-ghcr.io/pocteo-platform/keos-api}"
+  local repo="${img#*/}"   # strip registry, keep org/name
+  curl -fsSL --max-time 5 \
+    "https://ghcr.io/token?scope=repository%3A${repo}%3Apull&service=ghcr.io" \
+    -o /dev/null 2>/dev/null
+}
+
+if [[ "$AIRGAP" -eq 0 && "$LOCAL_BUILD" -eq 0 && "$LOCAL_BUILD_AUTO" -eq 1 ]]; then
+  step "Probing whether public first-party images are pullable…"
+  if _probe_public_images; then
+    ok "public images reachable — using ghcr.io/pocteo-platform/keos-*"
+  else
+    warn "ghcr.io/pocteo-platform/keos-* not anonymously pullable (likely private package). Falling back to --local-build."
+    LOCAL_BUILD=1
+  fi
+fi
+
+if [[ "$LOCAL_BUILD" -eq 1 ]]; then
+  [[ -n "$REPO_ROOT" ]] || die "--local-build needs a Keos repo clone — run this script from inside the cloned repo's scripts/ directory"
+  command -v docker >/dev/null || die "--local-build requires docker on PATH to build images"
+  step "Building keos-api / keos-mcp-server / keos-frontend from $REPO_ROOT…"
+  LOCAL_TAG="local-$(date +%Y%m%d-%H%M%S)"
+  docker build -t "keos-api:$LOCAL_TAG"        -f "$REPO_ROOT/agent/Dockerfile.api"     "$REPO_ROOT" >/dev/null
+  docker build -t "keos-mcp-server:$LOCAL_TAG" -f "$REPO_ROOT/mcp_server/Dockerfile"    "$REPO_ROOT" >/dev/null
+  docker build -t "keos-frontend:$LOCAL_TAG"   -f "$REPO_ROOT/frontend/Dockerfile"      "$REPO_ROOT/frontend" >/dev/null
+  ok "images built locally (tag=$LOCAL_TAG)"
+
+  # Import into the cluster's containerd. For k3s + kairos we use
+  # `k3s ctr image import`; for others we fall back to docker-save +
+  # ctr import via the host shell (assumes single-node + script runs
+  # on the same machine as the kubelet).
+  step "Importing images into the cluster's containerd…"
+  for img in keos-api keos-mcp-server keos-frontend; do
+    docker save "$img:$LOCAL_TAG" -o "/tmp/$img-$LOCAL_TAG.tar"
+    if command -v k3s >/dev/null 2>&1; then
+      sudo k3s ctr -n=k8s.io image import "/tmp/$img-$LOCAL_TAG.tar" >/dev/null
+    elif command -v ctr >/dev/null 2>&1; then
+      sudo ctr -n=k8s.io image import "/tmp/$img-$LOCAL_TAG.tar" >/dev/null
+    else
+      die "neither 'k3s' nor 'ctr' on PATH — can't import images into the cluster. Try installing k3s, or pass --image-registry <host:port> and push images yourself."
+    fi
+    rm -f "/tmp/$img-$LOCAL_TAG.tar"
+    ok "imported $img:$LOCAL_TAG"
+  done
+fi
+
 step "Installing Keos to namespace '$NAMESPACE'…"
 HELM_ARGS=(
   upgrade --install "$RELEASE" "$CHART_NAME"
@@ -322,6 +410,25 @@ HELM_ARGS=(
 # embeds the version in the .tgz filename so this is a no-op.
 if [[ "$CHART_NAME" == oci://* ]]; then
   HELM_ARGS+=(--version "$CHART_VERSION")
+fi
+# Local-build: point the chart at the images we just imported into
+# containerd. global.imageRegistry="" + per-image repository overrides
+# bypass the chart's default ghcr.io/pocteo-platform prefix.
+# imagePullPolicy=Never tells kubelet not to try ghcr.io at all — the
+# image is already in containerd's local store.
+if [[ "$LOCAL_BUILD" -eq 1 ]]; then
+  HELM_ARGS+=(
+    --set-string "global.imageRegistry="
+    --set-string "api.image.repository=keos-api"
+    --set-string "api.image.tag=$LOCAL_TAG"
+    --set-string "api.image.pullPolicy=Never"
+    --set-string "mcpServer.image.repository=keos-mcp-server"
+    --set-string "mcpServer.image.tag=$LOCAL_TAG"
+    --set-string "mcpServer.image.pullPolicy=Never"
+    --set-string "frontend.image.repository=keos-frontend"
+    --set-string "frontend.image.tag=$LOCAL_TAG"
+    --set-string "frontend.image.pullPolicy=Never"
+  )
 fi
 # Chaos Mesh's chaos-daemon needs the containerd socket path for the
 # detected distro. The chart's sub-chart values.yaml accepts these as
