@@ -325,16 +325,54 @@ class Learner:
         """Same shape as `_scrape_via_httpx` but every PromQL goes
         through the Kubernetes apiserver proxy. Each call is wrapped
         in its own try/except so one slow / failing query doesn't
-        starve the others."""
+        starve the others.
+
+        Suppression: if every query in a tick fails with the same
+        underlying cause (typically: Prometheus isn't installed →
+        `services "prometheus" not found`), log it once at INFO and
+        switch to silent-skip mode. The flag resets on agent restart;
+        an operator who installs Prometheus afterwards just bounces
+        the agent pod.
+        """
         assert self._proxy_client is not None
+        if getattr(self, "_proxy_disabled", False):
+            return []
         out: list[Sample] = []
+        per_query_errors: list[str] = []
         for q in self.queries:
             try:
                 body = await self._proxy_client.query_async(q.promql)
             except Exception as exc:  # noqa: BLE001 — soft-fail per query
-                log.warning("baselines: apiserver-proxy query %r failed (%s)", q.metric, exc)
+                # Compact error string — strip the full HTTP response body
+                # that the k8s client tacks on; keep just the reason.
+                msg = str(exc).split("\n", 1)[0][:200]
+                per_query_errors.append(msg)
                 continue
             out.extend(parse_prom_response(q, body))
+        if per_query_errors and len(per_query_errors) == len(self.queries):
+            # Every query failed this tick. If the failure looks like
+            # "Prometheus service not found" — disable for the rest of
+            # the process lifetime; otherwise just log once at WARNING.
+            sample = per_query_errors[0]
+            if "prometheus" in sample.lower() and "not found" in sample.lower():
+                log.info(
+                    "baselines: Prometheus service not reachable via "
+                    "apiserver proxy — disabling baseline learner for this "
+                    "session. Install kube-prometheus-stack and restart the "
+                    "agent to re-enable. (last error: %s)",
+                    sample,
+                )
+                self._proxy_disabled = True
+            else:
+                log.warning(
+                    "baselines: all %d queries failed this tick (first error: %s)",
+                    len(per_query_errors), sample,
+                )
+        elif per_query_errors:
+            log.warning(
+                "baselines: %d/%d queries failed this tick (first error: %s)",
+                len(per_query_errors), len(self.queries), per_query_errors[0],
+            )
         return out
 
     async def _query_http(self, client: httpx.AsyncClient, q: Query) -> list[Sample]:
