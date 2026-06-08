@@ -97,6 +97,23 @@ require_namespace() {
   fi
 }
 
+# Get the API service URL accessible from inside the cluster — used by
+# `events`, `run`, `audit` etc. which call FastAPI via kubectl exec.
+api_curl() {
+  local api_pod token path="$1"
+  shift
+  api_pod="$(pod_for api)"
+  [[ -z "$api_pod" ]] && die "api pod not found"
+  if [[ -f "$HOME/.keos-token" ]]; then
+    token="$(cat "$HOME/.keos-token")"
+  else
+    token="$(kc get secret keos-pocteo-auth -o jsonpath='{.data.SHP_API_TOKEN}' 2>/dev/null | base64 -d)"
+  fi
+  kc exec "$api_pod" -- curl -sf \
+    -H "Authorization: Bearer $token" \
+    "http://localhost:8000${path}" "$@"
+}
+
 # ─── Subcommand: install ─────────────────────────────────────────────────────
 
 cmd_install() {
@@ -119,12 +136,13 @@ cmd_install() {
 # ─── Subcommand: uninstall ───────────────────────────────────────────────────
 
 cmd_uninstall() {
-  local keep_pvcs=0 keep_ns=0 yes=0
+  local keep_pvcs=0 keep_ns=0 yes=0 force=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --keep-pvcs)      keep_pvcs=1; shift ;;
       --keep-namespace) keep_ns=1; shift ;;
       --yes|-y)         yes=1; shift ;;
+      --force|-f)       force=1; yes=1; shift ;;
       *) die "unknown arg: $1" ;;
     esac
   done
@@ -161,6 +179,51 @@ cmd_uninstall() {
 # ─── Subcommand: status ──────────────────────────────────────────────────────
 
 cmd_status() {
+  local watch=0 as_json=0 interval=2
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -w|--watch) watch=1; shift ;;
+      --interval) interval="$2"; shift 2 ;;
+      --json) as_json=1; shift ;;
+      *) die "unknown arg: $1" ;;
+    esac
+  done
+  if [[ $as_json -eq 1 ]]; then
+    require_namespace
+    local mode
+    mode=$(kc_cluster get agentmode default -o jsonpath='{.spec.mode}' 2>/dev/null || echo '?')
+    kc get pods -o json 2>/dev/null | python3 -c "
+import json, sys
+pods = json.load(sys.stdin)['items']
+out = {
+  'namespace': '${NAMESPACE}',
+  'release': '${RELEASE}',
+  'mode': '${mode}',
+  'pods': [{
+    'name': p['metadata']['name'],
+    'phase': p['status'].get('phase'),
+    'ready': all(c.get('ready', False) for c in p['status'].get('containerStatuses', []) or [{}]),
+  } for p in pods],
+  'pods_ready': sum(1 for p in pods if all(c.get('ready', False) for c in p['status'].get('containerStatuses', []) or [{}])),
+  'pods_total': len(pods),
+}
+print(json.dumps(out, indent=2))
+"
+    return 0
+  fi
+  if [[ $watch -eq 1 ]]; then
+    while true; do
+      clear
+      _print_status
+      printf "\n${C_DIM}Refreshing every %ss — Ctrl-C to stop${C_RST}\n" "$interval"
+      sleep "$interval"
+    done
+  else
+    _print_status
+  fi
+}
+
+_print_status() {
   require_namespace
   heading "Keos status"
 
@@ -506,6 +569,261 @@ cmd_link() {
   fi
 }
 
+# ─── Subcommand: events / incidents ──────────────────────────────────────────
+
+cmd_events() {
+  require_namespace
+  local limit=10 watch=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n|--limit) limit="$2"; shift 2 ;;
+      -w|--watch) watch=1; shift ;;
+      *) die "unknown arg: $1" ;;
+    esac
+  done
+  _render_events() {
+    heading "Recent incidents"
+    api_curl "/api/incidents?limit=$limit" 2>/dev/null | python3 -c "
+import json, sys
+raw = sys.stdin.read() or '[]'
+try:
+    data = json.loads(raw)
+except Exception:
+    print('  ${C_RED}✗${C_RST} could not parse API response'); sys.exit(0)
+items = data if isinstance(data, list) else data.get('items', [])
+if not items:
+    print('  ${C_DIM}No incidents yet — try \"keosctl run lib-memory-leak\".${C_RST}')
+else:
+    for i in items[:$limit]:
+        ts = (i.get('triage_ts') or i.get('ts') or '?')[:19]
+        rule = i.get('rule_id') or '?'
+        outcome = i.get('outcome') or '?'
+        tool = (i.get('proposed_action') or {}).get('tool') or '?'
+        color = '${C_GREEN}' if outcome == 'healed' else '${C_YELLOW}' if outcome == 'escalated' else '${C_RED}' if outcome == 'failed' else '${C_DIM}'
+        print(f'  {color}●${C_RST}  {ts:<20} {rule:<28} {tool:<18} {color}{outcome}${C_RST}')
+" 2>/dev/null || warn "API unreachable — is the api pod Ready?"
+  }
+  if [[ $watch -eq 1 ]]; then
+    while true; do clear; _render_events; printf "\n${C_DIM}Refreshing every 3s — Ctrl-C to stop${C_RST}\n"; sleep 3; done
+  else
+    _render_events
+  fi
+}
+
+# ─── Subcommand: usecases ────────────────────────────────────────────────────
+
+cmd_usecases() {
+  require_namespace
+  local action="${1:-list}"
+  shift || true
+  case "$action" in
+    list)
+      heading "Available use cases"
+      api_curl "/api/usecases" 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+items = data if isinstance(data, list) else data.get('items', [])
+for u in items:
+    slug = u.get('slug') or u.get('id') or '?'
+    title = u.get('title_en') or u.get('title') or '?'
+    print(f'  ${C_CYAN}{slug:<28}${C_RST}  {title}')
+" 2>/dev/null || warn "Could not fetch use cases (API down?)"
+      ;;
+    show)
+      local slug="${1:-}"; [[ -z "$slug" ]] && die "usage: keosctl usecases show <slug>"
+      api_curl "/api/usecases/$slug" | python3 -m json.tool
+      ;;
+    *) die "unknown action '$action' — valid: list, show" ;;
+  esac
+}
+
+# ─── Subcommand: run (trigger a use case) ────────────────────────────────────
+
+cmd_run() {
+  require_namespace
+  local slug="${1:-}"
+  [[ -z "$slug" ]] && die "usage: keosctl run <use-case-slug>  (try 'keosctl usecases list')"
+  heading "Running use case '$slug'"
+  local resp
+  resp="$(api_curl "/api/usecases/$slug/run" -X POST 2>&1)" || die "API call failed: $resp"
+  echo "$resp" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read() or '{}')
+iid = data.get('incident_id') or '?'
+print(f'  ${C_GREEN}✓${C_RST} Incident id: ${C_BOLD}{iid}${C_RST}')
+print('  Watch live: ${C_CYAN}keosctl events -w${C_RST}')
+print('  Open SPA:   ${C_CYAN}keosctl ui${C_RST}  (Pipeline tab)')
+" 2>/dev/null || echo "$resp"
+}
+
+# ─── Subcommand: restart ─────────────────────────────────────────────────────
+
+cmd_restart() {
+  require_namespace
+  local component="${1:-}"
+  [[ -z "$component" ]] && die "usage: keosctl restart <component>  (api / mcp-server / frontend / caddy)"
+  case "$component" in
+    api|mcp-server|frontend|caddy|opa)
+      kc rollout restart "deploy/$component"
+      ok "Restarted deployment/$component"
+      ;;
+    ollama|qdrant|nats)
+      kc delete pod -l "app.kubernetes.io/component=$component"
+      ok "Recycled $component pod (StatefulSet will respawn it)"
+      ;;
+    *) die "unknown component '$component'" ;;
+  esac
+}
+
+# ─── Subcommand: shell ───────────────────────────────────────────────────────
+
+cmd_shell() {
+  require_namespace
+  local component="${1:-api}"
+  shift || true
+  local pod="$(pod_for "$component")"
+  [[ -z "$pod" ]] && die "no pod for component '$component'"
+  # Try bash, fall back to sh.
+  kc exec -it "$pod" -- bash 2>/dev/null || kc exec -it "$pod" -- sh
+}
+
+# ─── Subcommand: describe ────────────────────────────────────────────────────
+
+cmd_describe() {
+  require_namespace
+  local component="${1:-}"
+  [[ -z "$component" ]] && die "usage: keosctl describe <component>"
+  local pod="$(pod_for "$component")"
+  [[ -z "$pod" ]] && die "no pod for component '$component'"
+  kc describe pod "$pod"
+}
+
+# ─── Subcommand: port-forward ────────────────────────────────────────────────
+
+cmd_portforward() {
+  require_namespace
+  local component="${1:-}" port="${2:-}"
+  [[ -z "$component" || -z "$port" ]] && die "usage: keosctl port-forward <component> <local-port>"
+  local target_port
+  case "$component" in
+    api)        target_port=8000 ;;
+    mcp-server) target_port=8090 ;;
+    frontend)   target_port=8080 ;;
+    caddy|pocteo) component=pocteo; target_port=80 ;;
+    ollama)     target_port=11434 ;;
+    qdrant)     target_port=6333 ;;
+    nats)       target_port=4222 ;;
+    opa)        target_port=8181 ;;
+    *) die "unknown component '$component'" ;;
+  esac
+  info "Forwarding svc/$component :$target_port → localhost:$port"
+  exec kc port-forward "svc/$component" "$port:$target_port"
+}
+
+# ─── Subcommand: upgrade ─────────────────────────────────────────────────────
+
+cmd_upgrade() {
+  local chart_version=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --chart-version) chart_version="$2"; shift 2 ;;
+      *) die "unknown arg: $1" ;;
+    esac
+  done
+  require_namespace
+  heading "Upgrading Keos"
+  local args=(upgrade "$RELEASE" "$REPO_ROOT/deploy/helm/pocteo"
+              -n "$NAMESPACE" --reuse-values --wait --timeout 5m)
+  if [[ -n "$chart_version" ]]; then
+    args=(upgrade "$RELEASE" "oci://ghcr.io/pocteo-platform/charts/pocteo"
+          --version "$chart_version" -n "$NAMESPACE" --reuse-values --wait --timeout 5m)
+  fi
+  helm "${args[@]}" 2>&1 | tail -8
+  ok "Upgrade complete. Run 'keosctl status' to verify."
+}
+
+# ─── Subcommand: audit ───────────────────────────────────────────────────────
+
+cmd_audit() {
+  require_namespace
+  local action="${1:-tail}"
+  shift || true
+  local api_pod="$(pod_for api)"
+  [[ -z "$api_pod" ]] && die "api pod not found"
+  case "$action" in
+    tail)
+      local n=20
+      [[ "${1:-}" == "-n" || "${1:-}" == "--lines" ]] && { n="$2"; shift 2; }
+      kc exec "$api_pod" -- tail -n "$n" /app/audit.log 2>/dev/null \
+        || warn "audit.log not found yet (no incidents recorded?)"
+      ;;
+    verify)
+      kc exec "$api_pod" -- python -m agent.audit --verify 2>&1 | tail -10
+      ;;
+    *) die "unknown action '$action' — valid: tail, verify" ;;
+  esac
+}
+
+# ─── Subcommand: completion ──────────────────────────────────────────────────
+
+cmd_completion() {
+  local shell_kind="${1:-bash}"
+  case "$shell_kind" in
+    bash)
+      cat <<'COMPLETION'
+# bash completion for keosctl. Source from .bashrc:
+#   eval "$(keosctl completion bash)"
+_keosctl_complete() {
+  local cur prev cmds
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  cmds="install uninstall link status doctor mode logs ui token seed models
+        events usecases run restart shell describe port-forward upgrade
+        audit completion context version help"
+  case "$prev" in
+    keosctl)        COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
+    logs|restart|shell|describe|port-forward)
+      COMPREPLY=( $(compgen -W "api mcp-server frontend caddy ollama qdrant nats opa" -- "$cur") ) ;;
+    mode)           COMPREPLY=( $(compgen -W "observe-only active frozen" -- "$cur") ) ;;
+    models)         COMPREPLY=( $(compgen -W "list pull rm show" -- "$cur") ) ;;
+    audit)          COMPREPLY=( $(compgen -W "tail verify" -- "$cur") ) ;;
+    completion)     COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
+    usecases)       COMPREPLY=( $(compgen -W "list show" -- "$cur") ) ;;
+  esac
+}
+complete -F _keosctl_complete keosctl
+COMPLETION
+      ;;
+    zsh)
+      cat <<'COMPLETION'
+# zsh completion for keosctl. Source from .zshrc:
+#   eval "$(keosctl completion zsh)"
+_keosctl() {
+  local -a cmds
+  cmds=(install uninstall link status doctor mode logs ui token seed models
+        events usecases run restart shell describe port-forward upgrade
+        audit completion context version help)
+  if (( CURRENT == 2 )); then
+    _describe 'command' cmds
+  fi
+}
+compdef _keosctl keosctl
+COMPLETION
+      ;;
+    fish)
+      cat <<'COMPLETION'
+# fish completion for keosctl. Save as ~/.config/fish/completions/keosctl.fish
+complete -c keosctl -f
+for cmd in install uninstall link status doctor mode logs ui token seed models events usecases run restart shell describe port-forward upgrade audit completion context version help
+  complete -c keosctl -n "__fish_use_subcommand" -a $cmd
+end
+COMPLETION
+      ;;
+    *) die "unsupported shell '$shell_kind' — valid: bash, zsh, fish" ;;
+  esac
+}
+
 # ─── Subcommand: help ────────────────────────────────────────────────────────
 
 cmd_help() {
@@ -531,12 +849,24 @@ EOF
   printf "  ${C_CYAN}link${C_RST} [path]                   Symlink keosctl to a PATH dir ${C_DIM}(default ~/.local/bin)${C_RST}\n\n"
 
   printf "${C_BOLD}OPERATIONS${C_RST}\n"
-  printf "  ${C_CYAN}status${C_RST}                        Release + pods + agent mode summary\n"
+  printf "  ${C_CYAN}status${C_RST} [--watch] [--json]     Release + pods + agent mode summary\n"
   printf "  ${C_CYAN}doctor${C_RST}                        Health check across every component\n"
   printf "  ${C_CYAN}mode${C_RST} [obs|active|frozen]      Print or set the agent mode\n"
   printf "  ${C_CYAN}logs${C_RST} <component> [-f]         Tail pod logs ${C_DIM}(api/mcp-server/frontend/…)${C_RST}\n"
   printf "  ${C_CYAN}ui${C_RST} [--port N]                 Port-forward + open the SPA in your browser\n"
-  printf "  ${C_CYAN}token${C_RST}                         Print the bearer token\n\n"
+  printf "  ${C_CYAN}token${C_RST}                         Print the bearer token\n"
+  printf "  ${C_CYAN}restart${C_RST} <component>           Rollout restart a component\n"
+  printf "  ${C_CYAN}shell${C_RST} <component>             Interactive bash/sh inside a pod\n"
+  printf "  ${C_CYAN}describe${C_RST} <component>          kubectl describe of a Keos pod\n"
+  printf "  ${C_CYAN}port-forward${C_RST} <component> <p>  Generic kubectl port-forward\n"
+  printf "  ${C_CYAN}upgrade${C_RST} [--chart-version v]   helm upgrade the Keos release\n\n"
+
+  printf "${C_BOLD}AGENT${C_RST}\n"
+  printf "  ${C_CYAN}events${C_RST} [-n N] [--watch]       List recent incidents (colored by outcome)\n"
+  printf "  ${C_CYAN}usecases${C_RST} list|show            List or show use case definitions\n"
+  printf "  ${C_CYAN}run${C_RST} <use-case-slug>           Trigger a use case end-to-end\n"
+  printf "  ${C_CYAN}audit${C_RST} tail [-n N]             Tail the HMAC-signed audit log\n"
+  printf "  ${C_CYAN}audit${C_RST} verify                  Verify the HMAC chain integrity\n\n"
 
   printf "${C_BOLD}DATA${C_RST}\n"
   printf "  ${C_CYAN}seed${C_RST}                          Re-seed the runbook corpus into Qdrant\n"
@@ -547,6 +877,7 @@ EOF
   printf "${C_BOLD}MISC${C_RST}\n"
   printf "  ${C_CYAN}context${C_RST}                       Show the kubectl context Keos is in\n"
   printf "  ${C_CYAN}version${C_RST}                       Print versions (CLI + chart + agent)\n"
+  printf "  ${C_CYAN}completion${C_RST} <bash|zsh|fish>    Generate shell completion script\n"
   printf "  ${C_CYAN}help${C_RST}                          Show this message\n\n"
 
   printf "${C_BOLD}GLOBAL OPTIONS${C_RST}\n"
@@ -608,6 +939,16 @@ main() {
     token)           cmd_token "$@" ;;
     seed)            cmd_seed "$@" ;;
     models)          cmd_models "$@" ;;
+    events|incidents) cmd_events "$@" ;;
+    usecases)        cmd_usecases "$@" ;;
+    run)             cmd_run "$@" ;;
+    restart)         cmd_restart "$@" ;;
+    shell|exec)      cmd_shell "$@" ;;
+    describe)        cmd_describe "$@" ;;
+    port-forward|pf) cmd_portforward "$@" ;;
+    upgrade)         cmd_upgrade "$@" ;;
+    audit)           cmd_audit "$@" ;;
+    completion)      cmd_completion "$@" ;;
     context)         cmd_context "$@" ;;
     version|--version|-v) cmd_version "$@" ;;
     link)            cmd_link "$@" ;;
@@ -615,7 +956,7 @@ main() {
     *)
       printf "${C_RED}${CROSS}${C_RST} unknown command '%s'\n\n" "$cmd"
       printf "Did you mean one of these?\n"
-      for c in install uninstall status doctor mode logs ui token seed models context version link help; do
+      for c in install uninstall status doctor mode logs ui token seed models events usecases run restart shell describe port-forward upgrade audit completion context version link help; do
         # Cheap fuzzy: print commands that share a prefix or contain the typo.
         if [[ "$c" == "$cmd"* || "$c" == *"$cmd"* ]]; then
           printf "  ${C_CYAN}%s${C_RST}\n" "$c"
