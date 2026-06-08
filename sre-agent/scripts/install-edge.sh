@@ -365,6 +365,29 @@ if [[ "$AIRGAP" -eq 0 && "$LOCAL_BUILD" -eq 0 && "$LOCAL_BUILD_AUTO" -eq 1 ]]; t
   fi
 fi
 
+# Same trick for the chart itself: if the OCI Helm chart at
+# ghcr.io/pocteo-platform/charts/pocteo is also private, the install would
+# 401 even with --local-build. Fall back to the chart embedded in the
+# cloned repo (deploy/helm/pocteo) when that's reachable.
+if [[ "$AIRGAP" -eq 0 && -z "$LOCAL_CHART_PATH" && "$CHART_NAME" == oci://* ]]; then
+  step "Probing whether the public Helm chart is pullable…"
+  # Reuse _probe_public_images logic against the chart repo path.
+  _chart_repo_path="${CHART_NAME#oci://ghcr.io/}"
+  if curl -fsSL --max-time 5 \
+       "https://ghcr.io/token?scope=repository%3A${_chart_repo_path}%3Apull&service=ghcr.io" \
+       -o /dev/null 2>/dev/null; then
+    ok "public chart $CHART_NAME reachable"
+  else
+    if [[ -n "$REPO_ROOT" && -d "$REPO_ROOT/deploy/helm/pocteo" ]]; then
+      warn "OCI chart not anonymously pullable. Falling back to local chart at $REPO_ROOT/deploy/helm/pocteo."
+      LOCAL_CHART_PATH="$REPO_ROOT/deploy/helm/pocteo"
+      CHART_NAME="$LOCAL_CHART_PATH"
+    else
+      die "OCI chart $CHART_NAME isn't reachable AND no local chart found at \$REPO_ROOT/deploy/helm/pocteo. Pass --local-chart <path> or make the OCI package public."
+    fi
+  fi
+fi
+
 if [[ "$LOCAL_BUILD" -eq 1 ]]; then
   [[ -n "$REPO_ROOT" ]] || die "--local-build needs a Keos repo clone — run this script from inside the cloned repo's scripts/ directory"
   command -v docker >/dev/null || die "--local-build requires docker on PATH to build images"
