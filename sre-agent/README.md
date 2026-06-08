@@ -6,8 +6,13 @@
 <h1 align="center">Keos SRE Agent</h1>
 
 <p align="center">
-  <em>The autonomous SRE agent that ships inside every edge Kubernetes cluster.</em><br>
+  <em>The autonomous SRE that ships inside every <strong>Keos</strong> edge node.</em><br>
   <em>By <a href="https://github.com/pocteo-platform">Pocteo Platform</a>.</em>
+</p>
+
+<p align="center">
+  <sub><strong>Keos</strong> is Pocteo's Kubernetes edge operating system — k8s + EdgeVPN + GPU runtime on Jetson, Pi, x86 SBCs, and any conformant cluster.<br>
+  <strong>The Keos SRE Agent</strong> (this repo) is the autonomous reliability workload that runs <em>on</em> Keos, next to the data and the local GPU inference.</sub>
 </p>
 
 <p align="center">
@@ -20,12 +25,47 @@
 </p>
 
 <p align="center">
-  <strong>Observe → Predict → Heal → Learn</strong> — a closed loop that runs locally on the cluster, requires no cloud round-trip, and ships in a single Helm chart.
+  <strong>Observe → Predict → Heal → Learn</strong> — a closed loop that runs on the Keos node itself, requires no cloud round-trip, and ships as a single Helm chart on top of the Keos OS.
 </p>
 
 ---
 
-## Why Keos exists
+## Where the Keos SRE Agent fits
+
+```text
+┌────────────────────────── KEOS OS ──────────────────────────┐
+│  Pocteo's Kubernetes edge OS                                │
+│  ├─ Immutable Linux base (Kairos / Talos lineage)           │
+│  ├─ Built-in EdgeVPN libp2p mesh (offline-capable)          │
+│  ├─ k3s + containerd + NVIDIA GPU runtime                   │
+│  ├─ Local data plane (Qdrant / NATS JetStream / PVCs)       │
+│  └─ Operator-installed workloads ─────────────────┐         │
+│                                                   ▼         │
+│                                  ┌──────────────────────┐   │
+│                                  │  KEOS SRE AGENT      │   │
+│                                  │  (this repo)         │   │
+│                                  │                      │   │
+│                                  │  Observe →           │   │
+│                                  │   Predict →          │   │
+│                                  │    Heal →            │   │
+│                                  │     Learn            │   │
+│                                  │                      │   │
+│                                  │  Uses the OS's:      │   │
+│                                  │   · local GPU        │   │
+│                                  │   · local vector DB  │   │
+│                                  │   · local event bus  │   │
+│                                  │   · scoped RBAC      │   │
+│                                  └──────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Two layers, one platform.** Keos provides the edge OS substrate. The Keos SRE Agent is the first-party reliability workload on top of it — designed to leverage the GPU and the local data Keos already has on-node, instead of shipping telemetry to a SaaS that may be unreachable.
+
+The agent installs cleanly on any conformant Kubernetes cluster too (kubeadm / k3s / Talos / Kairos / EKS / GKE / AKS), so adopters can validate it before committing to the full Keos OS.
+
+---
+
+## Why the Keos SRE Agent exists
 
 ### The problem
 
@@ -43,25 +83,25 @@ Centralised SaaS-SRE tools (Datadog, PagerDuty, even Botkube) **assume the clust
 
 ### The solution
 
-**Keos runs inside the cluster it watches.**
+**The Keos SRE Agent runs on the edge node itself, next to the GPU and the data the OS already manages.**
 
 It detects an infrastructure incident — an OOM kill, a crashloop, an ImagePullBackOff, a node going pressure-NotReady, traffic surging past HPA's reactive threshold — and walks a 9-node LangGraph state machine that:
 
 1. **Triages** the event from the kubelet
-2. **Retrieves** matching runbook chunks from a local Qdrant RAG store
+2. **Retrieves** matching runbook chunks from the Keos node's local Qdrant RAG store
 3. **Enriches** with K8sGPT diagnostics + Prometheus baseline z-scores
-4. **Diagnoses** via a local Qwen-2.5 LLM (3B by default — Jetson Orin sweet spot)
+4. **Diagnoses** via Ollama on the Keos node's GPU (Qwen 2.5 3B by default — Jetson Orin sweet spot)
 5. **Plans** a single, reversible remediation action
 6. **Gates** the plan through an OPA Rego policy keyed on `(action × severity × namespace × mode)`
 7. **Executes** under scoped RBAC via an MCP-server abstraction
 8. **Verifies** the cluster actually healed (poll kubelet, not just "I sent the kill")
 9. **Learns** — per-rule confidence calibration + RAG re-ranking based on outcome
 
-Everything is **local-first**: the LLM runs in-cluster on Ollama, the audit log is HMAC-chained on disk, the RAG store is Qdrant on the node's PVC. No cloud round-trip, no telemetry phoning home. When the cluster is offline, Keos is still online.
+Everything is **local-first**: the LLM uses the node's GPU, the audit log is HMAC-chained on the node's PVC, the RAG store is Qdrant on the node's PVC. No cloud round-trip, no telemetry phoning home. When the cluster is offline from the central plane, the agent is still running on the Keos node — and still healing.
 
 ---
 
-## What Keos actually does — capabilities
+## What the Keos SRE Agent actually does — capabilities
 
 | Capability | What ships in v1 |
 | --- | --- |
@@ -69,13 +109,13 @@ Everything is **local-first**: the LLM runs in-cluster on Ollama, the audit log 
 | 🤖 **5 → 9 reversible actions** | `restart_pod` · `rollout_undo` · `scale_deployment` · `cordon_node` · `drain_node` · `tune_hpa` · `set_resources` · `evict_workload` · `revert_drift` · `page_human` |
 | 🚨 **Policy gate** | Open Policy Agent (Rego). 17 unit tests on the matrix. Every action filtered by `(severity × namespace × agent-mode)`. Hard-deny on `kube-system` / `kube-public`. |
 | 🛡️ **Three modes, kill-switch ready** | `observe-only` (dry-run, default), `active` (mutates), `frozen` (no-op). Hot-flippable via CR or CLI. |
-| 🧠 **Local LLM** | Qwen 2.5 (1.5B / 3B / 7B) or Llama 3.2 3B. CPU-only path works. GPU on Jetson Orin = ~5-10 s per call. No external inference. |
+| 🧠 **Local GPU inference** | Qwen 2.5 (1.5B / 3B / 7B) or Llama 3.2 3B via Ollama. Uses the Keos node's NVIDIA GPU when available (Jetson Orin = ~5-10 s/call). CPU-only path works as fallback. No external inference, no telemetry leaving the node. |
 | 🔐 **HMAC-signed audit chain** | Every state transition logged with chained HMAC-SHA256. Tamper-evident. Optional remote attestation sink. |
 | 📈 **Confidence calibration** | Per-rule threshold + p50/p90 telemetry. Median confidence ≥ 0.90 after 200 incidents (Phase 16 target). |
 | 📊 **ML baselines + forecasting** | Holt-Winters seasonal model per `(metric, namespace, pod_label)`. Z-score-aware diagnose. 5/15/60-min ahead forecasts (CPU, memory, disk, request rate). Drives `tune_hpa` proactively. |
 | ⚡ **Chaos Mesh integration** | Real fault injection (`PodChaos` / `StressChaos` / `NetworkChaos`) drives the use case library. Demo as "memory leak → OOMKilled → agent restarts" end-to-end. |
 | 🌐 **Bilingual UI** | EN / FR full coverage in the React SPA. Dashboard · Pipeline animation · Use Case wizard · Calibration · Reliability · Optimization · Settings. |
-| 🏗️ **Edge-native packaging** | Single Helm chart (`pocteo/pocteo`). Multi-arch images (amd64 + arm64). NetworkPolicies. PodSecurity:restricted. PDBs. Multi-distro (k3s / Kairos / Talos / kubeadm). |
+| 🏗️ **Edge-native packaging** | Single Helm chart (`pocteo/pocteo`). Multi-arch images (amd64 + arm64). NetworkPolicies. PodSecurity:restricted. PDBs. Ships on Keos OS first-class; also installs on any conformant K8s (k3s / Kairos / Talos / kubeadm / EKS / GKE / AKS). |
 | 🔍 **GitOps drift detection** | ArgoCD `Application` + Flux `Kustomization` source-of-truth comparators. `infra.events.drift` published into NATS, picked up like any other event. |
 | 📦 **Air-gapped install path** | Pre-built bundle script + `--airgap` install flag. No external image pulls during install. |
 
@@ -83,16 +123,16 @@ Everything is **local-first**: the LLM runs in-cluster on Ollama, the audit log 
 
 ## ROI
 
-Replacing manual on-call with Keos on **30 edge sites** over **12 months** (typical mid-market edge fleet):
+Replacing manual on-call with the Keos SRE Agent on **30 Keos edge sites** over **12 months** (typical mid-market edge fleet):
 
-| Metric | Without Keos | With Keos | Delta |
+| Metric | Without the agent | With the agent | Delta |
 | --- | --- | --- | --- |
 | **MTTR — pod-level** (CrashLoop, OOM, image pull) | 18 min average | 90 s | **−92 %** |
 | **MTTR — node-level** (pressure, scheduling, decay) | 47 min | 4 min | **−91 %** |
 | **On-call hours per month** (per cluster) | 28 h | 4 h | **−86 %** |
 | **Incidents that page a human** | 100 % | 12 % | **−88 %** |
 | **Same-incident recurrence rate** | 23 % | 4 % | **−83 %** (learning loop + auto-gating) |
-| **Cluster cost** (10-node edge node) | $0 baseline | ~$0.4/day per Jetson Orin Nano | negligible vs the SaaS-SRE alternative ($30-200/month/cluster) |
+| **Compute cost on the Keos node** | $0 baseline | ~$0.4/day per Jetson Orin Nano | negligible vs the SaaS-SRE alternative ($30-200/month/cluster) |
 | **External SaaS bill** | $1,200/month (Datadog + PagerDuty for 30 sites) | $0 | **−100 %** |
 
 **Conservative estimate:** for a 30-site fleet, **operating-cost reduction of ~$200k/year** (8 FTE-equivalent on-call hours saved + SaaS bill killed + avoided downtime).
@@ -257,30 +297,41 @@ Then `make demo-ui` opens **http://localhost** (SPA) + **http://localhost:3000**
 ## Architecture (60-second tour)
 
 ```text
-┌──────────────────────── EDGE NODE ────────────────────────┐
-│                                                           │
-│  React SPA  ──→  Caddy  ──→  FastAPI (agent)              │
-│   (EN/FR)         :80         :8000                       │
-│                              │                            │
-│      ┌───────────────────────┼───────────────────────┐    │
-│      ▼                       ▼                       ▼    │
-│  LangGraph             OPA Rego                MCP server │
-│  (Observe→Predict→Heal→Learn)                  (action    │
-│      │                       │                  catalog)  │
-│      ▼                       ▼                       │    │
-│  Qdrant (RAG)        AgentMode CR             kubectl /   │
-│  Ollama (LLM)        (kill-switch)              chaos-    │
-│  NATS  (events)                                  mesh /   │
-│  Audit chain                                    OPA RBAC  │
-│                                                           │
-└───────────────────────────────────────────────────────────┘
+┌──────────────────────── KEOS EDGE NODE ────────────────────────┐
+│  Keos OS provides: k3s + containerd + NVIDIA runtime           │
+│                  + EdgeVPN + PVC storage + DNS                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Keos SRE Agent (Helm-installed namespace)               │  │
+│  │                                                          │  │
+│  │  React SPA  ──→  Caddy  ──→  FastAPI (LangGraph agent)   │  │
+│  │   (EN/FR)         :80         :8000                      │  │
+│  │                              │                           │  │
+│  │      ┌───────────────────────┼───────────────────────┐   │  │
+│  │      ▼                       ▼                       ▼   │  │
+│  │  9-node graph           OPA Rego                 MCP     │  │
+│  │  Observe → Predict      (gates every          server     │  │
+│  │  → Heal → Learn          action)              (action    │  │
+│  │      │                       │                catalog)   │  │
+│  │      ▼                       ▼                    │      │  │
+│  │  Qdrant (RAG)         AgentMode CR         kubectl /     │  │
+│  │  Ollama (LLM)        (kill-switch)           chaos-mesh  │  │
+│  │  NATS   (events)                              / OPA RBAC │  │
+│  │  Audit  (HMAC chain)                                     │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                │
+│  Uses Keos OS's: GPU (Ollama runtimeClassName: nvidia)         │
+│                  PVC (Qdrant + NATS + audit)                   │
+│                  EdgeVPN (cross-node mesh)                     │
+└────────────────────────────────────────────────────────────────┘
 ```
 
-- **9 LangGraph nodes**, instrumented via `pipeline_trace.instrumented()` so the SPA's Pipeline view animates in real time over WebSocket
-- **9 action tools** exposed via FastMCP (`fastmcp==3.3.1`)
-- **2 OPA call sites** (the agent's `policy_gate` node + the MCP server's pre-execute check — defense in depth)
-- **3 data stores** that survive a node reboot (Qdrant on PVC, NATS JetStream, audit log)
-- **Multi-arch** (amd64 + arm64) images at `ghcr.io/pocteo-platform/keos-*`
+- **The Keos OS layer** ships the immutable Linux base, k3s, containerd, NVIDIA GPU runtime, EdgeVPN libp2p mesh, and the PVC + DNS substrate
+- **The Keos SRE Agent layer** (this repo) is the first-party reliability workload that runs on top:
+  - **9 LangGraph nodes**, instrumented via `pipeline_trace.instrumented()` so the SPA's Pipeline view animates in real time over WebSocket
+  - **9 action tools** exposed via FastMCP (`fastmcp==3.3.1`)
+  - **2 OPA call sites** (the agent's `policy_gate` node + the MCP server's pre-execute check — defense in depth)
+  - **3 data stores** that survive a node reboot (Qdrant on PVC, NATS JetStream, audit log)
+  - **Multi-arch** (amd64 + arm64) images at `ghcr.io/pocteo-platform/keos-*`
 
 Deep dive: [docs site](https://pocteo-platform.github.io/keos/) · [POSITIONING.md](POSITIONING.md) · [Architecture](docs/USER_GUIDE.md)
 
@@ -288,13 +339,15 @@ Deep dive: [docs site](https://pocteo-platform.github.io/keos/) · [POSITIONING.
 
 ## Platform guides
 
+The Keos SRE Agent ships first-class on **Keos OS**, and also installs on any conformant Kubernetes cluster so adopters can validate it on hardware they already have:
+
 | Target | Guide |
 | --- | --- |
-| **Jetson Orin Nano** (GPU edge — recommended) | [docs/KAIROS_JETSON.md](docs/KAIROS_JETSON.md) · [docs/platforms/jetson](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/jetson.md) |
-| **k3s on Ubuntu** (most common edge today) | [docs/platforms/linux](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/linux.md) |
-| **Talos Linux** (immutable production edge) | [docs/platforms/talos](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/talos.md) |
-| **Air-gapped** | [docs/AIRGAP_INSTALL.md](docs/AIRGAP_INSTALL.md) |
-| **Any conformant K8s** (managed / on-prem) | [docs/platforms/kubernetes-helm](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/kubernetes-helm.md) |
+| **Keos OS** on Jetson Orin (recommended — GPU + EdgeVPN + immutable base) | [docs/KAIROS_JETSON.md](docs/KAIROS_JETSON.md) · [docs/platforms/jetson](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/jetson.md) |
+| **k3s on Ubuntu** (most common existing edge today) | [docs/platforms/linux](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/linux.md) |
+| **Talos Linux** (immutable production edge, no Keos OS) | [docs/platforms/talos](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/talos.md) |
+| **Air-gapped** (no outbound network at install time) | [docs/AIRGAP_INSTALL.md](docs/AIRGAP_INSTALL.md) |
+| **Any conformant K8s** (managed / on-prem · EKS / GKE / AKS / kubeadm) | [docs/platforms/kubernetes-helm](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/kubernetes-helm.md) |
 
 ---
 
@@ -339,7 +392,9 @@ Open an issue, a PR, or a discussion at <https://github.com/pocteo-platform/keos
 
 ## Acknowledgements
 
-Keos stands on the shoulders of: [LangGraph](https://github.com/langchain-ai/langgraph) · [Ollama](https://ollama.com) · [Qdrant](https://qdrant.tech) · [Open Policy Agent](https://www.openpolicyagent.org) · [K8sGPT](https://k8sgpt.ai) · [Chaos Mesh](https://chaos-mesh.org) · [Model Context Protocol](https://modelcontextprotocol.io) · [Kairos](https://kairos.io) · [Talos](https://talos.dev) · [shadcn/ui](https://ui.shadcn.com).
+The Keos SRE Agent stands on the shoulders of: [LangGraph](https://github.com/langchain-ai/langgraph) · [Ollama](https://ollama.com) · [Qdrant](https://qdrant.tech) · [Open Policy Agent](https://www.openpolicyagent.org) · [K8sGPT](https://k8sgpt.ai) · [Chaos Mesh](https://chaos-mesh.org) · [Model Context Protocol](https://modelcontextprotocol.io) · [shadcn/ui](https://ui.shadcn.com).
+
+The Keos OS layer draws on [Kairos](https://kairos.io) (immutable base + cloud-init), [Talos](https://talos.dev) (machine config patterns) and the broader k3s + containerd + NVIDIA Container Toolkit ecosystem.
 
 ---
 
