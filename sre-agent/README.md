@@ -1,18 +1,23 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <p align="center">
-  <img src="website/static/img/logo.svg" alt="Keos" width="120">
+  <img src="website/static/img/logo.svg" alt="Keos" width="160">
 </p>
 
 <h1 align="center">Keos SRE Agent</h1>
 
 <p align="center">
-  <em>The autonomous SRE that ships inside every <strong>Keos</strong> edge node.</em><br>
-  <em>By <a href="https://github.com/pocteo-platform">Pocteo Platform</a>.</em>
+  <em>The autonomous SRE that ships inside every <strong>Keos</strong> edge node.</em>
 </p>
 
 <p align="center">
-  <sub><strong>Keos</strong> is Pocteo's Kubernetes edge operating system — k8s + EdgeVPN + GPU runtime on Jetson, Pi, x86 SBCs, and any conformant cluster.<br>
+  <sub><strong>Keos</strong> is Pocteo Platform's Kubernetes edge operating system — k8s + EdgeVPN + GPU runtime on Jetson, Pi, x86 SBCs, and any conformant cluster.<br>
   <strong>The Keos SRE Agent</strong> (this repo) is the autonomous reliability workload that runs <em>on</em> Keos, next to the data and the local GPU inference.</sub>
+</p>
+
+<p align="center">
+  <a href="https://github.com/pocteo-platform">
+    <img src="website/static/img/pocteo-platform.svg" alt="By Pocteo Platform" width="220">
+  </a>
 </p>
 
 <p align="center">
@@ -397,6 +402,12 @@ The Keos SRE Agent stands on the shoulders of: [LangGraph](https://github.com/la
 The Keos OS layer draws on [Kairos](https://kairos.io) (immutable base + cloud-init), [Talos](https://talos.dev) (machine config patterns) and the broader k3s + containerd + NVIDIA Container Toolkit ecosystem.
 
 ---
+
+<p align="center">
+  <a href="https://github.com/pocteo-platform">
+    <img src="website/static/img/pocteo-platform.svg" alt="Pocteo Platform" width="200">
+  </a>
+</p>
 
 <p align="center">
   <strong>The Autonomous SRE Agent for Edge Kubernetes</strong><br>

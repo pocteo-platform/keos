@@ -1,30 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Keos hexagonal mark — placeholder approximation of the lion-head logo.
-  Replace with the real PNG/SVG by dropping it in as `logo.svg` (overwrites
-  this file) or as `logo.png` and updating docusaurus.config.ts's
-  `navbar.logo.src` to `img/logo.png`.
-
-  Brand colors: brand-deep #15117A, brand-navy #080646.
+  Keos brand mark — hexagonal lion shield.
+  Two-tone blue gradient (#3B3DFF → #1614B2 → #08056D).
+  Drop a pixel-perfect PNG export at `img/logo.png` and update
+  docusaurus.config.ts's navbar.logo.src if you prefer raster.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="32" height="32"
-     aria-label="Keos">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="64" height="64"
+     role="img" aria-label="Keos">
   <defs>
-    <linearGradient id="kg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#080646"/>
-      <stop offset="100%" stop-color="#15117A"/>
+    <linearGradient id="keosGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#3B3DFF"/>
+      <stop offset="55%"  stop-color="#1614B2"/>
+      <stop offset="100%" stop-color="#08056D"/>
     </linearGradient>
   </defs>
-  <!-- Outer hexagon outline -->
-  <path d="M32 4 L56 18 L56 46 L32 60 L8 46 L8 18 Z"
-        fill="url(#kg)" stroke="url(#kg)" stroke-width="2"/>
-  <!-- Inner hexagon (negative space) -->
-  <path d="M32 12 L48 22 L48 42 L32 52 L16 42 L16 22 Z"
+
+  <!-- Outer hexagon ring -->
+  <path d="M100 8 L176 51 L176 149 L100 192 L24 149 L24 51 Z"
+        fill="none" stroke="url(#keosGrad)" stroke-width="14" stroke-linejoin="miter"/>
+
+  <!-- Inner lion shield: head + mane wrapped in a tighter hexagon shape -->
+  <!-- Mane outline (the bigger hex inside, slightly cut to leave breathing room) -->
+  <path d="M100 38 L156 70 L156 138 L130 168 L70 168 L44 138 L44 70 Z"
+        fill="url(#keosGrad)"/>
+
+  <!-- Lion face cavity (white negative space) -->
+  <path d="M100 56 L138 78 L138 124 L116 148 L84 148 L62 124 L62 78 Z"
         fill="#FFFFFF"/>
-  <!-- Stylized lion-head silhouette: two ears + center cleft -->
-  <path d="M22 26 L26 22 L30 26 L32 22 L34 26 L38 22 L42 26 L42 38 L32 44 L22 38 Z"
-        fill="url(#kg)"/>
-  <!-- Eyes -->
-  <rect x="27" y="30" width="2" height="3" fill="#FFFFFF"/>
-  <rect x="35" y="30" width="2" height="3" fill="#FFFFFF"/>
+
+  <!-- Ear triangles (carved into the white cavity) -->
+  <path d="M76 78 L70 64 L86 70 Z"  fill="url(#keosGrad)"/>
+  <path d="M124 78 L130 64 L114 70 Z" fill="url(#keosGrad)"/>
+
+  <!-- Centre forehead V (the lion's bold geometric crest) -->
+  <path d="M88 78 L100 96 L112 78 L112 108 L100 122 L88 108 Z"
+        fill="url(#keosGrad)"/>
+
+  <!-- Eye slits -->
+  <rect x="74"  y="100" width="10" height="6" rx="1" fill="url(#keosGrad)"/>
+  <rect x="116" y="100" width="10" height="6" rx="1" fill="url(#keosGrad)"/>
+
+  <!-- Muzzle hint (small descending point) -->
+  <path d="M94 130 L106 130 L100 142 Z" fill="url(#keosGrad)"/>
 </svg>
