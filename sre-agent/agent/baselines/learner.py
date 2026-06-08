@@ -366,12 +366,15 @@ class Learner:
             else:
                 log.warning(
                     "baselines: all %d queries failed this tick (first error: %s)",
-                    len(per_query_errors), sample,
+                    len(per_query_errors),
+                    sample,
                 )
         elif per_query_errors:
             log.warning(
                 "baselines: %d/%d queries failed this tick (first error: %s)",
-                len(per_query_errors), len(self.queries), per_query_errors[0],
+                len(per_query_errors),
+                len(self.queries),
+                per_query_errors[0],
             )
         return out
 
