@@ -28,15 +28,34 @@ CPU-only inference, multi-arch images (amd64 + arm64), no GPU dependency.
 
 ### Already have a Kubernetes cluster? (Jetson + k3s, Talos, Kairos, kubeadm…)
 
-**Three commands. The script auto-detects everything else.**
+**Three commands. An interactive wizard walks you through everything.**
 
 ```bash
 git clone https://github.com/pocteo-platform/keos
 cd keos
-bash sre-agent/scripts/install-edge.sh
+bash sre-agent/scripts/install.sh
 ```
 
-That's it. The script:
+The wizard greets you with a Keos banner, then walks 6 steps:
+
+1. **Prerequisites** — checks `kubectl`, `helm`, `docker`, `openssl`, `python3`, `curl`
+2. **Cluster** — lists every kubeconfig context (with reachability + node count), you pick or paste a path
+3. **Discovered facts** — distro, runtime, target node, GPU capacity, capacity card — confirm or override
+4. **LLM model** — pick from 4 sized options (1.5B / 3B / 7B / llama3.2:3B) with size + speed estimates per Jetson
+5. **Image source** — probes whether `ghcr.io/pocteo-platform/*` is publicly pullable, then offers: public / local-build / air-gap
+6. **Default agent mode** — `observe-only` (safe), `active`, or `frozen` — with a confirm step on `active`
+
+Then it shows a Review card with every chosen value, asks "Proceed?", and drives the install end-to-end with a live progress feed. Last screen: an `✓ Install complete` card with the port-forward command + the bearer token, ready to paste.
+
+### Non-interactive install (CI, scripted, or expert use)
+
+Skip the wizard and call the underlying `install-edge.sh` directly with flags:
+
+```bash
+bash sre-agent/scripts/install-edge.sh [flags]
+```
+
+It auto-detects everything and:
 
 - Probes your cluster's distro (k3s / Talos / Kairos / kubeadm / generic) and
   picks the right containerd socket path for Chaos Mesh.
