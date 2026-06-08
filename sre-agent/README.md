@@ -28,15 +28,30 @@ CPU-only inference, multi-arch images (amd64 + arm64), no GPU dependency.
 
 ### Already have a Kubernetes cluster? (Jetson + k3s, Talos, Kairos, kubeadm…)
 
-**Three commands. An interactive wizard walks you through everything.**
+**Three commands. After that, everything is `keosctl <verb>`.**
 
 ```bash
 git clone https://github.com/pocteo-platform/keos
 cd keos
-bash sre-agent/scripts/install.sh
+bash sre-agent/scripts/keosctl install
 ```
 
-The wizard greets you with a Keos banner, then walks 6 steps:
+The wizard greets you with a Keos banner, walks 6 steps, then symlinks
+`keosctl` into `~/.local/bin/` so every later operation is just:
+
+```bash
+keosctl status                  # release + pods + agent mode summary
+keosctl ui                      # port-forward + open the SPA in your browser
+keosctl token                   # print the bearer token
+keosctl mode active             # let the agent take action
+keosctl logs api -f             # tail the agent
+keosctl doctor                  # health check across every component
+keosctl models pull qwen2.5:7b  # upgrade the LLM
+keosctl uninstall --keep-pvcs   # remove but keep state
+keosctl help                    # everything else
+```
+
+The wizard walks 6 steps:
 
 1. **Prerequisites** — checks `kubectl`, `helm`, `docker`, `openssl`, `python3`, `curl`
 2. **Cluster** — lists every kubeconfig context (with reachability + node count), you pick or paste a path

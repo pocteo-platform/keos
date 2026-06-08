@@ -1,0 +1,630 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  keosctl — the Keos SRE Agent CLI
+# ─────────────────────────────────────────────────────────────────────────────
+#  One tool for the operator's whole lifecycle: install, status, logs, mode
+#  flips, port-forward, model management, uninstall. Subcommands wrap the
+#  underlying install.sh + install-edge.sh + kubectl + helm + ollama calls
+#  with consistent flags + branded output.
+#
+#  Designed to be symlinked to a directory on PATH (e.g. ~/.local/bin) so
+#  the colleague's daily flow is `keosctl <verb>` instead of remembering
+#  paths or kubectl incantations.
+#
+#  Bash 4+ required. No other dependencies beyond what install.sh already
+#  needs (kubectl, helm, docker, openssl, python3, curl).
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+KEOSCTL_VERSION="1.0.1"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# ─── Defaults (overridable via env + global flags) ───────────────────────────
+
+NAMESPACE="${KEOS_NAMESPACE:-keos}"
+RELEASE="${KEOS_RELEASE:-keos}"
+KUBECONFIG_OVERRIDE=""
+
+# ─── Colors ──────────────────────────────────────────────────────────────────
+
+if [[ -t 1 ]] && [[ "${NO_COLOR:-}" == "" ]]; then
+  C_RST=$'\033[0m'
+  C_BOLD=$'\033[1m'
+  C_DIM=$'\033[2m'
+  C_RED=$'\033[31m'
+  C_GREEN=$'\033[32m'
+  C_YELLOW=$'\033[33m'
+  C_BLUE=$'\033[34m'
+  C_MAGENTA=$'\033[35m'
+  C_CYAN=$'\033[36m'
+  C_GREY=$'\033[90m'
+else
+  C_RST="" C_BOLD="" C_DIM="" C_RED="" C_GREEN="" C_YELLOW="" C_BLUE=""
+  C_MAGENTA="" C_CYAN="" C_GREY=""
+fi
+
+CHECK="✓"
+CROSS="✗"
+WARN="⚠"
+ARROW="›"
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+say()   { echo "$@"; }
+ok()    { printf "  ${C_GREEN}${CHECK}${C_RST} %s\n" "$*"; }
+fail()  { printf "  ${C_RED}${CROSS}${C_RST} %s\n" "$*" >&2; }
+warn()  { printf "  ${C_YELLOW}${WARN}${C_RST} %s\n" "$*"; }
+info()  { printf "  ${C_BLUE}${ARROW}${C_RST} %s\n" "$*"; }
+note()  { printf "  ${C_DIM}%s${C_RST}\n" "$*"; }
+die()   { printf "${C_RED}${CROSS}${C_RST} %s\n" "$*" >&2; exit 1; }
+hr()    { printf "${C_GREY}────────────────────────────────────────────────────────────────${C_RST}\n"; }
+heading(){ printf "\n${C_BOLD}${C_CYAN}%s${C_RST}\n" "$1"; hr; }
+
+# kubectl wrapper that honors the wizard's kubeconfig + namespace.
+kc() {
+  local args=()
+  [[ -n "$KUBECONFIG_OVERRIDE" ]] && args+=("--kubeconfig" "$KUBECONFIG_OVERRIDE")
+  kubectl "${args[@]}" -n "$NAMESPACE" "$@"
+}
+
+# Same wrapper but cluster-scoped (no -n).
+kc_cluster() {
+  local args=()
+  [[ -n "$KUBECONFIG_OVERRIDE" ]] && args+=("--kubeconfig" "$KUBECONFIG_OVERRIDE")
+  kubectl "${args[@]}" "$@"
+}
+
+# Pretty-print JSON safely if python3 is available, otherwise fall back to raw.
+jq_inline() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c "import sys, json; d=json.load(sys.stdin); $1"
+  else
+    cat
+  fi
+}
+
+# Get the first pod of a Keos component (api/mcp-server/frontend/ollama/…).
+pod_for() {
+  kc get pod -l "app.kubernetes.io/component=$1" \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null
+}
+
+require_namespace() {
+  if ! kc_cluster get namespace "$NAMESPACE" >/dev/null 2>&1; then
+    die "namespace '$NAMESPACE' not found — is Keos installed?  Run 'keosctl install' first."
+  fi
+}
+
+# ─── Subcommand: install ─────────────────────────────────────────────────────
+
+cmd_install() {
+  local interactive=1
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --headless|--non-interactive) interactive=0; shift ;;
+      *) break ;;
+    esac
+  done
+  if [[ $interactive -eq 1 ]]; then
+    [[ -r "$SCRIPT_DIR/install.sh" ]] || die "install.sh not found at $SCRIPT_DIR"
+    exec bash "$SCRIPT_DIR/install.sh" "$@"
+  else
+    [[ -r "$SCRIPT_DIR/install-edge.sh" ]] || die "install-edge.sh not found at $SCRIPT_DIR"
+    exec bash "$SCRIPT_DIR/install-edge.sh" "$@"
+  fi
+}
+
+# ─── Subcommand: uninstall ───────────────────────────────────────────────────
+
+cmd_uninstall() {
+  local keep_pvcs=0 keep_ns=0 yes=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --keep-pvcs)      keep_pvcs=1; shift ;;
+      --keep-namespace) keep_ns=1; shift ;;
+      --yes|-y)         yes=1; shift ;;
+      *) die "unknown arg: $1" ;;
+    esac
+  done
+
+  if ! kc_cluster get namespace "$NAMESPACE" >/dev/null 2>&1; then
+    warn "namespace $NAMESPACE doesn't exist — nothing to uninstall"
+    return 0
+  fi
+
+  if [[ $yes -eq 0 ]]; then
+    heading "Uninstall Keos"
+    info "Release       $RELEASE"
+    info "Namespace     $NAMESPACE"
+    info "Keep PVCs?    $([[ $keep_pvcs -eq 1 ]] && echo yes || echo no)"
+    info "Keep ns?      $([[ $keep_ns -eq 1 ]] && echo yes || echo no)"
+    printf "\n  Continue? [y/N] "
+    read -r answer || answer=""
+    [[ "$answer" =~ ^[Yy] ]] || { say "Aborted."; return 0; }
+  fi
+
+  say "Removing Helm release '$RELEASE'…"
+  helm uninstall "$RELEASE" -n "$NAMESPACE" 2>&1 | tail -3 || true
+  if [[ $keep_pvcs -eq 0 ]]; then
+    say "Removing PVCs…"
+    kc delete pvc --all --ignore-not-found 2>&1 | tail -3 || true
+  fi
+  if [[ $keep_ns -eq 0 ]]; then
+    say "Deleting namespace '$NAMESPACE'…"
+    kc_cluster delete namespace "$NAMESPACE" --ignore-not-found --wait=false 2>&1 | tail -3 || true
+  fi
+  ok "Uninstall complete"
+}
+
+# ─── Subcommand: status ──────────────────────────────────────────────────────
+
+cmd_status() {
+  require_namespace
+  heading "Keos status"
+
+  # Helm release.
+  local chart status_word
+  if chart=$(helm list -n "$NAMESPACE" -f "^${RELEASE}\$" -o json 2>/dev/null | \
+             jq_inline 'print(d[0]["chart"]) if d else exit(1)' 2>/dev/null); then
+    status_word=$(helm list -n "$NAMESPACE" -f "^${RELEASE}\$" -o json 2>/dev/null | \
+                   jq_inline 'print(d[0]["status"]) if d else print("?")')
+    info "Release       ${C_BOLD}$chart${C_RST}  ${C_DIM}($status_word)${C_RST}"
+  else
+    fail "Helm release '$RELEASE' not found"
+    return 1
+  fi
+  info "Namespace     $NAMESPACE"
+
+  # Agent mode CR.
+  local mode
+  mode=$(kc_cluster get agentmode default -o jsonpath='{.spec.mode}' 2>/dev/null || echo '?')
+  local mode_color="$C_GREEN"
+  [[ "$mode" == "active" ]] && mode_color="$C_YELLOW"
+  [[ "$mode" == "frozen" ]] && mode_color="$C_BLUE"
+  printf "  ${C_BLUE}${ARROW}${C_RST} Agent mode    ${mode_color}${C_BOLD}%s${C_RST}\n" "$mode"
+
+  # Pod summary.
+  printf "\n${C_BOLD}Pods${C_RST}\n"
+  local total=0 ready=0
+  while IFS= read -r line; do
+    local name="$(echo "$line" | awk '{print $1}')"
+    local ready_col="$(echo "$line" | awk '{print $2}')"
+    local phase="$(echo "$line" | awk '{print $3}')"
+    local age="$(echo "$line" | awk '{print $5}')"
+    total=$((total + 1))
+    local color="$C_RED" mark="$CROSS"
+    if [[ "$phase" == "Running" && "$ready_col" =~ ^[1-9].*/[1-9] ]]; then
+      color="$C_GREEN" mark="$CHECK"
+      ready=$((ready + 1))
+    elif [[ "$phase" == "Running" ]]; then
+      color="$C_YELLOW" mark="$WARN"
+    fi
+    printf "  ${color}%s${C_RST} %-42s ${C_DIM}%-10s %s${C_RST}\n" "$mark" "$name" "$ready_col" "$age"
+  done < <(kc get pods --no-headers 2>/dev/null)
+  printf "  ${C_DIM}%d/%d pods Ready${C_RST}\n" "$ready" "$total"
+
+  # Hints.
+  printf "\n${C_BOLD}Access${C_RST}\n"
+  note "Open the SPA:        keosctl ui"
+  note "Get the token:       keosctl token"
+  note "Tail the agent:      keosctl logs api -f"
+  printf "\n"
+}
+
+# ─── Subcommand: doctor ──────────────────────────────────────────────────────
+
+cmd_doctor() {
+  require_namespace
+  heading "Keos doctor"
+  local fails=0
+
+  if helm list -n "$NAMESPACE" -f "^${RELEASE}\$" -q 2>/dev/null | grep -q .; then
+    ok "Helm release deployed"
+  else
+    fail "Helm release '$RELEASE' not found"
+    fails=$((fails + 1))
+  fi
+
+  for component in api mcp-server frontend ollama qdrant nats opa caddy; do
+    local phase
+    phase=$(kc get pod -l "app.kubernetes.io/component=$component" \
+              -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo '')
+    if [[ "$phase" == "Running" ]]; then
+      local ready
+      ready=$(kc get pod -l "app.kubernetes.io/component=$component" \
+                -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null)
+      if [[ "$ready" == "true" ]]; then
+        ok "$(printf '%-15s' "$component")  Running (ready)"
+      else
+        warn "$(printf '%-15s' "$component")  Running but not Ready"
+        fails=$((fails + 1))
+      fi
+    elif [[ -z "$phase" ]]; then
+      fail "$(printf '%-15s' "$component")  pod missing"
+      fails=$((fails + 1))
+    else
+      fail "$(printf '%-15s' "$component")  $phase"
+      fails=$((fails + 1))
+    fi
+  done
+
+  local mode
+  mode=$(kc_cluster get agentmode default -o jsonpath='{.spec.mode}' 2>/dev/null || echo '')
+  if [[ -n "$mode" ]]; then
+    ok "AgentMode CR present (mode=$mode)"
+  else
+    fail "AgentMode CR missing — agent won't know what to do"
+    fails=$((fails + 1))
+  fi
+
+  # Ollama models — are the chat + embed models loaded?
+  local ollama_pod
+  ollama_pod="$(pod_for ollama)"
+  if [[ -n "$ollama_pod" ]]; then
+    local model_count
+    model_count=$(kc exec "$ollama_pod" -- ollama list 2>/dev/null | tail -n +2 | wc -l)
+    if (( model_count >= 2 )); then
+      ok "$(printf '%-15s' 'ollama models')  $model_count present"
+    elif (( model_count >= 1 )); then
+      warn "$(printf '%-15s' 'ollama models')  only $model_count loaded (need chat + embed)"
+      fails=$((fails + 1))
+    else
+      fail "$(printf '%-15s' 'ollama models')  none loaded — run 'keosctl models pull qwen2.5:3b-instruct-q4_K_M'"
+      fails=$((fails + 1))
+    fi
+  fi
+
+  # Qdrant runbook count.
+  local api_pod
+  api_pod="$(pod_for api)"
+  if [[ -n "$api_pod" ]]; then
+    local pts
+    pts=$(kc exec "$api_pod" -- curl -sf http://qdrant:6333/collections/runbooks 2>/dev/null | \
+           jq_inline 'print(d["result"]["points_count"])' 2>/dev/null || echo '?')
+    if [[ "$pts" =~ ^[1-9] ]]; then
+      ok "$(printf '%-15s' 'runbook corpus')  $pts points in Qdrant"
+    else
+      warn "$(printf '%-15s' 'runbook corpus')  no points found — run 'keosctl seed'"
+      fails=$((fails + 1))
+    fi
+  fi
+
+  printf "\n"
+  if [[ $fails -eq 0 ]]; then
+    printf "  ${C_GREEN}${C_BOLD}All checks passed.${C_RST}\n"
+    return 0
+  else
+    printf "  ${C_YELLOW}${C_BOLD}%d check(s) failed.${C_RST}  Use 'keosctl logs <component>' for details.\n" "$fails"
+    return 1
+  fi
+}
+
+# ─── Subcommand: mode ────────────────────────────────────────────────────────
+
+cmd_mode() {
+  local new_mode="${1:-}"
+  if [[ -z "$new_mode" ]]; then
+    # No arg: print the current mode.
+    local mode
+    mode=$(kc_cluster get agentmode default -o jsonpath='{.spec.mode}' 2>/dev/null || echo '')
+    if [[ -z "$mode" ]]; then
+      die "AgentMode CR not found"
+    fi
+    say "$mode"
+    return 0
+  fi
+  case "$new_mode" in
+    observe-only|active|frozen) ;;
+    *) die "invalid mode '$new_mode' — valid: observe-only / active / frozen" ;;
+  esac
+  if [[ "$new_mode" == "active" ]]; then
+    printf "  ${C_YELLOW}${WARN}${C_RST} Switching to ${C_BOLD}active${C_RST} — agent will mutate the cluster.\n"
+    printf "  Continue? [y/N] "
+    read -r answer || answer=""
+    [[ "$answer" =~ ^[Yy] ]] || { say "Aborted."; return 0; }
+  fi
+  kc_cluster patch agentmode default --type=merge \
+    -p "{\"spec\":{\"mode\":\"$new_mode\"}}" >/dev/null
+  ok "Agent mode set to ${C_BOLD}$new_mode${C_RST}"
+}
+
+# ─── Subcommand: logs ────────────────────────────────────────────────────────
+
+cmd_logs() {
+  require_namespace
+  local component="${1:-}"
+  shift || true
+  if [[ -z "$component" || "$component" == "-h" || "$component" == "--help" ]]; then
+    say "Usage: keosctl logs <component> [-f|--follow] [--tail N]"
+    say ""
+    say "Components:"
+    say "  api          The Keos FastAPI + LangGraph agent"
+    say "  mcp-server   The MCP action tool server"
+    say "  frontend     The React SPA (nginx)"
+    say "  caddy        The HTTP/WS reverse proxy"
+    say "  ollama       The local LLM runtime"
+    say "  qdrant       The RAG vector store"
+    say "  nats         The event bus"
+    say "  opa          The policy engine"
+    return 0
+  fi
+  case "$component" in
+    api|mcp-server|frontend|ollama|qdrant|nats|opa|caddy) ;;
+    *) die "unknown component '$component' — try 'keosctl logs' to list components" ;;
+  esac
+  kc logs -l "app.kubernetes.io/component=$component" --tail=100 "$@"
+}
+
+# ─── Subcommand: ui ──────────────────────────────────────────────────────────
+
+cmd_ui() {
+  require_namespace
+  local port=8080
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --port) port="$2"; shift 2 ;;
+      --no-open) NO_OPEN=1; shift ;;
+      *) die "unknown arg: $1" ;;
+    esac
+  done
+
+  local token=""
+  [[ -f "$HOME/.keos-token" ]] && token="$(cat "$HOME/.keos-token")"
+  if [[ -z "$token" ]]; then
+    token="$(kc get secret keos-pocteo-auth -o jsonpath='{.data.SHP_API_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null)" || true
+  fi
+
+  heading "Opening Keos SPA"
+  info "URL           ${C_CYAN}http://localhost:$port${C_RST}"
+  if [[ -n "$token" ]]; then
+    info "Token         ${C_GREEN}${C_BOLD}$token${C_RST}"
+    note "(paste this into the login screen; also cached at ~/.keos-token)"
+  else
+    note "Token not found yet — run 'keosctl token' once pods are Ready"
+  fi
+  printf "\n"
+  note "Port-forwarding svc/pocteo on :$port — press Ctrl-C to stop."
+  printf "\n"
+
+  # Try to open the browser after a short delay (so the forward is up).
+  if [[ "${NO_OPEN:-}" != "1" ]]; then
+    if command -v xdg-open >/dev/null; then
+      (sleep 2 && xdg-open "http://localhost:$port" >/dev/null 2>&1) &
+    elif command -v open >/dev/null; then
+      (sleep 2 && open "http://localhost:$port" >/dev/null 2>&1) &
+    elif command -v powershell.exe >/dev/null; then
+      # WSL → Windows browser
+      (sleep 2 && powershell.exe Start-Process "http://localhost:$port" >/dev/null 2>&1) &
+    fi
+  fi
+
+  exec kc port-forward svc/pocteo "$port:80" --address=0.0.0.0
+}
+
+# ─── Subcommand: token ───────────────────────────────────────────────────────
+
+cmd_token() {
+  if [[ -f "$HOME/.keos-token" ]]; then
+    cat "$HOME/.keos-token"; echo
+    return 0
+  fi
+  require_namespace
+  local t
+  t="$(kc get secret keos-pocteo-auth -o jsonpath='{.data.SHP_API_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null)"
+  if [[ -n "$t" ]]; then
+    echo "$t"
+    # Cache it for next time.
+    umask 0077
+    echo "$t" > "$HOME/.keos-token"
+  else
+    die "token not found — is the API pod Ready?"
+  fi
+}
+
+# ─── Subcommand: seed ────────────────────────────────────────────────────────
+
+cmd_seed() {
+  require_namespace
+  local api_pod
+  api_pod="$(pod_for api)"
+  [[ -z "$api_pod" ]] && die "api pod not found"
+  say "Seeding runbooks into Qdrant…"
+  kc exec "$api_pod" -- python -m agent.seed_rag
+  ok "Done"
+}
+
+# ─── Subcommand: models ──────────────────────────────────────────────────────
+
+cmd_models() {
+  require_namespace
+  local action="${1:-list}"
+  shift || true
+  local ollama_pod
+  ollama_pod="$(pod_for ollama)"
+  [[ -z "$ollama_pod" ]] && die "ollama pod not found"
+  case "$action" in
+    list)
+      kc exec "$ollama_pod" -- ollama list
+      ;;
+    pull)
+      local model="${1:-}"
+      [[ -z "$model" ]] && die "usage: keosctl models pull <model>"
+      say "Pulling $model… (this can take several minutes)"
+      kc exec "$ollama_pod" -- ollama pull "$model"
+      ok "Pulled $model"
+      ;;
+    rm)
+      local model="${1:-}"
+      [[ -z "$model" ]] && die "usage: keosctl models rm <model>"
+      kc exec "$ollama_pod" -- ollama rm "$model"
+      ok "Removed $model"
+      ;;
+    show)
+      local model="${1:-}"
+      [[ -z "$model" ]] && die "usage: keosctl models show <model>"
+      kc exec "$ollama_pod" -- ollama show "$model"
+      ;;
+    *) die "unknown action '$action' — valid: list / pull / rm / show" ;;
+  esac
+}
+
+# ─── Subcommand: context ─────────────────────────────────────────────────────
+
+cmd_context() {
+  kc_cluster config current-context
+}
+
+# ─── Subcommand: version ─────────────────────────────────────────────────────
+
+cmd_version() {
+  printf "${C_BOLD}keosctl${C_RST}      v%s\n" "$KEOSCTL_VERSION"
+  local chart
+  if chart=$(helm list -n "$NAMESPACE" -f "^${RELEASE}\$" -o json 2>/dev/null | \
+             jq_inline 'print(d[0]["chart"]) if d else exit(1)' 2>/dev/null); then
+    printf "Helm chart   %s\n" "$chart"
+  else
+    printf "Helm chart   ${C_DIM}(not installed in this namespace)${C_RST}\n"
+  fi
+  printf "Repo root    %s\n" "$REPO_ROOT"
+  printf "Bash         %s\n" "${BASH_VERSION}"
+}
+
+# ─── Subcommand: link (symlink to ~/.local/bin) ──────────────────────────────
+
+cmd_link() {
+  local target="${1:-$HOME/.local/bin/keosctl}"
+  mkdir -p "$(dirname "$target")"
+  ln -sfn "$SCRIPT_DIR/keosctl" "$target"
+  ok "keosctl linked at $target"
+  if ! command -v keosctl >/dev/null 2>&1; then
+    note "Add this to your shell profile if 'keosctl' isn't on PATH yet:"
+    note "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+  else
+    note "Already on PATH — try: keosctl status"
+  fi
+}
+
+# ─── Subcommand: help ────────────────────────────────────────────────────────
+
+cmd_help() {
+  printf "${C_BOLD}${C_CYAN}"
+  cat <<'EOF'
+       ██╗  ██╗███████╗ ██████╗ ███████╗
+       ██║ ██╔╝██╔════╝██╔═══██╗██╔════╝
+       █████╔╝ █████╗  ██║   ██║███████╗
+       ██╔═██╗ ██╔══╝  ██║   ██║╚════██║
+       ██║  ██╗███████╗╚██████╔╝███████║
+       ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚══════╝
+EOF
+  printf "${C_RST}\n"
+  printf "       ${C_BOLD}keosctl v%s${C_RST} ${C_DIM}— Autonomous SRE Agent CLI · by Pocteo Platform${C_RST}\n\n" "$KEOSCTL_VERSION"
+
+  printf "${C_BOLD}USAGE${C_RST}\n"
+  printf "  keosctl <command> [options]\n\n"
+
+  printf "${C_BOLD}INSTALL + LIFECYCLE${C_RST}\n"
+  printf "  ${C_CYAN}install${C_RST}                       Interactive 6-step wizard ${C_DIM}(recommended)${C_RST}\n"
+  printf "  ${C_CYAN}install --headless${C_RST} [flags]    Non-interactive install ${C_DIM}(CI / scripted)${C_RST}\n"
+  printf "  ${C_CYAN}uninstall${C_RST} [--keep-pvcs]       Remove the Keos release\n"
+  printf "  ${C_CYAN}link${C_RST} [path]                   Symlink keosctl to a PATH dir ${C_DIM}(default ~/.local/bin)${C_RST}\n\n"
+
+  printf "${C_BOLD}OPERATIONS${C_RST}\n"
+  printf "  ${C_CYAN}status${C_RST}                        Release + pods + agent mode summary\n"
+  printf "  ${C_CYAN}doctor${C_RST}                        Health check across every component\n"
+  printf "  ${C_CYAN}mode${C_RST} [obs|active|frozen]      Print or set the agent mode\n"
+  printf "  ${C_CYAN}logs${C_RST} <component> [-f]         Tail pod logs ${C_DIM}(api/mcp-server/frontend/…)${C_RST}\n"
+  printf "  ${C_CYAN}ui${C_RST} [--port N]                 Port-forward + open the SPA in your browser\n"
+  printf "  ${C_CYAN}token${C_RST}                         Print the bearer token\n\n"
+
+  printf "${C_BOLD}DATA${C_RST}\n"
+  printf "  ${C_CYAN}seed${C_RST}                          Re-seed the runbook corpus into Qdrant\n"
+  printf "  ${C_CYAN}models${C_RST} list                   List installed LLM models\n"
+  printf "  ${C_CYAN}models${C_RST} pull <model>           Pull a new LLM into Ollama\n"
+  printf "  ${C_CYAN}models${C_RST} rm <model>             Remove an LLM\n\n"
+
+  printf "${C_BOLD}MISC${C_RST}\n"
+  printf "  ${C_CYAN}context${C_RST}                       Show the kubectl context Keos is in\n"
+  printf "  ${C_CYAN}version${C_RST}                       Print versions (CLI + chart + agent)\n"
+  printf "  ${C_CYAN}help${C_RST}                          Show this message\n\n"
+
+  printf "${C_BOLD}GLOBAL OPTIONS${C_RST}\n"
+  printf "  ${C_DIM}-n, --namespace <ns>${C_RST}          Override namespace (default: keos)\n"
+  printf "  ${C_DIM}-r, --release <name>${C_RST}          Override release name (default: keos)\n"
+  printf "  ${C_DIM}    --kubeconfig <path>${C_RST}       Override kubeconfig\n"
+  printf "  ${C_DIM}    --no-color${C_RST}               Disable ANSI colors\n"
+  printf "  ${C_DIM}-h, --help${C_RST}                   Show this help\n\n"
+
+  printf "${C_BOLD}EXAMPLES${C_RST}\n"
+  printf "  ${C_DIM}# First install — interactive wizard${C_RST}\n"
+  printf "  keosctl install\n\n"
+  printf "  ${C_DIM}# Daily ops${C_RST}\n"
+  printf "  keosctl status                           ${C_DIM}# how's everything?${C_RST}\n"
+  printf "  keosctl mode active                      ${C_DIM}# let the agent take action${C_RST}\n"
+  printf "  keosctl logs api -f                      ${C_DIM}# tail the API pod${C_RST}\n"
+  printf "  keosctl ui                               ${C_DIM}# opens http://localhost:8080${C_RST}\n"
+  printf "  keosctl token                            ${C_DIM}# print the bearer token${C_RST}\n\n"
+  printf "  ${C_DIM}# Model management${C_RST}\n"
+  printf "  keosctl models list                      ${C_DIM}# what's loaded?${C_RST}\n"
+  printf "  keosctl models pull qwen2.5:7b           ${C_DIM}# upgrade to a bigger model${C_RST}\n\n"
+  printf "  ${C_DIM}# Lifecycle${C_RST}\n"
+  printf "  keosctl uninstall --keep-pvcs            ${C_DIM}# clean removal, keep state${C_RST}\n\n"
+
+  printf "${C_BOLD}DOCS${C_RST}\n"
+  printf "  https://pocteo-platform.github.io/keos/\n\n"
+}
+
+# ─── Main dispatcher ─────────────────────────────────────────────────────────
+
+# Global flags can come before OR after the subcommand. Parse the leading ones.
+parse_global() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n|--namespace)   NAMESPACE="$2"; shift 2 ;;
+      -r|--release)     RELEASE="$2"; shift 2 ;;
+      --kubeconfig)     KUBECONFIG_OVERRIDE="$2"; shift 2 ;;
+      --no-color)       NO_COLOR=1; shift ;;
+      -h|--help)        cmd_help; exit 0 ;;
+      *)                break ;;
+    esac
+  done
+  REMAINING=("$@")
+}
+
+main() {
+  parse_global "$@"
+  set -- "${REMAINING[@]:-}"
+  local cmd="${1:-help}"
+  shift || true
+  case "$cmd" in
+    install)         cmd_install "$@" ;;
+    uninstall)       cmd_uninstall "$@" ;;
+    status)          cmd_status "$@" ;;
+    doctor)          cmd_doctor "$@" ;;
+    mode)            cmd_mode "$@" ;;
+    logs)            cmd_logs "$@" ;;
+    ui)              cmd_ui "$@" ;;
+    token)           cmd_token "$@" ;;
+    seed)            cmd_seed "$@" ;;
+    models)          cmd_models "$@" ;;
+    context)         cmd_context "$@" ;;
+    version|--version|-v) cmd_version "$@" ;;
+    link)            cmd_link "$@" ;;
+    help|--help|-h|"") cmd_help ;;
+    *)
+      printf "${C_RED}${CROSS}${C_RST} unknown command '%s'\n\n" "$cmd"
+      printf "Did you mean one of these?\n"
+      for c in install uninstall status doctor mode logs ui token seed models context version link help; do
+        # Cheap fuzzy: print commands that share a prefix or contain the typo.
+        if [[ "$c" == "$cmd"* || "$c" == *"$cmd"* ]]; then
+          printf "  ${C_CYAN}%s${C_RST}\n" "$c"
+        fi
+      done
+      printf "\nRun ${C_CYAN}keosctl help${C_RST} for the full command list.\n"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
