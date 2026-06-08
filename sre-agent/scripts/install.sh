@@ -106,7 +106,7 @@ ask() {
   else
     printf "  ${C_BOLD}%s${C_RST} " "$prompt" >&2
   fi
-  read -r answer </dev/tty || answer=""
+  read -r answer || answer=""
   echo "${answer:-$default}"
 }
 
@@ -115,7 +115,7 @@ confirm() {
   printf "  ${C_BOLD}%s${C_RST} ${C_DIM}[%s/%s]${C_RST} " \
     "$prompt" "$( [[ "$default" =~ ^[Yy] ]] && echo Y || echo y)" \
                 "$( [[ "$default" =~ ^[Yy] ]] && echo n || echo N)" >&2
-  read -r answer </dev/tty || answer=""
+  read -r answer || answer=""
   answer="${answer:-$default}"
   [[ "$answer" =~ ^[Yy] ]]
 }
@@ -139,7 +139,7 @@ pick() {
   printf "\n" >&2
   local answer
   printf "  ${C_BOLD}%s${C_RST} ${C_DIM}[%s]${C_RST} " "$prompt" "$default_idx" >&2
-  read -r answer </dev/tty || answer=""
+  read -r answer || answer=""
   answer="${answer:-$default_idx}"
   if ! [[ "$answer" =~ ^[0-9]+$ ]] || (( answer < 1 || answer > ${#opts[@]} )); then
     printf "  ${C_RED}${CROSS} invalid choice — using default $default_idx${C_RST}\n" >&2
