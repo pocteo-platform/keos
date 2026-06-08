@@ -375,21 +375,43 @@ if [[ "$LOCAL_BUILD" -eq 1 ]]; then
   docker build -t "keos-frontend:$LOCAL_TAG"   -f "$REPO_ROOT/frontend/Dockerfile"      "$REPO_ROOT/frontend" >/dev/null
   ok "images built locally (tag=$LOCAL_TAG)"
 
-  # Import into the cluster's containerd. For k3s + kairos we use
-  # `k3s ctr image import`; for others we fall back to docker-save +
-  # ctr import via the host shell (assumes single-node + script runs
-  # on the same machine as the kubelet).
+  # Import into the cluster's containerd. We detect the cluster's shape
+  # so the right import tool gets used:
+  #
+  #   kind:   kind load docker-image <img>:<tag> --name <cluster>
+  #           (kind clusters run their own containerd inside a Docker
+  #           container; the host's `ctr` can't reach it directly)
+  #   k3d:    k3d image import <img>:<tag> -c <cluster>
+  #           (same containerd-in-container shape as kind)
+  #   k3s:    sudo k3s ctr -n=k8s.io image import <tar>
+  #           (native single-machine setup — Jetson, Kairos, plain k3s)
+  #   other:  sudo ctr -n=k8s.io image import <tar>
+  #           (any host with a kubelet sharing the host containerd)
   step "Importing images into the cluster's containerd…"
+  KIND_CLUSTER=""
+  K3D_CLUSTER=""
+  _ctx="$(kubectl config current-context 2>/dev/null || true)"
+  if command -v kind >/dev/null 2>&1 && [[ "$_ctx" == kind-* ]]; then
+    KIND_CLUSTER="${_ctx#kind-}"
+  elif command -v k3d >/dev/null 2>&1 && [[ "$_ctx" == k3d-* ]]; then
+    K3D_CLUSTER="${_ctx#k3d-}"
+  fi
   for img in keos-api keos-mcp-server keos-frontend; do
-    docker save "$img:$LOCAL_TAG" -o "/tmp/$img-$LOCAL_TAG.tar"
-    if command -v k3s >/dev/null 2>&1; then
-      sudo k3s ctr -n=k8s.io image import "/tmp/$img-$LOCAL_TAG.tar" >/dev/null
-    elif command -v ctr >/dev/null 2>&1; then
-      sudo ctr -n=k8s.io image import "/tmp/$img-$LOCAL_TAG.tar" >/dev/null
+    if [[ -n "$KIND_CLUSTER" ]]; then
+      kind load docker-image "$img:$LOCAL_TAG" --name "$KIND_CLUSTER" >/dev/null
+    elif [[ -n "$K3D_CLUSTER" ]]; then
+      k3d image import "$img:$LOCAL_TAG" -c "$K3D_CLUSTER" >/dev/null
     else
-      die "neither 'k3s' nor 'ctr' on PATH — can't import images into the cluster. Try installing k3s, or pass --image-registry <host:port> and push images yourself."
+      docker save "$img:$LOCAL_TAG" -o "/tmp/$img-$LOCAL_TAG.tar"
+      if command -v k3s >/dev/null 2>&1; then
+        sudo k3s ctr -n=k8s.io image import "/tmp/$img-$LOCAL_TAG.tar" >/dev/null
+      elif command -v ctr >/dev/null 2>&1; then
+        sudo ctr -n=k8s.io image import "/tmp/$img-$LOCAL_TAG.tar" >/dev/null
+      else
+        die "no image-import tool available — install kind/k3d/k3s/ctr, or pass --image-registry <host:port> and push images yourself."
+      fi
+      rm -f "/tmp/$img-$LOCAL_TAG.tar"
     fi
-    rm -f "/tmp/$img-$LOCAL_TAG.tar"
     ok "imported $img:$LOCAL_TAG"
   done
 fi
