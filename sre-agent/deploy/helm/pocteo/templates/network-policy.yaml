@@ -19,7 +19,12 @@
 {{- if .Values.networkPolicy.enabled }}
 
 {{/* All policies key off the same chart labels so a NetworkPolicy stays
-     correct even if pod names change. */}}
+     correct even if pod names change. NOTE: pod templates only set
+     `app.kubernetes.io/name: pocteo` + `app.kubernetes.io/component: <X>`
+     on the spec.template.metadata.labels — they do NOT carry the
+     `part-of: pocteo` label from `pocteo.labels` (that one only lands
+     on top-level resource metadata). Filtering ingress on `name`
+     matches what the pods actually have. */}}
 {{- $partOf := "pocteo" -}}
 
 apiVersion: networking.k8s.io/v1
@@ -40,7 +45,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/part-of: {{ $partOf }}
+              app.kubernetes.io/name: {{ $partOf }}
               app.kubernetes.io/component: caddy
       ports:
         - { port: 8000, protocol: TCP }
@@ -49,7 +54,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/part-of: {{ $partOf }}
+              app.kubernetes.io/name: {{ $partOf }}
       ports:
         - { port: 11434, protocol: TCP }   # Ollama
         - { port: 6333,  protocol: TCP }   # Qdrant
@@ -98,7 +103,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/part-of: {{ $partOf }}
+              app.kubernetes.io/name: {{ $partOf }}
               app.kubernetes.io/component: api
       ports:
         - { port: 8090, protocol: TCP }
@@ -106,7 +111,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/part-of: {{ $partOf }}
+              app.kubernetes.io/name: {{ $partOf }}
               app.kubernetes.io/component: opa
       ports:
         - { port: 8181, protocol: TCP }
@@ -146,10 +151,14 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/part-of: {{ $partOf }}
+              app.kubernetes.io/name: {{ $partOf }}
               app.kubernetes.io/component: caddy
       ports:
-        - { port: 80, protocol: TCP }
+        # nginx-unprivileged listens on 8080 (no NET_BIND_SERVICE = no
+        # privileged port). The Service.spec.ports[].targetPort is 8080
+        # too, so the packet hits the pod on 8080 — NetworkPolicy filters
+        # the destination port, not the Service.port (80).
+        - { port: 8080, protocol: TCP }
   egress: []  # The SPA is static; nginx doesn't need outbound traffic.
 ---
 {{/* OPA / Qdrant / NATS / Ollama / K8sGPT only need to accept calls
@@ -164,7 +173,7 @@ metadata:
 spec:
   podSelector:
     matchExpressions:
-      - key: app.kubernetes.io/part-of
+      - key: app.kubernetes.io/name
         operator: In
         values: [{{ $partOf }}]
       - key: app.kubernetes.io/component
@@ -175,7 +184,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/part-of: {{ $partOf }}
+              app.kubernetes.io/name: {{ $partOf }}
   egress:
     # K8sGPT needs to talk to the kube-apiserver. The others only need
     # cluster DNS; both are cheap to allow uniformly.
