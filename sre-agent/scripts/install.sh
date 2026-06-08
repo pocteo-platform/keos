@@ -486,26 +486,41 @@ EOF
     token="$(cat "$HOME/.keos-token")"
   fi
 
-  heading "Access the SPA"
-  say "${C_BOLD}1.${C_RST} Forward the Caddy ingress to localhost:"
-  printf "\n   ${C_CYAN}kubectl port-forward -n %s svc/pocteo 8080:80${C_RST}\n\n" "${ANS[NAMESPACE]}"
-  say "${C_BOLD}2.${C_RST} Open ${C_CYAN}http://localhost:8080${C_RST}"
-  if [[ -n "$token" ]]; then
-    say "${C_BOLD}3.${C_RST} Paste this bearer token into the login screen:"
-    printf "\n   ${C_BOLD}${C_GREEN}%s${C_RST}\n\n" "$token"
-    note "(token also cached at ~/.keos-token for copy/paste)"
-  else
-    say "${C_BOLD}3.${C_RST} Fetch the bearer token:"
-    printf "\n   ${C_CYAN}kubectl -n %s get secret keos-pocteo-auth \\\\\n     -o jsonpath='{.data.SHP_API_TOKEN}' | base64 -d${C_RST}\n\n" "${ANS[NAMESPACE]}"
+  # Symlink keosctl to ~/.local/bin so the operator can use the CLI
+  # without remembering the repo path.
+  local link_target="$HOME/.local/bin/keosctl"
+  if [[ -e "$SCRIPT_DIR/keosctl" && ! -e "$link_target" ]]; then
+    mkdir -p "$HOME/.local/bin"
+    ln -sfn "$SCRIPT_DIR/keosctl" "$link_target"
+    ok "keosctl" "symlinked to ~/.local/bin/keosctl"
+    if ! command -v keosctl >/dev/null 2>&1; then
+      note "Add ~/.local/bin to your PATH if it's not already there:"
+      note "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+    fi
+    printf "\n"
   fi
 
-  heading "Next steps"
-  info "Run a use case"  "Use Cases → pick lib-memory-leak → Run"
-  info "Flip to active"  "Settings → Agent → Mode (or 'kubectl patch agentmode default --type=merge -p '{\"spec\":{\"mode\":\"active\"}}')"
-  info "Inspect logs"    "kubectl -n ${ANS[NAMESPACE]} logs deploy/api -f"
-  info "Uninstall"       "helm uninstall ${ANS[RELEASE]} -n ${ANS[NAMESPACE]}"
+  heading "Open the SPA"
+  say "${C_BOLD}1.${C_RST} Port-forward + open the browser (auto):"
+  printf "\n   ${C_CYAN}keosctl ui${C_RST}\n\n"
+  say "${C_BOLD}2.${C_RST} Paste this bearer token into the login screen:"
+  if [[ -n "$token" ]]; then
+    printf "\n   ${C_BOLD}${C_GREEN}%s${C_RST}\n\n" "$token"
+    note "(cached at ~/.keos-token — also retrievable via 'keosctl token')"
+  else
+    printf "\n   ${C_CYAN}keosctl token${C_RST}\n\n"
+  fi
+
+  heading "Daily ops (everything via keosctl)"
+  printf "  ${C_CYAN}keosctl status${C_RST}              ${C_DIM}# pods + agent mode + release${C_RST}\n"
+  printf "  ${C_CYAN}keosctl doctor${C_RST}              ${C_DIM}# health check across every component${C_RST}\n"
+  printf "  ${C_CYAN}keosctl logs api -f${C_RST}         ${C_DIM}# tail the agent's logs${C_RST}\n"
+  printf "  ${C_CYAN}keosctl mode active${C_RST}         ${C_DIM}# let the agent take action${C_RST}\n"
+  printf "  ${C_CYAN}keosctl models pull qwen2.5:7b${C_RST} ${C_DIM} # upgrade the LLM${C_RST}\n"
+  printf "  ${C_CYAN}keosctl uninstall --keep-pvcs${C_RST}  ${C_DIM} # remove but keep state${C_RST}\n"
   printf "\n"
-  note "Docs: https://pocteo-platform.github.io/keos/"
+  note "Full reference: keosctl help"
+  note "Docs:           https://pocteo-platform.github.io/keos/"
   printf "\n"
 }
 
