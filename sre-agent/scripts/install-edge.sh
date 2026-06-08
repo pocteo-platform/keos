@@ -513,11 +513,19 @@ ok "Helm release '$RELEASE' deployed"
 
 if [[ "$SKIP_MODEL_PULL" -eq 0 ]]; then
   step "Pulling LLM models (slow — ~5-10 min on first install)…"
-  OLLAMA_POD=$(kubectl get pod -n "$NAMESPACE" -l app.kubernetes.io/name=ollama \
-                                          -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-  if [[ -z "$OLLAMA_POD" ]]; then
-    warn "ollama pod not found yet; re-run with --skip-models if it still doesn't appear"
+  # Wait up to 5 min for the ollama pod to be Ready before we exec into it.
+  # helm install --wait returns when Deployments/StatefulSets are ready,
+  # but the StatefulSet's individual pod can still be in Pending mid-PVC-bind.
+  # Selector uses component=ollama (the pods carry name=pocteo + component=<X>,
+  # NOT name=ollama — that was a previous bug that silently skipped the pull).
+  if ! kubectl wait -n "$NAMESPACE" --for=condition=Ready pod \
+        -l app.kubernetes.io/component=ollama --timeout=5m 2>&1 | tail -3; then
+    warn "ollama pod not Ready within 5 min; re-run with --skip-models or rerun manually:"
+    warn "  kubectl exec -n $NAMESPACE ollama-0 -- ollama pull qwen2.5:3b-instruct-q4_K_M"
   else
+    OLLAMA_POD=$(kubectl get pod -n "$NAMESPACE" \
+                  -l app.kubernetes.io/component=ollama \
+                  -o jsonpath='{.items[0].metadata.name}')
     kubectl exec -n "$NAMESPACE" "$OLLAMA_POD" -- ollama pull qwen2.5:3b-instruct-q4_K_M
     kubectl exec -n "$NAMESPACE" "$OLLAMA_POD" -- ollama pull nomic-embed-text
     ok "models cached on $NODE"
@@ -527,14 +535,17 @@ fi
 # ─── Runbook seed ──────────────────────────────────────────────────────────
 
 step "Seeding the runbook corpus into Qdrant…"
-API_POD=$(kubectl get pod -n "$NAMESPACE" -l app.kubernetes.io/component=api \
-                                  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-if [[ -n "$API_POD" ]]; then
+# Same shape as above: wait Ready before exec, then seed.
+if ! kubectl wait -n "$NAMESPACE" --for=condition=Ready pod \
+      -l app.kubernetes.io/component=api --timeout=2m 2>&1 | tail -3; then
+  warn "api pod not Ready within 2 min; you'll need to seed manually later"
+else
+  API_POD=$(kubectl get pod -n "$NAMESPACE" \
+              -l app.kubernetes.io/component=api \
+              -o jsonpath='{.items[0].metadata.name}')
   kubectl exec -n "$NAMESPACE" "$API_POD" -- python -m agent.seed_rag 2>&1 | tail -3 || \
     warn "seed_rag returned non-zero; the agent still works, RAG just won't enrich diagnose"
   ok "runbooks indexed"
-else
-  warn "api pod not found; you'll need to seed manually later"
 fi
 
 # ─── Reachability ─────────────────────────────────────────────────────────
