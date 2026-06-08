@@ -118,7 +118,7 @@ const config: Config = {
       title: "Keos",
       logo: {
         alt: "Keos logo",
-        src: "img/logo.svg",
+        src: "img/keos-shape.jpg",
       },
       items: [
         {

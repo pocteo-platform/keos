@@ -1,6 +1,6 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <p align="center">
-  <img src="website/static/img/logo.svg" alt="Keos" width="160">
+  <img src="website/static/img/keos-shape.jpg" alt="Keos" width="180">
 </p>
 
 <h1 align="center">Keos SRE Agent</h1>
@@ -16,7 +16,7 @@
 
 <p align="center">
   <a href="https://github.com/pocteo-platform">
-    <img src="website/static/img/pocteo-platform.svg" alt="By Pocteo Platform" width="220">
+    <img src="website/static/img/pocteo-platform.png" alt="By Pocteo Platform" width="260">
   </a>
 </p>
 
@@ -405,7 +405,7 @@ The Keos OS layer draws on [Kairos](https://kairos.io) (immutable base + cloud-i
 
 <p align="center">
   <a href="https://github.com/pocteo-platform">
-    <img src="website/static/img/pocteo-platform.svg" alt="Pocteo Platform" width="200">
+    <img src="website/static/img/pocteo-platform.png" alt="Pocteo Platform" width="240">
   </a>
 </p>
 

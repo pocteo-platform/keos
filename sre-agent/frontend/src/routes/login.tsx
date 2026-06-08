@@ -61,10 +61,11 @@ export default function LoginPage() {
             (3) tagline — the one-liner. */}
         <div className="flex flex-col items-center text-center">
           <img
-            src="/keos-logo.svg"
+            src="/keos-shape.jpg"
             alt={PLATFORM_NAME}
             width={64}
             height={64}
+            className="rounded-md"
             className="mb-4 select-none"
             draggable={false}
           />
@@ -109,7 +110,7 @@ export default function LoginPage() {
         {/* Footer attribution: company on the left, docs link on the right. */}
         <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground">
           <div className="flex items-center gap-1.5">
-            <img src="/pocteo-platform-mark.svg" alt="" width={14} height={14} className="opacity-70" />
+            <img src="/pocteo-platform.png" alt="" height={14} className="opacity-70" />
             <span>
               by <span className="font-semibold tracking-normal">{COMPANY_NAME}</span>
             </span>

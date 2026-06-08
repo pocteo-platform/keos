@@ -200,11 +200,11 @@ export function Sidebar() {
             )}
           >
             <img
-              src="/keos-logo.svg"
+              src="/keos-shape.jpg"
               alt={PLATFORM_NAME}
               width={36}
               height={36}
-              className="shrink-0 select-none"
+              className="shrink-0 select-none rounded"
               draggable={false}
             />
             {showCollapsed ? null : (
@@ -440,11 +440,10 @@ export function Sidebar() {
           aria-label={`by ${COMPANY_NAME}`}
         >
           <img
-            src="/pocteo-platform-mark.svg"
+            src="/pocteo-platform.png"
             alt=""
-            width={16}
-            height={16}
-            className="shrink-0 opacity-70 transition-opacity group-hover:opacity-100"
+            height={18}
+            className="shrink-0 opacity-80 transition-opacity group-hover:opacity-100"
             aria-hidden="true"
           />
           {showCollapsed ? null : (
