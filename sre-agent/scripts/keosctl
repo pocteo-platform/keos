@@ -690,6 +690,132 @@ EXAMPLES
 DOCS  https://pocteo-platform.github.io/keos/docs/cli/shell-completion
 EOF
       ;;
+    deps) cat <<'EOF'
+keosctl deps — detect or install ecosystem operators
+
+USAGE
+  keosctl deps list                                (alias: verify)
+  keosctl deps install <name> [--chart-repo URL] [--version V]
+                              [--values FILE] [--namespace NS] [--set k=v]
+
+DESCRIPTION
+  Keos itself ships ONLY chaos-mesh as a sub-chart. Other operators
+  (Prometheus / ArgoCD / Flux / cert-manager / kube-state-metrics) are
+  detected at runtime — the agent adapts. `deps install` adds the
+  missing one via Helm.
+
+SUPPORTED NAMES
+  prometheus  argocd  flux  cert-manager  kube-state-metrics
+
+EXAMPLES
+  keosctl deps list
+  keosctl deps install prometheus
+  keosctl deps install prometheus --chart-repo https://harbor.corp/chartrepo --version 75.0.0
+  keosctl deps install argocd --namespace argocd
+  keosctl deps install cert-manager --set installCRDs=true
+EOF
+      ;;
+    images) cat <<'EOF'
+keosctl images — registry + per-pod image management
+
+USAGE
+  keosctl images list
+  keosctl images registry
+  keosctl images set-registry <host:port>
+  keosctl images pull-policy <Always|IfNotPresent|Never>
+
+DESCRIPTION
+  list           Per-pod image references currently running
+  registry       Current global.imageRegistry + per-component pullPolicy
+  set-registry   Swap the registry (helm upgrade --reuse-values)
+  pull-policy    Override pullPolicy for api/mcpServer/frontend
+
+EXAMPLES
+  keosctl images list
+  keosctl images registry
+  keosctl images set-registry registry.corp:5000
+  keosctl images set-registry ghcr.io/pocteo-platform   # back to public
+  keosctl images pull-policy Always                     # force pull on every restart
+  keosctl images pull-policy Never                      # local-build mode
+EOF
+      ;;
+    values) cat <<'EOF'
+keosctl values — Helm values inspection + editing
+
+USAGE
+  keosctl values get [key.path]
+  keosctl values set <key>=<value>
+  keosctl values edit
+  keosctl values diff
+
+DESCRIPTION
+  get      Effective values (full or one path via dot notation)
+  set      Patch one key via 'helm upgrade --set' (--reuse-values)
+  edit     Open the full values yaml in $EDITOR; on save, helm upgrade
+  diff    vs the chart's default values
+
+EXAMPLES
+  keosctl values get
+  keosctl values get ollama.gpu.enabled
+  keosctl values set agent.defaultMode=active
+  keosctl values set api.replicas=2
+  keosctl values edit
+  keosctl values diff
+EOF
+      ;;
+    policy) cat <<'EOF'
+keosctl policy — OPA Rego matrix introspection
+
+USAGE
+  keosctl policy show
+  keosctl policy test <action> <severity> <namespace> <mode>
+
+DESCRIPTION
+  show   Cat the loaded /policies/agent.rego from the opa pod
+  test   Send an OPA input and print the allow/deny decision + reasons
+
+EXAMPLES
+  keosctl policy show
+  keosctl policy test restart_pod high workloads active
+  keosctl policy test drain_node critical kube-system active   # should DENY
+  keosctl policy test page_human low workloads observe-only    # always ALLOW
+EOF
+      ;;
+    runbooks) cat <<'EOF'
+keosctl runbooks — inspect the runbook corpus
+
+USAGE
+  keosctl runbooks list                              (alias: ls)
+  keosctl runbooks show <slug>                       (alias: cat)
+
+DESCRIPTION
+  list  Every runbook file the api pod has access to + Qdrant point count
+  show  Cat one runbook (slug or filename — .md is optional)
+
+EXAMPLES
+  keosctl runbooks list
+  keosctl runbooks show 001-memory-leak
+  keosctl runbooks show 005-rollout-regression.md
+EOF
+      ;;
+    bus) cat <<'EOF'
+keosctl bus — NATS JetStream subject taps
+
+USAGE
+  keosctl bus tail [subject]                         (alias: sub, subscribe)
+  keosctl bus streams                                (alias: list)
+
+DESCRIPTION
+  tail     Live subscribe to a NATS subject pattern (default infra.events.>)
+  streams  List JetStream streams + their config
+
+EXAMPLES
+  keosctl bus tail
+  keosctl bus tail "infra.events.>"
+  keosctl bus tail "infra.events.oom_killed"
+  keosctl bus streams
+EOF
+      ;;
     *)
       cat <<EOF
 No detailed help for '$1' yet.
@@ -1460,7 +1586,7 @@ _keosctl_complete() {
   cmds="install uninstall link status doctor mode logs ui token seed models
         events incidents usecases run restart shell describe port-forward upgrade
         audit completion context version help api backup restore diag calibration
-        config chaos top update"
+        config chaos top update deps images values policy runbooks bus"
   case "$prev" in
     keosctl)        COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
     logs|restart|shell|describe|port-forward)
@@ -1474,6 +1600,12 @@ _keosctl_complete() {
     calibration|cal) COMPREPLY=( $(compgen -W "list set reset" -- "$cur") ) ;;
     chaos)          COMPREPLY=( $(compgen -W "list delete" -- "$cur") ) ;;
     config)         COMPREPLY=( $(compgen -W "view" -- "$cur") ) ;;
+    deps)           COMPREPLY=( $(compgen -W "list install verify" -- "$cur") ) ;;
+    images|image)   COMPREPLY=( $(compgen -W "list registry set-registry pull-policy" -- "$cur") ) ;;
+    values)         COMPREPLY=( $(compgen -W "get set edit diff" -- "$cur") ) ;;
+    policy)         COMPREPLY=( $(compgen -W "show test" -- "$cur") ) ;;
+    runbooks)       COMPREPLY=( $(compgen -W "list show" -- "$cur") ) ;;
+    bus)            COMPREPLY=( $(compgen -W "tail streams" -- "$cur") ) ;;
   esac
 }
 complete -F _keosctl_complete keosctl
@@ -1849,6 +1981,338 @@ cmd_update() {
   note "  cd $REPO_ROOT && git pull && keosctl link"
 }
 
+# ─── Subcommand: deps (detect + install ecosystem operators) ─────────────────
+
+cmd_deps() {
+  _check_help deps "$@"
+  local action="${1:-list}"
+  shift || true
+  case "$action" in
+    list|ls|verify)
+      heading "Ecosystem operators"
+      _dep_row() {
+        local label="$1" probe="$2" impact="$3"
+        if eval "$probe" >/dev/null 2>&1; then
+          printf "  ${C_GREEN}${CHECK}${C_RST} %-22s ${C_DIM}detected${C_RST}\n" "$label"
+        else
+          printf "  ${C_RED}${CROSS}${C_RST} %-22s ${C_DIM}not installed — %s${C_RST}\n" "$label" "$impact"
+        fi
+      }
+      _dep_row "Chaos Mesh"        "kc_cluster get crd podchaos.chaos-mesh.org 2>/dev/null" \
+                                   "use cases can't apply ChaosExperiments"
+      _dep_row "Prometheus"         "kc_cluster get svc -A 2>/dev/null | grep -qE 'prometheus|kube-prometheus'" \
+                                   "baselines + forecasts disabled (Phase 13/14)"
+      _dep_row "kube-state-metrics" "kc_cluster get svc -A 2>/dev/null | grep -q kube-state-metrics" \
+                                   "some baseline metrics will fail"
+      _dep_row "Argo CD"            "kc_cluster get crd applications.argoproj.io 2>/dev/null" \
+                                   "GitOps drift falls back to filesystem manifests"
+      _dep_row "Flux"               "kc_cluster get crd kustomizations.kustomize.toolkit.fluxcd.io 2>/dev/null" \
+                                   "GitOps drift falls back to filesystem manifests"
+      _dep_row "cert-manager"       "kc_cluster get crd certificates.cert-manager.io 2>/dev/null" \
+                                   "Phase 19 mTLS will fall back to self-signed"
+      printf "\n  ${C_DIM}Install a missing one: keosctl deps install <name>${C_RST}\n"
+      ;;
+    install)
+      local name="${1:-}"; shift || true
+      [[ -z "$name" ]] && die "usage: keosctl deps install <prometheus|argocd|flux|cert-manager|kube-state-metrics> [--chart-repo URL] [--version V] [--values FILE] [--namespace NS]"
+      local chart_repo="" version="" values="" ns="" set_args=()
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --chart-repo) chart_repo="$2"; shift 2 ;;
+          --version)    version="$2"; shift 2 ;;
+          --values)     values="$2"; shift 2 ;;
+          --namespace)  ns="$2"; shift 2 ;;
+          --set)        set_args+=(--set "$2"); shift 2 ;;
+          *) die "unknown arg: $1" ;;
+        esac
+      done
+      local def_repo="" def_chart="" def_ns=""
+      case "$name" in
+        prometheus|kube-prometheus-stack)
+          def_repo="https://prometheus-community.github.io/helm-charts"
+          def_chart="kube-prometheus-stack"; def_ns="monitoring"
+          ;;
+        argocd|argo)
+          def_repo="https://argoproj.github.io/argo-helm"
+          def_chart="argo-cd"; def_ns="argocd"
+          ;;
+        flux)
+          def_repo="oci://ghcr.io/fluxcd-community/charts"
+          def_chart="flux2"; def_ns="flux-system"
+          ;;
+        cert-manager)
+          def_repo="https://charts.jetstack.io"
+          def_chart="cert-manager"; def_ns="cert-manager"
+          set_args+=(--set "installCRDs=true")
+          ;;
+        kube-state-metrics)
+          def_repo="https://prometheus-community.github.io/helm-charts"
+          def_chart="kube-state-metrics"; def_ns="monitoring"
+          ;;
+        *) die "unknown operator '$name' — valid: prometheus, argocd, flux, cert-manager, kube-state-metrics" ;;
+      esac
+      chart_repo="${chart_repo:-$def_repo}"
+      ns="${ns:-$def_ns}"
+      info "Installing $name into ns/$ns from $chart_repo${version:+ (version $version)}"
+      local helm_args
+      if [[ "$chart_repo" == oci://* ]]; then
+        helm_args=(upgrade --install "$name" "$chart_repo/$def_chart"
+                    -n "$ns" --create-namespace --wait --timeout 5m)
+      else
+        helm repo add "${name}-repo" "$chart_repo" >/dev/null 2>&1 || true
+        helm repo update "${name}-repo" >/dev/null 2>&1 || true
+        helm_args=(upgrade --install "$name" "${name}-repo/$def_chart"
+                    -n "$ns" --create-namespace --wait --timeout 5m)
+      fi
+      [[ -n "$version" ]] && helm_args+=(--version "$version")
+      [[ -n "$values" ]] && helm_args+=(-f "$values")
+      helm_args+=("${set_args[@]}")
+      helm "${helm_args[@]}" 2>&1 | tail -8
+      ok "$name installed."
+      note "Run 'keosctl deps list' to confirm; 'keosctl restart api --wait' to make the agent re-discover."
+      ;;
+    *) die "unknown action '$action' — valid: list, install, verify" ;;
+  esac
+}
+
+# ─── Subcommand: images (list / registry / set-registry / pull-policy) ───────
+
+cmd_images() {
+  _check_help images "$@"
+  require_namespace
+  local action="${1:-list}"
+  shift || true
+  case "$action" in
+    list|ls)
+      heading "Images currently running in ns/$NAMESPACE"
+      kc get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[*].image}{"\n"}{end}' 2>/dev/null \
+        | awk -F'\t' '{ printf "  %-42s %s\n", $1, $2 }' | head -30
+      ;;
+    registry)
+      heading "Image registry configuration"
+      local reg
+      reg=$(helm get values "$RELEASE" -n "$NAMESPACE" -a 2>/dev/null \
+              | grep -E '^\s+imageRegistry:' | head -1 | awk '{print $2}')
+      info "global.imageRegistry   ${reg:-(unset — using upstream registries)}"
+      for component in api mcpServer frontend; do
+        local pol
+        pol=$(helm get values "$RELEASE" -n "$NAMESPACE" -a 2>/dev/null \
+                | python3 -c "import sys,yaml; d=yaml.safe_load(sys.stdin) or {}; print((d.get('$component') or {}).get('image',{}).get('pullPolicy') or 'IfNotPresent')" 2>/dev/null)
+        info "$(printf '%-22s' "$component pullPolicy")  $pol"
+      done
+      ;;
+    set-registry)
+      local host="${1:-}"
+      [[ -z "$host" ]] && die "usage: keosctl images set-registry <host:port>"
+      info "helm upgrade --reuse-values --set global.imageRegistry=$host"
+      helm upgrade "$RELEASE" "$REPO_ROOT/deploy/helm/pocteo" -n "$NAMESPACE" \
+        --reuse-values --wait --timeout 5m \
+        --set-string "global.imageRegistry=$host" 2>&1 | tail -5
+      ok "Registry set. New pods will pull from $host."
+      ;;
+    pull-policy)
+      local policy="${1:-}"
+      case "$policy" in
+        Always|IfNotPresent|Never) ;;
+        *) die "usage: keosctl images pull-policy <Always|IfNotPresent|Never>" ;;
+      esac
+      info "helm upgrade --reuse-values --set api/mcpServer/frontend.image.pullPolicy=$policy"
+      helm upgrade "$RELEASE" "$REPO_ROOT/deploy/helm/pocteo" -n "$NAMESPACE" \
+        --reuse-values --wait --timeout 5m \
+        --set-string "api.image.pullPolicy=$policy" \
+        --set-string "mcpServer.image.pullPolicy=$policy" \
+        --set-string "frontend.image.pullPolicy=$policy" 2>&1 | tail -5
+      ok "Pull policy set to $policy."
+      ;;
+    *) die "unknown action '$action' — valid: list, registry, set-registry, pull-policy" ;;
+  esac
+}
+
+# ─── Subcommand: values (helm values get / set / edit / diff) ────────────────
+
+cmd_values() {
+  _check_help values "$@"
+  require_namespace
+  local action="${1:-get}"
+  shift || true
+  case "$action" in
+    get|show)
+      local key="${1:-}"
+      if [[ -z "$key" ]]; then
+        helm get values "$RELEASE" -n "$NAMESPACE" -a
+      else
+        helm get values "$RELEASE" -n "$NAMESPACE" -a 2>/dev/null | python3 -c "
+import sys, yaml
+data = yaml.safe_load(sys.stdin) or {}
+key = '$key'
+for part in key.split('.'):
+    data = (data or {}).get(part)
+print(yaml.safe_dump(data, default_flow_style=False) if data is not None else '')
+" 2>/dev/null
+      fi
+      ;;
+    set)
+      local kv="${1:-}"
+      [[ -z "$kv" ]] && die "usage: keosctl values set <key>=<value>"
+      info "helm upgrade --reuse-values --set $kv"
+      helm upgrade "$RELEASE" "$REPO_ROOT/deploy/helm/pocteo" -n "$NAMESPACE" \
+        --reuse-values --wait --timeout 5m --set "$kv" 2>&1 | tail -5
+      ok "Applied. 'keosctl status' to verify."
+      ;;
+    edit)
+      local tmp
+      tmp=$(mktemp --suffix=.yaml)
+      helm get values "$RELEASE" -n "$NAMESPACE" -a > "$tmp"
+      "${EDITOR:-vi}" "$tmp"
+      info "helm upgrade --reuse-values -f $tmp"
+      helm upgrade "$RELEASE" "$REPO_ROOT/deploy/helm/pocteo" -n "$NAMESPACE" \
+        --reuse-values --wait --timeout 5m -f "$tmp" 2>&1 | tail -5
+      rm -f "$tmp"
+      ok "Edits applied."
+      ;;
+    diff)
+      diff -u \
+        <(helm show values "$REPO_ROOT/deploy/helm/pocteo" 2>/dev/null) \
+        <(helm get values "$RELEASE" -n "$NAMESPACE" 2>/dev/null) || true
+      ;;
+    *) die "unknown action '$action' — valid: get, set, edit, diff" ;;
+  esac
+}
+
+# ─── Subcommand: policy (OPA matrix show / test) ─────────────────────────────
+
+cmd_policy() {
+  _check_help policy "$@"
+  require_namespace
+  local action="${1:-show}"
+  shift || true
+  case "$action" in
+    show)
+      # OPA's image is distroless (no `cat`). Read the policy from its
+      # ConfigMap instead — that's where the chart loads it from. The
+      # chart names it after the release pattern; try the common ones.
+      local cm=""
+      for try in opa-policy "${RELEASE}-opa-policy" opa-policies "${RELEASE}-opa-policies"; do
+        if kc get cm "$try" >/dev/null 2>&1; then
+          cm="$try"; break
+        fi
+      done
+      [[ -z "$cm" ]] && cm="$(kc get cm -o name 2>/dev/null | grep -iE 'opa|polic' | head -1 | sed 's|configmap/||')"
+      [[ -z "$cm" ]] && die "OPA policy ConfigMap not found — try 'kubectl get cm -n $NAMESPACE'"
+      kc get cm "$cm" -o jsonpath='{.data.agent\.rego}'
+      echo
+      ;;
+    test)
+      local act="${1:-}" sev="${2:-}" ns="${3:-}" mode="${4:-}"
+      [[ -z "$act" || -z "$sev" || -z "$ns" || -z "$mode" ]] && \
+        die "usage: keosctl policy test <action> <severity> <namespace> <mode>"
+      # OPA's image is distroless — no curl. Call OPA from the api pod
+      # via cluster DNS (svc/opa:8181).
+      local api_pod="$(pod_for api)"
+      [[ -z "$api_pod" ]] && die "api pod not found (needed to reach OPA)"
+      heading "OPA decision"
+      info "Input  action=$act  severity=$sev  ns=$ns  mode=$mode"
+      kc exec "$api_pod" -- curl -sf -X POST http://opa:8181/v1/data/agent/authz \
+        -H "Content-Type: application/json" \
+        -d "{\"input\":{\"action\":\"$act\",\"severity\":\"$sev\",\"agent_mode\":\"$mode\",\"target\":{\"namespace\":\"$ns\",\"kind\":\"Pod\",\"name\":\"test\"}}}" \
+        2>/dev/null | python3 -m json.tool || \
+        warn "OPA call failed — pod logs may show why: keosctl logs opa --tail 30"
+      ;;
+    *) die "unknown action '$action' — valid: show, test" ;;
+  esac
+}
+
+# ─── Subcommand: runbooks (corpus list / show) ───────────────────────────────
+
+cmd_runbooks() {
+  _check_help runbooks "$@"
+  require_namespace
+  local action="${1:-list}"
+  shift || true
+  local api_pod="$(pod_for api)"
+  [[ -z "$api_pod" ]] && die "api pod not found"
+  case "$action" in
+    list|ls)
+      heading "Runbook corpus"
+      kc exec "$api_pod" -- ls /app/agent/runbooks 2>/dev/null | awk '{printf "  • %s\n", $1}'
+      local pts
+      pts=$(kc exec "$api_pod" -- curl -sf http://qdrant:6333/collections/runbooks 2>/dev/null \
+              | python3 -c "import json,sys;print(json.load(sys.stdin)['result']['points_count'])" 2>/dev/null)
+      printf "\n"
+      note "Qdrant 'runbooks' collection: ${pts:-?} points"
+      ;;
+    show|cat)
+      local slug="${1:-}"
+      [[ -z "$slug" ]] && die "usage: keosctl runbooks show <slug-or-filename>"
+      [[ "$slug" == *.md ]] || slug="${slug}.md"
+      kc exec "$api_pod" -- cat "/app/agent/runbooks/$slug" 2>&1 | head -200
+      ;;
+    *) die "unknown action '$action' — valid: list, show" ;;
+  esac
+}
+
+# ─── Subcommand: bus (NATS subject tail / streams) ───────────────────────────
+
+cmd_bus() {
+  _check_help bus "$@"
+  require_namespace
+  local action="${1:-streams}"
+  shift || true
+  # The nats:alpine image doesn't ship the nats CLI. Use the HTTP
+  # monitoring endpoint (port 8222) for read-only queries, and the API
+  # pod (which DOES have nats-py + Python) for live subscriptions.
+  local nats_pod="$(pod_for nats)"
+  [[ -z "$nats_pod" ]] && die "nats pod not found"
+  case "$action" in
+    streams|list)
+      # The nats:alpine image has no wget/curl. Hit the HTTP monitoring
+      # endpoint from the api pod (which has curl) via cluster DNS.
+      heading "JetStream streams"
+      local api_pod="$(pod_for api)"
+      [[ -z "$api_pod" ]] && die "api pod not found (needed to reach NATS monitoring)"
+      kc exec "$api_pod" -- curl -sf "http://nats:8222/jsz?streams=1" 2>/dev/null \
+        | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print('  ${C_DIM}(JetStream not active or monitoring port not exposed)${C_RST}'); sys.exit(0)
+accounts = data.get('account_details') or []
+streams = []
+for acc in accounts:
+    streams.extend(acc.get('stream_detail') or [])
+if not streams:
+    print('  ${C_DIM}No streams created yet.${C_RST}')
+else:
+    print('  ${C_BOLD}STREAM                    MESSAGES   BYTES${C_RST}')
+    for s in streams:
+        print(f'  {s.get(\"name\",\"?\"):<25} {s.get(\"state\",{}).get(\"messages\",0):>8}   {s.get(\"state\",{}).get(\"bytes\",0):>8}')
+"
+      ;;
+    tail|sub|subscribe)
+      local subject="${1:-infra.events.>}"
+      local api_pod="$(pod_for api)"
+      [[ -z "$api_pod" ]] && die "api pod not found"
+      info "Subscribing to NATS '$subject' via the api pod (Ctrl-C to stop)…"
+      kc exec -it "$api_pod" -- python -c "
+import asyncio, nats
+async def main():
+    nc = await nats.connect('nats://nats:4222')
+    async def cb(msg):
+        print(f'[{msg.subject}] {msg.data.decode(errors=\"replace\")[:200]}', flush=True)
+    await nc.subscribe('$subject', cb=cb)
+    while True: await asyncio.sleep(60)
+asyncio.run(main())
+"
+      ;;
+    info)
+      kc exec "$nats_pod" -- wget -qO- http://localhost:8222/varz 2>/dev/null \
+        | python3 -m json.tool
+      ;;
+    *) die "unknown action '$action' — valid: tail, streams, info" ;;
+  esac
+}
+
 # ─── Subcommand: help ────────────────────────────────────────────────────────
 
 cmd_help() {
@@ -1912,6 +2376,21 @@ EOF
   printf "  ${C_CYAN}top${C_RST}                           Live one-screen dashboard\n"
   printf "  ${C_CYAN}config${C_RST} view                   Effective configuration summary\n"
   printf "  ${C_CYAN}update${C_RST}                        Check for newer keosctl release\n\n"
+
+  printf "${C_BOLD}ECOSYSTEM + REGISTRY${C_RST}\n"
+  printf "  ${C_CYAN}deps${C_RST} list|install|verify      Detect or install Prometheus / ArgoCD / Flux / cert-manager / k-s-m\n"
+  printf "  ${C_CYAN}images${C_RST} list                    Per-pod image references\n"
+  printf "  ${C_CYAN}images${C_RST} registry                Show the current global.imageRegistry + pullPolicy\n"
+  printf "  ${C_CYAN}images${C_RST} set-registry <host>     Swap the registry (helm upgrade --reuse-values)\n"
+  printf "  ${C_CYAN}images${C_RST} pull-policy <X>         Always | IfNotPresent | Never\n"
+  printf "  ${C_CYAN}values${C_RST} get|set|edit|diff      Helm values inspection + editing\n\n"
+
+  printf "${C_BOLD}AGENT INTROSPECTION${C_RST}\n"
+  printf "  ${C_CYAN}policy${C_RST} show                    Cat the OPA Rego matrix\n"
+  printf "  ${C_CYAN}policy${C_RST} test <a> <s> <ns> <m>   Test a hypothetical (action × severity × ns × mode) tuple\n"
+  printf "  ${C_CYAN}runbooks${C_RST} list|show <slug>     The corpus the agent retrieves from\n"
+  printf "  ${C_CYAN}bus${C_RST} tail [subject]            Tail the NATS event bus (default: infra.events.>)\n"
+  printf "  ${C_CYAN}bus${C_RST} streams                   List JetStream streams\n\n"
 
   printf "${C_BOLD}MISC${C_RST}\n"
   printf "  ${C_CYAN}context${C_RST}                       Show the kubectl context Keos is in\n"
@@ -2001,11 +2480,17 @@ main() {
     chaos)           cmd_chaos "$@" ;;
     top)             cmd_top "$@" ;;
     update)          cmd_update "$@" ;;
+    deps|dependencies) cmd_deps "$@" ;;
+    images|image)    cmd_images "$@" ;;
+    values)          cmd_values "$@" ;;
+    policy)          cmd_policy "$@" ;;
+    runbooks|runbook) cmd_runbooks "$@" ;;
+    bus|nats)        cmd_bus "$@" ;;
     help|--help|-h|"") cmd_help ;;
     *)
       printf "${C_RED}${CROSS}${C_RST} unknown command '%s'\n\n" "$cmd"
       printf "Did you mean one of these?\n"
-      for c in install uninstall status doctor mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update help; do
+      for c in install uninstall status doctor mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update deps images values policy runbooks bus help; do
         # Cheap fuzzy: print commands that share a prefix or contain the typo.
         if [[ "$c" == "$cmd"* || "$c" == *"$cmd"* ]]; then
           printf "  ${C_CYAN}%s${C_RST}\n" "$c"
