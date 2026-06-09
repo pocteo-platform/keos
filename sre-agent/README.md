@@ -244,6 +244,37 @@ keosctl audit tail -n 100            # last 100 lines
 keosctl audit verify                 # verify the HMAC chain
 ```
 
+### Ecosystem + registry
+
+```bash
+keosctl deps list                                 # Prometheus / ArgoCD / Flux / cert-manager / k-s-m
+keosctl deps install prometheus                   # missing? install it
+keosctl deps install argocd --chart-repo URL --version V
+
+keosctl images list                               # per-pod image refs (ghcr vs corp vs local)
+keosctl images registry                           # current global.imageRegistry + pullPolicy
+keosctl images set-registry registry.corp:5000    # swap to corporate Harbor (helm upgrade)
+keosctl images pull-policy Always                 # for the 3 first-party components
+
+keosctl values get ollama.gpu.enabled             # one value via dot notation
+keosctl values set agent.defaultMode=active       # patch one + helm upgrade
+keosctl values edit                               # $EDITOR on the full yaml
+keosctl values diff                               # vs chart defaults
+```
+
+### Agent introspection
+
+```bash
+keosctl policy show                               # cat the OPA Rego matrix
+keosctl policy test restart_pod high workloads active  # hypothetical decision
+
+keosctl runbooks list                             # corpus the agent retrieves from
+keosctl runbooks show 001-memory-leak             # cat one
+
+keosctl bus tail "infra.events.>"                 # live NATS event stream
+keosctl bus streams                               # JetStream stream sizes
+```
+
 ### Shell integration
 
 ```bash

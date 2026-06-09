@@ -71,9 +71,24 @@ Headless flags (full reference: `bash sre-agent/scripts/install-edge.sh --help`)
 | `--no-local-build-fallback` | Strict: fail if public images aren't reachable |
 | `--skip-models` | Skip the LLM model pull |
 | `--airgap` | Air-gapped install (requires `--image-registry` + `--local-chart`) |
-| `--image-registry <host:port>` | Mirror registry for air-gap |
+| `--image-registry <host:port>` | Pull images from a corporate registry instead of `ghcr.io` (works in both airgap and online installs) |
 | `--local-chart <path>` | Use a local chart directory |
 | `--probe-only` | Dry-run: print what it would do + exit |
+
+#### Corporate registry install (non-airgap)
+
+If your network has internet but you must pull images from a corporate Harbor / Nexus / JFrog (not GHCR), pass `--image-registry` without `--airgap`:
+
+```bash
+keosctl install --headless \
+  --image-registry registry.corp:5000/pocteo-platform \
+  --mode observe-only
+
+# Or the wizard route — Step 5 will surface the option
+keosctl install
+```
+
+Sets `global.imageRegistry` at install time. You can also swap it later with [`keosctl images set-registry`](./ecosystem-registry#images-set-registry-host).
 
 ## `keosctl uninstall` — remove the release
 
