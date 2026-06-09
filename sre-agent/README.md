@@ -181,7 +181,7 @@ Then a **Review card**, a **live install feed**, and a final **✓ Install compl
 
 ## After install — everything is `keosctl`
 
-> 🎬 **See it live:** a 5-episode terminal screencast series, recorded against a real cluster — [Screencasts](https://pocteo-platform.github.io/keos/docs/getting-started/screencasts)
+> 🎬 **See it live:** a 6-episode terminal screencast series, recorded against a real cluster — [all episodes (GIF + .cast)](https://github.com/pocteo-platform/keos/tree/main/sre-agent/website/static/casts) · [episode guide](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/getting-started/screencasts.md)
 
 <p align="center">
   <img src="website/static/casts/ep01-status.gif" alt="keosctl status + doctor + config view screencast" width="720">
