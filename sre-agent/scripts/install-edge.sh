@@ -456,6 +456,14 @@ HELM_ARGS=(
 if [[ "$CHART_NAME" == oci://* ]]; then
   HELM_ARGS+=(--version "$CHART_VERSION")
 fi
+
+# Operator-supplied registry (non-airgap): pull from a corporate Harbor /
+# Nexus / JFrog instead of ghcr.io, but otherwise install normally.
+# Airgap mode handles its own registry plumbing below.
+if [[ "$AIRGAP" -eq 0 && -n "$IMAGE_REGISTRY" && "$LOCAL_BUILD" -eq 0 ]]; then
+  HELM_ARGS+=(--set-string "global.imageRegistry=$IMAGE_REGISTRY")
+  ok "using corporate registry: $IMAGE_REGISTRY (overrides default ghcr.io/pocteo-platform)"
+fi
 # Local-build: point the chart at the images we just imported into
 # containerd. global.imageRegistry="" + per-image repository overrides
 # bypass the chart's default ghcr.io/pocteo-platform prefix.
