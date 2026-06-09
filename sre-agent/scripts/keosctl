@@ -97,6 +97,609 @@ require_namespace() {
   fi
 }
 
+# ─── Per-command help ────────────────────────────────────────────────────────
+#
+# Each cmd_X function calls `_check_help <name> "$@"` at the very top so the
+# user can run `keosctl <cmd> -h` / `--help` and get a focused help screen
+# (kubectl / gh / argocd convention). `_help_for <name>` is the dispatch
+# table — one case per command with USAGE / DESCRIPTION / OPTIONS / EXAMPLES.
+
+_check_help() {
+  local cmd="$1"; shift
+  for a in "$@"; do
+    case "$a" in
+      -h|--help) _help_for "$cmd"; exit 0 ;;
+    esac
+  done
+}
+
+_help_for() {
+  case "$1" in
+    install) cat <<'EOF'
+keosctl install — interactive 6-step wizard (recommended first-time install)
+
+USAGE
+  keosctl install [--headless [install-edge.sh flags]]
+
+DESCRIPTION
+  Walks an interactive wizard: prerequisites · cluster pick · discovered
+  facts · LLM model · image source · default mode · review + install.
+  Drives sre-agent/scripts/install-edge.sh under the hood with the chosen
+  flags. On success, symlinks keosctl to ~/.local/bin and prints the
+  bearer token + daily-ops commands.
+
+OPTIONS
+  --headless, --non-interactive  Skip the wizard; pass flags through
+                                  directly to install-edge.sh (CI / scripted).
+
+EXAMPLES
+  keosctl install
+  keosctl install --headless --mode observe-only --no-gpu
+  keosctl install --headless --local-build --mode active
+
+SEE ALSO  https://pocteo-platform.github.io/keos/docs/cli/install-uninstall
+EOF
+      ;;
+    uninstall) cat <<'EOF'
+keosctl uninstall — remove the Keos release from the cluster
+
+USAGE
+  keosctl uninstall [--keep-pvcs] [--keep-namespace] [--yes|-y] [--force|-f]
+
+DESCRIPTION
+  Removes the Helm release + PVCs + namespace by default. Confirms before
+  any destructive action.
+
+OPTIONS
+  --keep-pvcs        Keep the stateful PVCs (audit log, vector store)
+  --keep-namespace   Don't delete the namespace
+  --yes, -y          Skip the confirm prompt
+  --force, -f        Alias for --yes
+
+EXAMPLES
+  keosctl uninstall                      # interactive
+  keosctl uninstall --keep-pvcs          # remove release, keep state
+  keosctl uninstall --force              # CI-friendly
+EOF
+      ;;
+    link) cat <<'EOF'
+keosctl link — symlink keosctl into a directory on PATH
+
+USAGE
+  keosctl link [path]   (default: ~/.local/bin/keosctl)
+
+DESCRIPTION
+  Creates / refreshes the symlink that lets you run keosctl from any cwd.
+  The install wizard does this automatically; use this command to re-link
+  after deleting the symlink or moving the repo.
+
+EXAMPLES
+  keosctl link
+  keosctl link /usr/local/bin/keosctl
+EOF
+      ;;
+    upgrade) cat <<'EOF'
+keosctl upgrade — Helm upgrade the running release
+
+USAGE
+  keosctl upgrade [--chart-version <v>] [--dry-run]
+
+DESCRIPTION
+  Helm-upgrades the release with --reuse-values --wait. By default reads
+  the chart from the cloned repo (deploy/helm/pocteo). Pass --chart-version
+  to pull a specific version from the OCI registry.
+
+OPTIONS
+  --chart-version <v>   Pull from oci://ghcr.io/.../charts/pocteo --version v
+  --dry-run             Show the helm diff without applying
+
+EXAMPLES
+  keosctl upgrade
+  keosctl upgrade --chart-version 1.0.2
+  keosctl upgrade --chart-version 1.0.2 --dry-run
+EOF
+      ;;
+    status) cat <<'EOF'
+keosctl status — release + pods + agent mode summary
+
+USAGE
+  keosctl status [--watch|-w] [--interval N] [--json]
+
+DESCRIPTION
+  Coloured table with Helm release, namespace, agent mode, and a per-pod
+  Ready/phase row. --json emits machine-readable output for monitoring.
+
+OPTIONS
+  --watch, -w       Live-refresh every 2s
+  --interval N      Override the watch refresh cadence (seconds)
+  --json            Machine-readable JSON output
+
+EXAMPLES
+  keosctl status
+  keosctl status --watch --interval 5
+  keosctl status --json | jq '.pods_ready'
+EOF
+      ;;
+    doctor) cat <<'EOF'
+keosctl doctor — health check across every component
+
+USAGE
+  keosctl doctor
+
+DESCRIPTION
+  Probes: Helm release · per-pod phase + readiness · AgentMode CR ·
+  Ollama model count · Qdrant runbook corpus count. Exit code = number
+  of failures (CI-friendly).
+EOF
+      ;;
+    mode) cat <<'EOF'
+keosctl mode — print or set the agent's mode
+
+USAGE
+  keosctl mode                                   # print current mode
+  keosctl mode <observe-only|active|frozen> [--reason TEXT] [--yes|-y]
+
+DESCRIPTION
+  observe-only  Dry-run · agent diagnoses but does not mutate (default).
+  active        Agent mutates after the OPA policy gate (requires confirm).
+  frozen        No-op · use during maintenance windows.
+
+OPTIONS
+  --reason TEXT     Audit-friendly free-text reason (saved in the CR)
+  --yes, -y         Skip the 'switching to active' confirm
+
+EXAMPLES
+  keosctl mode
+  keosctl mode active
+  keosctl mode active --reason 'on-call coverage' -y
+  keosctl mode frozen --reason 'planned maintenance window'
+EOF
+      ;;
+    logs) cat <<'EOF'
+keosctl logs — tail a Keos component's pod logs
+
+USAGE
+  keosctl logs <component> [kubectl-logs flags]
+
+COMPONENTS
+  api · mcp-server · frontend · caddy · ollama · qdrant · nats · opa
+
+KUBECTL FLAGS THAT PASS THROUGH
+  -f, --follow              Stream new lines
+  --tail N                  Backlog size (default 100)
+  --since <duration>        e.g. 1h, 5m
+  --since-time <RFC3339>    Time-bounded
+  --previous                The previous container instance (post-crash)
+  --container <c>           Pick a container in a multi-container pod
+  --timestamps              Prefix each line with the timestamp
+
+EXAMPLES
+  keosctl logs api -f
+  keosctl logs ollama --tail 500 --since 1h
+  keosctl logs api --previous --tail 100
+EOF
+      ;;
+    ui) cat <<'EOF'
+keosctl ui — port-forward + open the SPA in your browser
+
+USAGE
+  keosctl ui [--port N] [--no-open]
+
+DESCRIPTION
+  Forwards svc/pocteo to localhost:8080 (or --port N) and tries to open
+  the URL in your default browser via xdg-open / open / WSL's
+  powershell.exe Start-Process. Prints the bearer token for paste.
+
+OPTIONS
+  --port N     Local port (default 8080)
+  --no-open    Don't auto-open the browser (useful over SSH)
+
+EXAMPLES
+  keosctl ui
+  keosctl ui --port 9090
+  keosctl ui --no-open    # for SSH-tunneling
+EOF
+      ;;
+    token) cat <<'EOF'
+keosctl token — print the bearer token
+
+USAGE
+  keosctl token
+
+DESCRIPTION
+  Reads from ~/.keos-token if cached, otherwise fetches from the K8s
+  Secret + caches at ~/.keos-token (umask 0077). Subsequent calls are
+  instant.
+
+EXAMPLES
+  keosctl token
+  TOKEN=$(keosctl token); curl -H "Authorization: Bearer $TOKEN" ...
+EOF
+      ;;
+    restart) cat <<'EOF'
+keosctl restart — rolling restart a component
+
+USAGE
+  keosctl restart <component> [--wait]
+
+COMPONENTS
+  Deployments (kubectl rollout restart): api · mcp-server · frontend · caddy · opa
+  StatefulSets (pod-delete, SS respawns):  ollama · qdrant · nats
+
+OPTIONS
+  --wait    Block until the new pod is Ready (max 2 min)
+
+EXAMPLES
+  keosctl restart api --wait
+  keosctl restart ollama
+EOF
+      ;;
+    shell) cat <<'EOF'
+keosctl shell — interactive bash/sh inside a Keos pod
+
+USAGE
+  keosctl shell <component>
+  keosctl exec  <component>   (alias)
+
+DESCRIPTION
+  kubectl exec -it <pod> -- bash (falls back to sh if bash isn't in the
+  image). Resolves the right pod name for you.
+
+EXAMPLES
+  keosctl shell api
+  keosctl shell ollama        # for `ollama ls` etc.
+EOF
+      ;;
+    describe) cat <<'EOF'
+keosctl describe — kubectl describe a Keos pod
+
+USAGE
+  keosctl describe <component>
+
+DESCRIPTION
+  Full kubectl describe of the first pod for that component. Useful for
+  init-container state, events, resource allocations.
+
+EXAMPLES
+  keosctl describe api
+  keosctl describe ollama
+EOF
+      ;;
+    port-forward) cat <<'EOF'
+keosctl port-forward — generic kubectl port-forward
+
+USAGE
+  keosctl port-forward <component> <local-port>
+  keosctl pf <component> <local-port>   (alias)
+
+DESCRIPTION
+  Knows the right targetPort for each component:
+    api 8000 · mcp-server 8090 · frontend 8080 · ollama 11434 ·
+    qdrant 6333 · nats 4222 · opa 8181 · pocteo (caddy) 80
+
+EXAMPLES
+  keosctl port-forward api 8000      # talk to /api directly
+  keosctl pf ollama 11434            # talk to Ollama from your laptop
+EOF
+      ;;
+    events) cat <<'EOF'
+keosctl events — list recent incidents (colored by outcome)
+
+USAGE
+  keosctl events [-n N|--limit N] [-w|--watch] [--filter outcome=X] [--since DUR]
+
+COLOURS
+  green  healed       yellow  escalated       red  failed       dim  other
+
+OPTIONS
+  -n, --limit N        Number of incidents (default 10)
+  -w, --watch          Refresh every 3s
+  --filter outcome=X   (client-side, server filter coming)
+  --since DUR          (client-side, server filter coming)
+
+EXAMPLES
+  keosctl events -n 20
+  keosctl events --watch
+  keosctl events --filter outcome=escalated
+EOF
+      ;;
+    incidents) cat <<'EOF'
+keosctl incidents — per-incident inspection + cleanup
+
+USAGE
+  keosctl incidents list             (alias for `events`)
+  keosctl incidents get    <id>
+  keosctl incidents delete <id>      (alias: rm)
+
+EXAMPLES
+  keosctl incidents list
+  keosctl incidents get inc_2026-06-09_a1b2c3d4
+  keosctl incidents delete inc_2026-06-09_a1b2c3d4
+EOF
+      ;;
+    usecases) cat <<'EOF'
+keosctl usecases — list or inspect use case definitions
+
+USAGE
+  keosctl usecases list
+  keosctl usecases show <slug>
+
+EXAMPLES
+  keosctl usecases list
+  keosctl usecases show lib-memory-leak
+EOF
+      ;;
+    run) cat <<'EOF'
+keosctl run — trigger a use case end-to-end
+
+USAGE
+  keosctl run <use-case-slug> [--dry-run]
+
+DESCRIPTION
+  Calls POST /api/usecases/<slug>/run — same endpoint the SPA's Run
+  button uses. The 9-node LangGraph picks it up; watch the live
+  animation in the SPA's Pipeline tab.
+
+OPTIONS
+  --dry-run    Print the use case definition without firing the event
+
+EXAMPLES
+  keosctl usecases list
+  keosctl run lib-memory-leak
+  keosctl run lib-memory-leak --dry-run
+EOF
+      ;;
+    audit) cat <<'EOF'
+keosctl audit — HMAC-signed audit chain
+
+USAGE
+  keosctl audit tail [-n N|--lines N]
+  keosctl audit verify
+
+DESCRIPTION
+  tail     Print the last N records (JSON-lines, default 20)
+  verify   Walk the HMAC chain; exit 1 on tamper detection
+
+EXAMPLES
+  keosctl audit tail -n 100
+  keosctl audit verify
+  0 */6 * * * keosctl audit verify >> /var/log/keos-audit.log 2>&1
+EOF
+      ;;
+    seed) cat <<'EOF'
+keosctl seed — re-seed the runbook corpus into Qdrant
+
+USAGE
+  keosctl seed [--clear-first]
+
+DESCRIPTION
+  Calls 'python -m agent.seed_rag' inside the api pod. Re-embeds every
+  file in agent/runbooks/*.md and upserts into the 'runbooks' Qdrant
+  collection.
+
+OPTIONS
+  --clear-first    Drop the runbooks collection before re-seeding
+                   (useful after embed model changes or bulk deletions)
+
+EXAMPLES
+  keosctl seed
+  keosctl seed --clear-first
+EOF
+      ;;
+    models) cat <<'EOF'
+keosctl models — manage Ollama LLM weights
+
+USAGE
+  keosctl models list
+  keosctl models pull <model>
+  keosctl models rm   <model>
+  keosctl models show <model>
+
+EXAMPLES
+  keosctl models list
+  keosctl models pull qwen2.5:7b-instruct-q4_K_M     # ~4.5 GB
+  keosctl models pull nomic-embed-text                # embed model
+  keosctl models rm qwen2.5:1.5b-instruct-q4_K_M
+  keosctl models show qwen2.5:3b-instruct-q4_K_M
+EOF
+      ;;
+    backup) cat <<'EOF'
+keosctl backup — full state snapshot tarball
+
+USAGE
+  keosctl backup [-o|--output <path>] [--include-models]
+
+CONTENTS
+  META · helm-values.yaml · agentmode.yaml · audit.log ·
+  qdrant-snapshots/ · manifests.yaml · (--include-models) ollama-models/
+
+OPTIONS
+  -o, --output <path>   Explicit output filename (default:
+                          keos-backup-<ts>.tar.gz)
+  --include-models      Bundle Ollama weights (can be GB)
+
+EXAMPLES
+  keosctl backup
+  keosctl backup -o /mnt/nfs/keos-2026-06-09.tar.gz
+  keosctl backup --include-models -o /mnt/nfs/keos-full.tar.gz
+EOF
+      ;;
+    restore) cat <<'EOF'
+keosctl restore — restore from a keosctl backup
+
+USAGE
+  keosctl restore <path-to-tarball>
+
+DESCRIPTION
+  Restores in order: AgentMode CR · audit.log · qdrant snapshots ·
+  (optional) ollama models. Run 'keosctl doctor' afterwards to verify.
+
+  Does NOT touch: helm values (use `helm rollback` first), secrets
+  (re-fetch via `keosctl token`), or cluster-scoped resources.
+
+EXAMPLES
+  keosctl restore keos-backup-20260608-180000.tar.gz
+EOF
+      ;;
+    diag) cat <<'EOF'
+keosctl diag — generate a support bundle
+
+USAGE
+  keosctl diag [path]
+  keosctl support-bundle [path]   (alias)
+
+CONTENTS
+  META · cluster-info dump · ns resources · helm get all ·
+  per-component log tail (500 lines) · AgentMode CR · audit tail ·
+  doctor output · versions
+
+EXAMPLES
+  keosctl diag
+  keosctl diag /tmp/issue-1234.tar.gz
+EOF
+      ;;
+    api) cat <<'EOF'
+keosctl api — raw API call with bearer auth pre-handled
+
+USAGE
+  keosctl api <path> [curl options...]
+
+DESCRIPTION
+  kubectl exec's into the api pod and curls http://localhost:8000<path>
+  with the cached bearer token. Curl options pass through transparently
+  (-X POST, -d, -H, etc.).
+
+EXAMPLES
+  keosctl api /api/health
+  keosctl api /api/incidents/active
+  keosctl api /api/usecases/lib-memory-leak/run -X POST
+  keosctl api /api/calibration | jq
+EOF
+      ;;
+    calibration) cat <<'EOF'
+keosctl calibration — per-rule confidence thresholds (Phase 12)
+
+USAGE
+  keosctl calibration list                              (alias: ls)
+  keosctl calibration set <rule_id> <threshold>
+  keosctl calibration reset <rule_id>
+  keosctl calibration reset --all
+
+DESCRIPTION
+  Shows a table of (rule, n, p50_conf, p90_conf, threshold) for every
+  rule with ≥ 10 incidents. `set` overrides the auto-learned threshold;
+  `reset` returns to auto.
+
+EXAMPLES
+  keosctl calibration list
+  keosctl calibration set pod.oom_killed 0.85
+  keosctl calibration reset pod.oom_killed
+  keosctl calibration reset --all
+EOF
+      ;;
+    chaos) cat <<'EOF'
+keosctl chaos — Chaos Mesh experiments
+
+USAGE
+  keosctl chaos list                               (alias: ls)
+  keosctl chaos delete <name> [namespace]          (alias: rm)
+
+DESCRIPTION
+  Wraps kubectl on the four Chaos Mesh CRDs (PodChaos / StressChaos /
+  NetworkChaos / IOChaos). Lists across all namespaces; delete is
+  ns-scoped (default: current --namespace).
+
+EXAMPLES
+  keosctl chaos list
+  keosctl chaos delete my-experiment workloads
+EOF
+      ;;
+    top) cat <<'EOF'
+keosctl top — live one-screen dashboard
+
+USAGE
+  keosctl top [--interval N]
+
+DESCRIPTION
+  Refreshing display: agent mode + namespace · per-pod table (top 15) ·
+  latest 5 incidents. Press Ctrl-C to stop.
+
+OPTIONS
+  --interval N    Refresh cadence in seconds (default 2)
+EOF
+      ;;
+    config) cat <<'EOF'
+keosctl config — effective configuration summary
+
+USAGE
+  keosctl config view                              (alias: show)
+
+DESCRIPTION
+  One card with: namespace · release · kubeconfig path · current
+  context · agent mode · helm chart · loaded LLM models · env var
+  overrides honoured.
+
+  Equivalent to a kubectl-style 'config view' for a Keos install.
+EOF
+      ;;
+    update) cat <<'EOF'
+keosctl update — check for a newer keosctl release
+
+USAGE
+  keosctl update
+
+DESCRIPTION
+  Calls api.github.com/repos/pocteo-platform/keos/releases/latest and
+  compares with the local version. On mismatch, prints the one-line
+  upgrade command:
+    cd $REPO_ROOT && git pull && keosctl link
+EOF
+      ;;
+    context) cat <<'EOF'
+keosctl context — show the current kubectl context
+
+USAGE
+  keosctl context
+
+DESCRIPTION
+  Equivalent to: kubectl config current-context
+EOF
+      ;;
+    version) cat <<'EOF'
+keosctl version — print versions
+
+USAGE
+  keosctl version
+
+DESCRIPTION
+  Prints keosctl version, the running Helm chart, the repo root, and
+  the bash version (for bug reports).
+EOF
+      ;;
+    completion) cat <<'EOF'
+keosctl completion — generate a shell completion script
+
+USAGE
+  keosctl completion <bash|zsh|fish>
+
+EXAMPLES
+  eval "$(keosctl completion bash)"
+  eval "$(keosctl completion zsh)"
+  keosctl completion fish > ~/.config/fish/completions/keosctl.fish
+
+DOCS  https://pocteo-platform.github.io/keos/docs/cli/shell-completion
+EOF
+      ;;
+    *)
+      cat <<EOF
+No detailed help for '$1' yet.
+Try 'keosctl help' for the full command list, or open an issue:
+  https://github.com/pocteo-platform/keos/issues/new
+EOF
+      ;;
+  esac
+}
+
 # Get the API service URL accessible from inside the cluster — used by
 # `events`, `run`, `audit` etc. which call FastAPI via kubectl exec.
 api_curl() {
@@ -117,6 +720,7 @@ api_curl() {
 # ─── Subcommand: install ─────────────────────────────────────────────────────
 
 cmd_install() {
+  _check_help install "$@"
   local interactive=1
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -136,6 +740,7 @@ cmd_install() {
 # ─── Subcommand: uninstall ───────────────────────────────────────────────────
 
 cmd_uninstall() {
+  _check_help uninstall "$@"
   local keep_pvcs=0 keep_ns=0 yes=0 force=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -179,6 +784,7 @@ cmd_uninstall() {
 # ─── Subcommand: status ──────────────────────────────────────────────────────
 
 cmd_status() {
+  _check_help status "$@"
   local watch=0 as_json=0 interval=2
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -279,6 +885,7 @@ _print_status() {
 # ─── Subcommand: doctor ──────────────────────────────────────────────────────
 
 cmd_doctor() {
+  _check_help doctor "$@"
   require_namespace
   heading "Keos doctor"
   local fails=0
@@ -367,6 +974,7 @@ cmd_doctor() {
 # ─── Subcommand: mode ────────────────────────────────────────────────────────
 
 cmd_mode() {
+  _check_help mode "$@"
   local new_mode="" reason="" yes=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -402,6 +1010,7 @@ cmd_mode() {
 # ─── Subcommand: logs ────────────────────────────────────────────────────────
 
 cmd_logs() {
+  _check_help logs "$@"
   require_namespace
   local component="${1:-}"
   shift || true
@@ -431,6 +1040,7 @@ cmd_logs() {
 # ─── Subcommand: ui ──────────────────────────────────────────────────────────
 
 cmd_ui() {
+  _check_help ui "$@"
   require_namespace
   local port=8080
   while [[ $# -gt 0 ]]; do
@@ -477,6 +1087,7 @@ cmd_ui() {
 # ─── Subcommand: token ───────────────────────────────────────────────────────
 
 cmd_token() {
+  _check_help token "$@"
   if [[ -f "$HOME/.keos-token" ]]; then
     cat "$HOME/.keos-token"; echo
     return 0
@@ -497,6 +1108,7 @@ cmd_token() {
 # ─── Subcommand: seed ────────────────────────────────────────────────────────
 
 cmd_seed() {
+  _check_help seed "$@"
   require_namespace
   local clear_first=0
   while [[ $# -gt 0 ]]; do
@@ -520,6 +1132,7 @@ cmd_seed() {
 # ─── Subcommand: models ──────────────────────────────────────────────────────
 
 cmd_models() {
+  _check_help models "$@"
   require_namespace
   local action="${1:-list}"
   shift || true
@@ -555,12 +1168,14 @@ cmd_models() {
 # ─── Subcommand: context ─────────────────────────────────────────────────────
 
 cmd_context() {
+  _check_help context "$@"
   kc_cluster config current-context
 }
 
 # ─── Subcommand: version ─────────────────────────────────────────────────────
 
 cmd_version() {
+  _check_help version "$@"
   printf "${C_BOLD}keosctl${C_RST}      v%s\n" "$KEOSCTL_VERSION"
   local chart
   if chart=$(helm list -n "$NAMESPACE" -f "^${RELEASE}\$" -o json 2>/dev/null | \
@@ -576,6 +1191,7 @@ cmd_version() {
 # ─── Subcommand: link (symlink to ~/.local/bin) ──────────────────────────────
 
 cmd_link() {
+  _check_help link "$@"
   local target="${1:-$HOME/.local/bin/keosctl}"
   mkdir -p "$(dirname "$target")"
   ln -sfn "$SCRIPT_DIR/keosctl" "$target"
@@ -591,6 +1207,7 @@ cmd_link() {
 # ─── Subcommand: events / incidents ──────────────────────────────────────────
 
 cmd_events() {
+  _check_help events "$@"
   require_namespace
   local limit=10 watch=0 filter="" since=""
   while [[ $# -gt 0 ]]; do
@@ -637,6 +1254,7 @@ else:
 # ─── Subcommand: usecases ────────────────────────────────────────────────────
 
 cmd_usecases() {
+  _check_help usecases "$@"
   require_namespace
   local action="${1:-list}"
   shift || true
@@ -664,6 +1282,7 @@ for u in items:
 # ─── Subcommand: run (trigger a use case) ────────────────────────────────────
 
 cmd_run() {
+  _check_help run "$@"
   require_namespace
   local slug="" dry_run=0
   while [[ $# -gt 0 ]]; do
@@ -695,6 +1314,7 @@ print('  Open SPA:   ${C_CYAN}keosctl ui${C_RST}  (Pipeline tab)')
 # ─── Subcommand: restart ─────────────────────────────────────────────────────
 
 cmd_restart() {
+  _check_help restart "$@"
   require_namespace
   local component="" wait_ready=0
   while [[ $# -gt 0 ]]; do
@@ -726,6 +1346,7 @@ cmd_restart() {
 # ─── Subcommand: shell ───────────────────────────────────────────────────────
 
 cmd_shell() {
+  _check_help shell "$@"
   require_namespace
   local component="${1:-api}"
   shift || true
@@ -738,6 +1359,7 @@ cmd_shell() {
 # ─── Subcommand: describe ────────────────────────────────────────────────────
 
 cmd_describe() {
+  _check_help describe "$@"
   require_namespace
   local component="${1:-}"
   [[ -z "$component" ]] && die "usage: keosctl describe <component>"
@@ -749,6 +1371,7 @@ cmd_describe() {
 # ─── Subcommand: port-forward ────────────────────────────────────────────────
 
 cmd_portforward() {
+  _check_help port-forward "$@"
   require_namespace
   local component="${1:-}" port="${2:-}"
   [[ -z "$component" || -z "$port" ]] && die "usage: keosctl port-forward <component> <local-port>"
@@ -771,6 +1394,7 @@ cmd_portforward() {
 # ─── Subcommand: upgrade ─────────────────────────────────────────────────────
 
 cmd_upgrade() {
+  _check_help upgrade "$@"
   local chart_version="" dry_run=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -798,6 +1422,7 @@ cmd_upgrade() {
 # ─── Subcommand: audit ───────────────────────────────────────────────────────
 
 cmd_audit() {
+  _check_help audit "$@"
   require_namespace
   local action="${1:-tail}"
   shift || true
@@ -820,6 +1445,7 @@ cmd_audit() {
 # ─── Subcommand: completion ──────────────────────────────────────────────────
 
 cmd_completion() {
+  _check_help completion "$@"
   local shell_kind="${1:-bash}"
   case "$shell_kind" in
     bash)
@@ -885,6 +1511,7 @@ COMPLETION
 # ─── Subcommand: api (raw API access) ────────────────────────────────────────
 
 cmd_api() {
+  _check_help api "$@"
   require_namespace
   local path="${1:-}"
   shift || true
@@ -896,6 +1523,7 @@ cmd_api() {
 # ─── Subcommand: incidents (get / delete) ────────────────────────────────────
 
 cmd_incidents() {
+  _check_help incidents "$@"
   require_namespace
   local action="${1:-list}"
   shift || true
@@ -922,6 +1550,7 @@ cmd_incidents() {
 # ─── Subcommand: backup ──────────────────────────────────────────────────────
 
 cmd_backup() {
+  _check_help backup "$@"
   require_namespace
   local out="" include_models=0
   while [[ $# -gt 0 ]]; do
@@ -979,6 +1608,7 @@ cmd_backup() {
 # ─── Subcommand: restore ─────────────────────────────────────────────────────
 
 cmd_restore() {
+  _check_help restore "$@"
   require_namespace
   local archive="${1:-}"
   [[ -z "$archive" ]] && die "usage: keosctl restore <backup.tar.gz>"
@@ -1018,6 +1648,7 @@ cmd_restore() {
 # ─── Subcommand: diag (support bundle) ───────────────────────────────────────
 
 cmd_diag() {
+  _check_help diag "$@"
   require_namespace
   local out="${1:-keos-diag-$(date +%Y%m%d-%H%M%S).tar.gz}"
   heading "Generating support bundle"
@@ -1070,6 +1701,7 @@ cmd_diag() {
 # ─── Subcommand: calibration ─────────────────────────────────────────────────
 
 cmd_calibration() {
+  _check_help calibration "$@"
   require_namespace
   local action="${1:-list}"
   shift || true
@@ -1111,6 +1743,7 @@ else:
 # ─── Subcommand: config (view effective configuration) ───────────────────────
 
 cmd_config() {
+  _check_help config "$@"
   local action="${1:-view}"
   shift || true
   case "$action" in
@@ -1140,6 +1773,7 @@ cmd_config() {
 # ─── Subcommand: chaos (list / delete chaos-mesh experiments) ────────────────
 
 cmd_chaos() {
+  _check_help chaos "$@"
   local action="${1:-list}"
   shift || true
   case "$action" in
@@ -1160,6 +1794,7 @@ cmd_chaos() {
 # ─── Subcommand: top (live one-screen dashboard) ─────────────────────────────
 
 cmd_top() {
+  _check_help top "$@"
   require_namespace
   local interval=2
   while [[ $# -gt 0 ]]; do
@@ -1193,6 +1828,7 @@ for i in items[:5]:
 # ─── Subcommand: update (check newer keosctl) ────────────────────────────────
 
 cmd_update() {
+  _check_help update "$@"
   heading "Checking for updates"
   local latest
   latest=$(curl -fsSL --max-time 5 \
