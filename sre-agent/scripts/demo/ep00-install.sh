@@ -6,20 +6,17 @@ source "$(dirname "$0")/cast-lib.sh"
 
 REPO="/mnt/a/argentic/DEV/self-healing-poc"
 
-# LF-normalized copies of the wizard + its backend (repo may be CRLF).
-mkdir -p /tmp/keos-demo/sre-agent/scripts
-for f in install.sh install-edge.sh keosctl; do
-  cp "$REPO/sre-agent/scripts/$f" "/tmp/keos-demo/sre-agent/scripts/$f"
-  sed -i 's/\r$//' "/tmp/keos-demo/sre-agent/scripts/$f"
-  chmod +x "/tmp/keos-demo/sre-agent/scripts/$f"
-done
-# The wizard's local-build path resolves REPO_ROOT from the script dir —
-# it needs the build contexts. Symlink the real repo dirs in.
-for d in agent mcp_server frontend deploy manifests policies; do
-  ln -sfn "$REPO/sre-agent/$d" "/tmp/keos-demo/sre-agent/$d"
-done
+# Real LF-normalized copy of the repo (docker build contexts can't follow
+# symlinks, so this must be a true copy — exclude the heavy dirs).
+mkdir -p /tmp/keos-demo/sre-agent
+rsync -a --delete \
+  --exclude node_modules --exclude website --exclude .venv \
+  --exclude __pycache__ --exclude out \
+  "$REPO/sre-agent/" /tmp/keos-demo/sre-agent/
+find /tmp/keos-demo/sre-agent/scripts -maxdepth 1 -type f \
+  -exec sed -i 's/\r$//' {} \; -exec chmod +x {} \;
 
-intro "Episode 0 · Install" "git clone → keosctl install → running agent"
+intro "Episode 0 · The install wizard" "git clone → keosctl install · 6 steps, zero docs needed"
 
 say_comment "Three commands. The wizard handles the rest."
 printf '%b' "$PROMPT"; sleep 0.5
@@ -31,28 +28,23 @@ type_out "bash sre-agent/scripts/keosctl install"
 sleep 0.6
 printf '\n'
 
-# Feed the wizard its answers on a human-paced timer:
-#   enter      → begin
-#   enter      → after prerequisites
-#   enter      → cluster pick (default = current context)
-#   enter      → confirm discovered facts
-#   enter      → model pick (default 3B)
-#   enter      → image source (default — auto-flipped to local-build)
-#   enter      → mode pick (default observe-only)
-#   y          → proceed with install
+# Feed the wizard its answers on a human-paced timer. This episode is
+# the WIZARD TOUR — we walk all 6 steps + the Review card, then answer
+# N so the cast stays deterministic + 60 seconds. The real install run
+# is Episode 1's starting state (and ~5 min of mostly helm --wait).
 {
   sleep 3;  printf '\n'   # begin
   sleep 4;  printf '\n'   # prerequisites reviewed
-  sleep 6;  printf '\n'   # cluster pick
+  sleep 6;  printf '\n'   # cluster pick (default = current context)
   sleep 6;  printf '\n'   # facts confirmed
-  sleep 6;  printf '\n'   # model pick
-  sleep 7;  printf '\n'   # image source
-  sleep 5;  printf '\n'   # mode pick
-  sleep 5;  printf 'y\n'  # proceed
-} | bash /tmp/keos-demo/sre-agent/scripts/install.sh
+  sleep 6;  printf '\n'   # model pick (default 3B)
+  sleep 7;  printf '\n'   # image source (auto-detected)
+  sleep 5;  printf '\n'   # mode pick (observe-only)
+  sleep 6;  printf 'N\n'  # review card — stop here for the tour
+} | bash /tmp/keos-demo/sre-agent/scripts/install.sh || true
 
-pause 2
-say_comment "Installed. From here on, everything is keosctl:"
-play_cmd "keosctl status"
+pause 1
+say_comment "Answer Y instead and ~5 minutes later: 13 pods, models pulled, corpus seeded."
+say_comment "Then everything is keosctl — see Episode 1."
 
 outro
