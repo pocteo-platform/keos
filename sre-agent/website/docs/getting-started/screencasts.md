@@ -14,7 +14,7 @@ A 5-episode series, recorded against a **live cluster** with [asciinema](https:/
 
 ## Episode 0 — The install wizard
 
-From a clean cluster to a running agent: the full 6-step wizard, the local-build fallback, the Helm install, the model pull, and the final `✓ Install complete` card. (Long pauses are compressed — this is the real install, recorded live.)
+The full 6-step wizard tour: prerequisites → cluster picker (with live reachability probes) → discovered facts → LLM model menu → image-source probe → agent mode → the Review card. The tour stops at the Review prompt; answering `Y` instead kicks off the real install (~5 min — docker builds, Helm `--wait`, model pull, corpus seed).
 
 ![Episode 0 — Install wizard](/casts/ep00-install.gif)
 
