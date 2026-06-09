@@ -77,6 +77,12 @@ Bash         5.2.21(1)-release
 | **Data** | [`seed`](./data) | Re-seed the runbook corpus |
 | | `models {list\|pull\|rm\|show}` | Manage Ollama LLM models |
 | **Shell** | [`completion <bash\|zsh\|fish>`](./shell-completion) | Generate shell completion |
+| **Ecosystem + registry** | [`deps list \| install \| verify`](./ecosystem-registry) | Detect or install Prometheus / ArgoCD / Flux / cert-manager / kube-state-metrics |
+| | [`images list \| registry \| set-registry \| pull-policy`](./ecosystem-registry) | Per-pod image refs + registry swap |
+| | [`values get \| set \| edit \| diff`](./ecosystem-registry) | Helm values inspection + editing |
+| **Agent introspection** | [`policy show \| test`](./introspection) | OPA matrix + hypothetical-tuple tester |
+| | [`runbooks list \| show`](./introspection) | The corpus the agent retrieves from |
+| | [`bus tail \| streams \| info`](./introspection) | NATS event-bus taps |
 | **Misc** | `context` | Current kubectl context |
 | | `version` | CLI + chart + bash versions |
 | | `help` | Banner + categorised command list |
