@@ -259,6 +259,50 @@ async def _nats_consumer() -> None:
     )
 
 
+async def _security_consumer() -> None:
+    """Phase 21 — the SECOND agent domain's NATS consumer.
+
+    Subscribes to the SECURITY JetStream stream (`security.events.>`) with
+    its own durable `keos-security-agent`, independent of the SRE INFRA
+    consumers so the two domains never share a cursor. Each message runs
+    the SAME graph as the SRE lane — triage reads `source: falco/tetragon`
+    (or the explicit `domain: security` tag) and routes the incident down
+    the security-domain branches (security prompts + tools + RAG filter).
+
+    Self-disabling: if NATS is unreachable the SRE lanes already log it;
+    this lane returns quietly so the API still serves.
+    """
+    try:
+        import nats
+    except ImportError:
+        return
+
+    try:
+        nc = await nats.connect(settings.nats_url)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("NATS unreachable for security lane (%s); skipping", exc)
+        return
+
+    js = nc.jetstream()
+    try:
+        await js.add_stream(name="SECURITY", subjects=["security.events.>"])
+    except Exception:  # noqa: BLE001
+        pass
+
+    from nats.js.api import ConsumerConfig
+
+    long_ack = ConsumerConfig(ack_wait=600)  # same 10-min budget as the SRE lane
+    sub_sec = await js.pull_subscribe(
+        "security.events.>",
+        durable="keos-security-agent",
+        config=long_ack,
+    )
+    log.info(
+        "subscribed to security.events.> (durable=keos-security-agent) — SECURITY domain (ack_wait=600s)"
+    )
+    await _consumer_loop(sub_sec, "security")
+
+
 def _run_with_id(event: dict[str, Any], forced_id: str | None) -> dict[str, Any]:
     """Wrap run_once so we can inject a pinned incident_id from outside."""
     if forced_id:
@@ -380,10 +424,19 @@ async def _async_main(host: str, port: int) -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("drift: detector failed to start (%s); continuing", exc)
 
+    # Phase 21 — the security domain's telemetry observer. Watches
+    # Tetragon TracingPolicy events (surfaced as K8s Events) and
+    # normalises them onto security.events.*. Self-disabling like the
+    # chaos observer. The Falco path is a webhook (agent/falco_bridge.py
+    # mounted on the FastAPI app) — no separate task needed.
+    from agent.tetragon_observer import observer as tetragon_observer
+
     await asyncio.gather(
         _serve(host, port),
         _nats_consumer(),
+        _security_consumer(),
         chaos_observer.run(),
+        tetragon_observer.run(),
         _retention_loop(),
     )
 

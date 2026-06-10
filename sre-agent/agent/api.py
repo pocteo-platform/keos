@@ -585,6 +585,99 @@ async def alertmanager_webhook(request: Request) -> dict[str, Any]:
     }
 
 
+@app.post("/api/webhooks/falco")
+async def falco_webhook(request: Request) -> dict[str, Any]:
+    """Receive Falco alerts (its `http_output` target) and turn each into a
+    NATS `security.events.<rule_slug>` message so the agent's security-domain
+    consumer reacts. This is the live-eBPF path for the security domain
+    (Phase 21.2); the synthetic generator (`agent.security_events`) is the
+    offline/CI path.
+
+    Auth: `FALCO_WEBHOOK_TOKEN` env var. Fails-closed (503) if unset.
+    Configure Falco with `http_output.url` + a bearer token header.
+
+    Falco's `http_output` posts ONE JSON object per alert (not an array),
+    with this shape (Falco JSON output):
+
+        {
+          "rule": "Terminal shell in container",
+          "priority": "Critical",
+          "output": "A shell was spawned ...",
+          "time": "2026-06-10T...Z",
+          "output_fields": {
+            "proc.cmdline": "/bin/sh -i",
+            "k8s.ns.name": "workloads",
+            "k8s.pod.name": "checkout-...",
+            "container.name": "nginx"
+          }
+        }
+
+    We also accept a JSON array (some buffering proxies batch alerts).
+    """
+    auth = request.headers.get("authorization") or request.headers.get("Authorization")
+    if not _check_webhook_token(auth, "FALCO_WEBHOOK_TOKEN"):
+        raise HTTPException(
+            status_code=503,
+            detail="falco webhook not configured (set FALCO_WEBHOOK_TOKEN env var) "
+            "or bearer token rejected",
+        )
+
+    try:
+        body = await request.json()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"malformed JSON: {exc}")
+
+    # Accept a single alert object or a batched array.
+    alerts = body if isinstance(body, list) else [body]
+
+    import nats as _nats
+
+    nc = await _nats.connect(settings.nats_url)
+    js = nc.jetstream()
+    try:
+        await js.add_stream(name="SECURITY", subjects=["security.events.>"])
+    except Exception:  # noqa: BLE001
+        pass
+
+    accepted = 0
+    try:
+        for a in alerts:
+            if not isinstance(a, dict):
+                continue
+            rule = (a.get("rule") or "unknown_rule").strip()
+            # Sanitize the rule name into a dot-safe NATS subject suffix.
+            subject_kind = "".join(c if c.isalnum() else "_" for c in rule).lower()
+            subject = f"security.events.{subject_kind}"
+            fields = a.get("output_fields") or {}
+            event = {
+                "uuid": (fields.get("evt.id") or a.get("hostname") or "") + "",
+                "time": a.get("time") or _now_iso(),
+                "rule": rule,
+                "priority": a.get("priority") or "Warning",
+                # source=falco → triage classifies domain=security.
+                "source": "falco",
+                "domain": "security",
+                "output": (a.get("output") or f"Falco rule {rule} fired")[:500],
+                "output_fields": fields,
+            }
+            await js.publish(subject, json.dumps(event).encode("utf-8"))
+            accepted += 1
+            log.info(
+                "falco: published %s (rule=%s ns=%s pod=%s)",
+                subject,
+                rule,
+                fields.get("k8s.ns.name"),
+                fields.get("k8s.pod.name"),
+            )
+    finally:
+        try:
+            await nc.drain()
+        except Exception:  # noqa: BLE001
+            pass
+
+    return {"ok": True, "accepted": accepted, "total": len(alerts)}
+
+
 # ---------------------------------------------------------------------------
 # Mode
 # ---------------------------------------------------------------------------

@@ -143,6 +143,23 @@ CANNED_LLM: dict[int, dict[str, dict[str, Any]]] = {
             "rationale": "Defer to operator.",
         },
     },
+    # Phase 21 — security domain. A high-confidence reverse-shell diagnosis
+    # that plans an isolate_pod containment. Used by test_security_domain.py.
+    "security_reverse_shell": {
+        "diagnosis": {
+            "summary": "An interactive shell was spawned inside the container.",
+            "root_cause": "Likely a reverse shell from a compromised dependency.",
+            "confidence": 0.86,
+            "evidence": ["event:proc.cmdline=/bin/sh -i", "runbook:001 reverse shell"],
+        },
+        "plan": {
+            "tool": "isolate_pod",
+            "args": {"pod_name": "nginx-demo", "namespace": "workloads"},
+            "scope": "pod",
+            "reversible": True,
+            "rationale": "Active reverse shell; isolate to stop lateral movement, then escalate.",
+        },
+    },
 }
 
 
