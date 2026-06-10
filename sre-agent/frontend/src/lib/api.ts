@@ -80,6 +80,9 @@ export interface DetectedOperators {
   prometheus: boolean;
   cert_manager: boolean;
   kube_state_metrics: boolean;
+  // Phase 21 — security-domain telemetry sources.
+  falco: boolean;
+  tetragon: boolean;
 }
 
 export interface AgentSelf {
@@ -312,6 +315,13 @@ export interface UseCase {
     policy_allow?: boolean | null;
     outcome?: "healed" | "escalated" | null;
   };
+  /** Phase 21 — a real attack simulation that fires live eBPF telemetry
+   *  (security scenarios only). No full editor UI yet — preserved on edit. */
+  attack_sim?: {
+    kind: "exec_shell" | "run_miner" | "sensitive_mount" | "egress";
+    command?: string[];
+    image?: string;
+  } | null;
   runbook_en: string;
   runbook_fr: string;
   created_at: string;

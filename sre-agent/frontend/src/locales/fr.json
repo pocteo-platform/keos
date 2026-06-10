@@ -363,7 +363,10 @@
         "descriptionFr": "Description (FR)",
         "descriptionFrPlaceholder": "Ce que ce cas illustre, en markdown.",
         "tags": "Tags",
-        "tagsPlaceholder": "Tapez un tag puis Entrée"
+        "tagsPlaceholder": "Tapez un tag puis Entrée",
+        "domain": "Domaine",
+        "domainHintSre": "Publie sur infra.events.* — Observer → Prédire → Réparer → Apprendre, avec les outils de remédiation SRE.",
+        "domainHintSecurity": "Publie sur security.events.* — Détecter → Investiguer → Confiner → Répondre, avec les outils de confinement sécurité."
       },
       "target": {
         "namespace": "Espace de noms",

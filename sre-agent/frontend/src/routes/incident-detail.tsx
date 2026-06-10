@@ -153,6 +153,11 @@ export default function IncidentDetailPage() {
           <CardTitle className="flex flex-wrap items-center gap-3 font-mono text-base">
             {inc.incident_id}
             <SeverityChip severity={inc.severity} />
+            {inc.domain === "security" ? (
+              <Badge variant="danger" className="text-[10px] uppercase tracking-wider">
+                {t("domain.security")}
+              </Badge>
+            ) : null}
             <OutcomeBadge incident={inc} />
             <ModeBadge mode={inc.agent_mode} />
             {isLive ? (
@@ -163,9 +168,7 @@ export default function IncidentDetailPage() {
             ) : null}
           </CardTitle>
           <CardDescription className="flex flex-wrap items-center gap-2">
-            <span>
-              {inc.ts ? format(new Date(inc.ts), "PPPp", { locale: dfLocale }) : "—"}
-            </span>
+            <span>{inc.ts ? format(new Date(inc.ts), "PPPp", { locale: dfLocale }) : "—"}</span>
             <span className="opacity-60">·</span>
             {inc.namespace && inc.pod ? (
               // Phase 14.5c — direct link to the workload page so the

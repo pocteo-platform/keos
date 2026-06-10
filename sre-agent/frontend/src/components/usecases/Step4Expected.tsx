@@ -13,12 +13,30 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { X } from "lucide-react";
 import type { Draft } from "./types";
 
-const TOOLS = [
+// Tool catalogs per domain (Phase 21). The dropdown shows the catalog that
+// matches the use case's domain, so a security scenario offers the
+// containment tools and an SRE scenario offers the remediation tools.
+const SRE_TOOLS = [
   "restart_pod",
   "rollout_undo",
+  "scale_deployment",
+  "cordon_node",
+  "uncordon_node",
+  "drain_node",
+  "tune_hpa",
+  "set_resources",
+  "evict_workload",
+  "revert_drift",
+  "page_human",
+] as const;
+
+const SECURITY_TOOLS = [
   "isolate_pod",
   "apply_network_policy",
-  "page_human",
+  "kill_pod",
+  "quarantine_pod",
+  "capture_forensics",
+  "page_security",
 ] as const;
 
 interface Props {
@@ -29,6 +47,7 @@ interface Props {
 export function Step4Expected({ draft, setDraft }: Props) {
   const { t } = useTranslation();
   const exp = draft.expectation;
+  const tools = draft.domain === "security" ? SECURITY_TOOLS : SRE_TOOLS;
 
   const addKeyword = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter") return;
@@ -87,7 +106,7 @@ export function Step4Expected({ draft, setDraft }: Props) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="any">{t("usecases.wizard.expected.toolAny")}</SelectItem>
-              {TOOLS.map((tool) => (
+              {tools.map((tool) => (
                 <SelectItem key={tool} value={tool}>
                   {tool}
                 </SelectItem>
