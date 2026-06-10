@@ -57,6 +57,11 @@
 #   # with --no-local-build-fallback).
 #   bash install-edge.sh --local-build
 #
+#   # Install the security domain too — Falco + Tetragon for live eBPF
+#   # runtime-threat detection (reverse shells, miners, priv-esc, exfil).
+#   # Both are eBPF agents and reuse the detected containerd socket path.
+#   bash install-edge.sh --security
+#
 #   # Probe-only — show what the script would install, then exit.
 #   # Useful for verifying the kubeconfig + distro detection before
 #   # committing to a real install.
@@ -91,6 +96,7 @@ IMAGE_REGISTRY=""
 LOCAL_BUILD=0
 LOCAL_BUILD_AUTO=1     # default: auto-fall-back to local build if public images aren't reachable
 LOCAL_CHART_PATH="${KEOS_LOCAL_CHART:-}"   # for `make install-edge` against k3d
+ENABLE_SECURITY=0     # --security: install Falco + Tetragon for live eBPF threat detection
 
 # ─── Argparse ──────────────────────────────────────────────────────────────
 
@@ -110,13 +116,14 @@ while [[ $# -gt 0 ]]; do
     --local-build) LOCAL_BUILD=1; LOCAL_BUILD_AUTO=0; shift ;;
     --no-local-build-fallback) LOCAL_BUILD_AUTO=0; shift ;;
     --local-chart) LOCAL_CHART_PATH="$2"; shift 2 ;;
+    --security)    ENABLE_SECURITY=1; shift ;;
     -h|--help)     PRINT_HELP=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
 if [[ "$PRINT_HELP" -eq 1 ]]; then
-  sed -n '3,52p' "$0" | sed 's/^# \?//'
+  sed -n '3,71p' "$0" | sed 's/^# \?//'
   exit 0
 fi
 
@@ -513,6 +520,17 @@ if [[ "$ENABLE_GPU" == "true" ]]; then
     --set "ollama.gpu.enabled=true"
     --set-string "ollama.gpu.runtimeClassName=$GPU_RUNTIME_CLASS"
   )
+fi
+# Security domain (Phase 21): --security installs Falco + Tetragon for live
+# eBPF threat detection. Both are eBPF agents and need the same containerd
+# socket path the distro probe already resolved for chaos-mesh.
+if [[ "$ENABLE_SECURITY" -eq 1 ]]; then
+  HELM_ARGS+=(
+    --set "falco.enabled=true"
+    --set "tetragon.enabled=true"
+    --set "tetragon.tetragon.hostProcPath=/proc"
+  )
+  ok "security domain: Falco + Tetragon enabled (live eBPF detection)"
 fi
 helm "${HELM_ARGS[@]}"
 ok "Helm release '$RELEASE' deployed"

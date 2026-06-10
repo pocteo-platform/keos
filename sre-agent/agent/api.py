@@ -1102,6 +1102,9 @@ def _detect_operators() -> DetectedOperators:
         "chaos_mesh": "podchaos.chaos-mesh.org",
         "prometheus": "prometheuses.monitoring.coreos.com",
         "cert_manager": "certificates.cert-manager.io",
+        # Security domain (Phase 21) — Tetragon has a CRD; Falco doesn't
+        # (it's a DaemonSet, probed below).
+        "tetragon": "tracingpolicies.cilium.io",
     }
     # Per-operator workload probes — (field, name, candidate_namespaces).
     # Order matters; first match wins. Standalone installs almost always
@@ -1153,6 +1156,20 @@ def _detect_operators() -> DetectedOperators:
                     out.kube_state_metrics = True
                     break
             if out.kube_state_metrics:
+                break
+    except Exception:  # noqa: BLE001
+        pass
+    # Falco (Phase 21) ships as a DaemonSet, not a CRD. Match any DaemonSet
+    # whose name contains "falco" across the usual install namespaces.
+    try:
+        for ns in ("falco", "kube-system", "security"):
+            items = _kubectl_get("daemonsets", "", ns).get("items", [])
+            for d in items:
+                dname = ((d.get("metadata") or {}).get("name") or "").lower()
+                if "falco" in dname:
+                    out.falco = True
+                    break
+            if out.falco:
                 break
     except Exception:  # noqa: BLE001
         pass

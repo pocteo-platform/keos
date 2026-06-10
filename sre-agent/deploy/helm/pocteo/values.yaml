@@ -488,3 +488,53 @@ chaos-mesh:
     socketPath: /run/containerd/containerd.sock
   dashboard:
     create: false  # the SPA's pipeline view replaces it
+
+# ---------------------------------------------------------------------------
+# Falco sub-chart (Phase 21 — security domain detection breadth).
+#
+# Default OFF. The security domain runs synthetic events without it; turn
+# on for live eBPF detection (hundreds of turnkey rules). Falco posts its
+# alerts to the agent's webhook, which normalises them onto
+# security.events.* for the keos-security-agent NATS consumer.
+#
+# The dependency is declared in Chart.yaml. eBPF needs the containerd
+# socket — install-edge.sh resolves the per-distro path (k3s/Talos/Docker)
+# and passes it here, same as chaos-mesh.
+# ---------------------------------------------------------------------------
+falco:
+  enabled: false
+  # Use the modern eBPF probe (no kernel-module compile needed).
+  driver:
+    kind: modern_ebpf
+  # Wire Falco's HTTP output to the agent's Falco webhook. The URL points
+  # at the in-cluster API Service; the token must match FALCO_WEBHOOK_TOKEN
+  # on the agent (set install-side / via the agent Secret).
+  falco:
+    json_output: true
+    http_output:
+      enabled: true
+      url: "http://pocteo:8000/api/webhooks/falco"
+      # user_agent + a bearer token via custom headers; the chart's
+      # http_output supports an `Authorization` header through
+      # `falco.falcoctl`/extra config — set the token at install time.
+  # falcosidekick not needed — we post straight to the agent.
+  falcosidekick:
+    enabled: false
+
+# ---------------------------------------------------------------------------
+# Tetragon sub-chart (Phase 21 — eBPF enforcement + kernel process/network
+# events).
+#
+# Default OFF. Produces process-exec + network TracingPolicy events that
+# the agent's tetragon_observer normalises onto security.events.*. eBPF
+# needs the containerd socket (same per-distro path resolution as above).
+# ---------------------------------------------------------------------------
+tetragon:
+  enabled: false
+  tetragon:
+    # Enable the process + network visibility the security runbooks rely on.
+    enableProcessCred: true
+    enableProcessNs: true
+  # The k8s-event exporter surfaces TracingPolicy matches as K8s Events,
+  # which the tetragon_observer watches.
+  exportAllowList: ""

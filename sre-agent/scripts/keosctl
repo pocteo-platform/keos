@@ -2010,11 +2010,15 @@ cmd_deps() {
                                    "GitOps drift falls back to filesystem manifests"
       _dep_row "cert-manager"       "kc_cluster get crd certificates.cert-manager.io 2>/dev/null" \
                                    "Phase 19 mTLS will fall back to self-signed"
+      _dep_row "Falco"              "kc_cluster get ds -A 2>/dev/null | grep -qi falco" \
+                                   "security domain has no live Falco detection (synthetic events still work)"
+      _dep_row "Tetragon"           "kc_cluster get crd tracingpolicies.cilium.io 2>/dev/null" \
+                                   "security domain has no live Tetragon eBPF events (synthetic events still work)"
       printf "\n  ${C_DIM}Install a missing one: keosctl deps install <name>${C_RST}\n"
       ;;
     install)
       local name="${1:-}"; shift || true
-      [[ -z "$name" ]] && die "usage: keosctl deps install <prometheus|argocd|flux|cert-manager|kube-state-metrics> [--chart-repo URL] [--version V] [--values FILE] [--namespace NS]"
+      [[ -z "$name" ]] && die "usage: keosctl deps install <prometheus|argocd|flux|cert-manager|kube-state-metrics|falco|tetragon> [--chart-repo URL] [--version V] [--values FILE] [--namespace NS]"
       local chart_repo="" version="" values="" ns="" set_args=()
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -2049,7 +2053,27 @@ cmd_deps() {
           def_repo="https://prometheus-community.github.io/helm-charts"
           def_chart="kube-state-metrics"; def_ns="monitoring"
           ;;
-        *) die "unknown operator '$name' — valid: prometheus, argocd, flux, cert-manager, kube-state-metrics" ;;
+        falco)
+          # Security domain (Phase 21) — Falco for live eBPF detection.
+          # Wire its HTTP output at the agent's webhook so alerts become
+          # security.events.* (set FALCO_WEBHOOK_TOKEN on the agent to match).
+          def_repo="https://falcosecurity.github.io/charts"
+          def_chart="falco"; def_ns="falco"
+          set_args+=(--set "driver.kind=modern_ebpf")
+          set_args+=(--set "falcosidekick.enabled=false")
+          set_args+=(--set "falco.json_output=true")
+          set_args+=(--set "falco.http_output.enabled=true")
+          set_args+=(--set "falco.http_output.url=http://pocteo.${KEOS_NAMESPACE:-keos}.svc.cluster.local:8000/api/webhooks/falco")
+          note "After install, set FALCO_WEBHOOK_TOKEN on the agent + Falco's Authorization header to match."
+          ;;
+        tetragon)
+          # Security domain (Phase 21) — Tetragon for eBPF process/network events.
+          def_repo="https://helm.cilium.io"
+          def_chart="tetragon"; def_ns="kube-system"
+          set_args+=(--set "tetragon.enableProcessCred=true")
+          set_args+=(--set "tetragon.enableProcessNs=true")
+          ;;
+        *) die "unknown operator '$name' — valid: prometheus, argocd, flux, cert-manager, kube-state-metrics, falco, tetragon" ;;
       esac
       chart_repo="${chart_repo:-$def_repo}"
       ns="${ns:-$def_ns}"

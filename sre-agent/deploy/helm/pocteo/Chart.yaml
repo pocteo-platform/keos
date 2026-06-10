@@ -20,11 +20,27 @@ maintainers:
   - name: Keos platform
     url: https://github.com/your-org/pocteo
 
-# Chaos Mesh is optional but recommended for the demo. Toggle via
+# Chaos Mesh is optional but recommended for the SRE demo. Toggle via
 # `--set chaos-mesh.enabled=false`.
+#
+# Falco + Tetragon are the runtime-security telemetry sources for the
+# Keos security domain (Phase 21). Both default OFF — the security domain
+# runs synthetic events without them. Turn on for live eBPF detection via
+# `install-edge.sh --security`, `keosctl deps install falco|tetragon`, or
+# `--set falco.enabled=true --set tetragon.enabled=true`.
 dependencies:
   - name: chaos-mesh
     version: "2.7.2"
     repository: https://charts.chaos-mesh.org
     condition: chaos-mesh.enabled
     alias: chaos-mesh
+  - name: falco
+    version: "4.21.3"
+    repository: https://falcosecurity.github.io/charts
+    condition: falco.enabled
+    alias: falco
+  - name: tetragon
+    version: "1.4.1"
+    repository: https://helm.cilium.io
+    condition: tetragon.enabled
+    alias: tetragon

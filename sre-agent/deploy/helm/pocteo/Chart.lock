@@ -2,5 +2,11 @@ dependencies:
 - name: chaos-mesh
   repository: https://charts.chaos-mesh.org
   version: 2.7.2
-digest: sha256:ee318d3aa3f2eaca0b6f06bae50f0854e5ed1a8137bfac898a7ec39f5ff8440d
-generated: "2026-06-01T14:51:07.2608016+02:00"
+- name: falco
+  repository: https://falcosecurity.github.io/charts
+  version: 4.21.3
+- name: tetragon
+  repository: https://helm.cilium.io
+  version: 1.4.1
+digest: sha256:12e467e2d819f9897b97951b4d98be116240bb5d795ecf6d4c48278eae47beaa
+generated: "2026-06-10T23:36:59.746563773+02:00"
