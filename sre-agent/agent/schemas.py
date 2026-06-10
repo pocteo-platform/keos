@@ -17,7 +17,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Severity = Literal["low", "medium", "high", "critical"]
 AgentModeLiteral = Literal["observe-only", "active", "frozen"]
+# Phase 21 — Keos runs two agent domains over one graph. The discriminator
+# is set in triage from the NATS subject family: infra.events.* → "sre",
+# security.events.* → "security". Defaults to "sre" so every pre-Phase-21
+# incident + the back-compat code paths keep working unchanged.
+Domain = Literal["sre", "security"]
 ToolName = Literal[
+    # ── SRE domain ──────────────────────────────────────────────────────
     "restart_pod",
     "rollout_undo",
     "scale_deployment",
@@ -31,6 +37,16 @@ ToolName = Literal[
     # Phase 15 — GitOps drift revert.
     "revert_drift",
     "page_human",
+    # ── Security domain (Phase 21) ──────────────────────────────────────
+    # Containment + response actions. Escalate-first: these are gated to
+    # active mode + high/critical + non-protected namespaces in the OPA
+    # matrix, and isolate_pod / apply_network_policy are reversible.
+    "isolate_pod",  # apply a deny-all NetworkPolicy + quarantine label
+    "apply_network_policy",  # deny-egress NetworkPolicy (data-exfil containment)
+    "kill_pod",  # force-delete a compromised pod
+    "quarantine_pod",  # label + isolate + annotate for forensics hold
+    "capture_forensics",  # annotate + dump recent logs into the audit trail
+    "page_security",  # page the security / IR channel (always allowed)
 ]
 
 
@@ -163,6 +179,11 @@ class IncidentState(TypedDict, total=False):
     pod: str
     container: str | None
     rule: str
+    # Phase 21 — which agent domain is handling this incident. Set in
+    # triage from the event source/subject; drives which system prompt,
+    # which tool catalog, and which RAG tag filter the graph uses.
+    # Absent → treated as "sre" (back-compat).
+    domain: Domain
 
     # Filled in as the graph progresses.
     agent_mode: AgentModeLiteral

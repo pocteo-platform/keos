@@ -68,14 +68,25 @@ def seed_one(slug: str, text: str, tags: dict[str, str] | None = None) -> None:
     log.info("seeded one runbook %r (tags=%s)", slug, tags or {})
 
 
-def _load_runbooks() -> list[tuple[str, str]]:
-    files = sorted(RUNBOOKS_DIR.glob("*.md"))
-    if not files:
+def _load_runbooks() -> list[tuple[str, str, str]]:
+    """Return (slug, body, domain) for every runbook.
+
+    Top-level `runbooks/*.md` are the SRE domain (back-compat). Runbooks
+    under `runbooks/security/*.md` are tagged `domain=security` so the
+    Phase-21 security agent's RAG retrieval can filter to them. The slug
+    is prefixed with `security/` for security runbooks to avoid id
+    collisions and to make the domain visible in the SPA's RAG-hit list.
+    """
+    out: list[tuple[str, str, str]] = []
+    for f in sorted(RUNBOOKS_DIR.glob("*.md")):
+        out.append((f.stem, f.read_text(encoding="utf-8"), "sre"))
+    sec_dir = RUNBOOKS_DIR / "security"
+    if sec_dir.is_dir():
+        for f in sorted(sec_dir.glob("*.md")):
+            out.append((f"security/{f.stem}", f.read_text(encoding="utf-8"), "security"))
+    if not out:
         log.error("no runbooks found in %s", RUNBOOKS_DIR)
         sys.exit(2)
-    out: list[tuple[str, str]] = []
-    for f in files:
-        out.append((f.stem, f.read_text(encoding="utf-8")))
     return out
 
 
@@ -88,14 +99,14 @@ def main() -> int:
     runbooks = _load_runbooks()
     points: list[qmodels.PointStruct] = []
     with httpx.Client() as http:
-        for slug, body in runbooks:
-            log.info("embedding %s (%d chars)", slug, len(body))
+        for slug, body, domain in runbooks:
+            log.info("embedding %s [%s] (%d chars)", slug, domain, len(body))
             vector = _embed(http, body)
             points.append(
                 qmodels.PointStruct(
                     id=str(uuid.uuid5(uuid.NAMESPACE_URL, slug)),
                     vector=vector,
-                    payload={"slug": slug, "text": body},
+                    payload={"slug": slug, "text": body, "domain": domain},
                 )
             )
 

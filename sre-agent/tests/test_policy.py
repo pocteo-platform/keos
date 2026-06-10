@@ -323,6 +323,112 @@ CASES: list[tuple[str, dict, bool, str | None]] = [
         False,
         None,  # we assert on count below
     ),
+    # ── Phase 21: security-domain matrix ───────────────────────────────────
+    # 25 — isolate_pod at high in workloads + active → L2 → allow.
+    (
+        "isolate_pod_high_active_workloads",
+        {"action": "isolate_pod", "severity": "high", "agent_mode": "active", "target": _target()},
+        True,
+        None,
+    ),
+    # 26 — isolate_pod at critical → L1 → allow.
+    (
+        "isolate_pod_critical_active_workloads",
+        {
+            "action": "isolate_pod",
+            "severity": "critical",
+            "agent_mode": "active",
+            "target": _target(),
+        },
+        True,
+        None,
+    ),
+    # 27 — Escalate-first: isolate_pod at medium → L3 → deny (page instead).
+    (
+        "isolate_pod_medium_blocked_escalate_first",
+        {
+            "action": "isolate_pod",
+            "severity": "medium",
+            "agent_mode": "active",
+            "target": _target(),
+        },
+        False,
+        "L3",
+    ),
+    # 28 — isolate_pod blocked in observe-only even at critical (mode gate).
+    (
+        "isolate_pod_blocked_in_observe_only",
+        {
+            "action": "isolate_pod",
+            "severity": "critical",
+            "agent_mode": "observe-only",
+            "target": _target(),
+        },
+        False,
+        "agent_mode",
+    ),
+    # 29 — isolate_pod blocked in kube-system even at critical+active (protected).
+    (
+        "isolate_pod_kubesystem_blocked",
+        {
+            "action": "isolate_pod",
+            "severity": "critical",
+            "agent_mode": "active",
+            "target": _target(namespace="kube-system", name="coredns-x"),
+        },
+        False,
+        "protected",
+    ),
+    # 30 — apply_network_policy at high → L2 → allow (data-exfil containment).
+    (
+        "apply_network_policy_high_active_workloads",
+        {
+            "action": "apply_network_policy",
+            "severity": "high",
+            "agent_mode": "active",
+            "target": _target(),
+        },
+        True,
+        None,
+    ),
+    # 31 — kill_pod is most conservative: high → L3 → deny.
+    (
+        "kill_pod_high_blocked",
+        {"action": "kill_pod", "severity": "high", "agent_mode": "active", "target": _target()},
+        False,
+        "L3",
+    ),
+    # 32 — kill_pod at critical → L2 → allow (the only severity it's permitted).
+    (
+        "kill_pod_critical_active_allowed",
+        {"action": "kill_pod", "severity": "critical", "agent_mode": "active", "target": _target()},
+        True,
+        None,
+    ),
+    # 33 — capture_forensics is read-only → L1 at every severity → allow even at low.
+    (
+        "capture_forensics_low_active_allowed",
+        {
+            "action": "capture_forensics",
+            "severity": "low",
+            "agent_mode": "active",
+            "target": _target(),
+        },
+        True,
+        None,
+    ),
+    # 34 — page_security always allowed (escalation never gated), even at low.
+    (
+        "page_security_low_active_allowed",
+        {
+            "action": "page_security",
+            "severity": "low",
+            "agent_mode": "active",
+            "target": _target(),
+        },
+        True,
+        None,
+    ),
 ]
 
 

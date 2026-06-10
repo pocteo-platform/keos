@@ -47,6 +47,25 @@ levels := {
 	# can blast over a legitimate hotfix nobody had time to commit.
 	"revert_drift":      {"low": 3, "medium": 2, "high": 1, "critical": 1},
 	"page_human":        {"low": 1, "medium": 1, "high": 1, "critical": 1},
+	# ── Security domain (Phase 21) ──────────────────────────────────────
+	# Escalate-first posture: containment is DENIED at low/medium (L3+) so
+	# the agent pages a human instead of isolating on a weak signal, and
+	# ALLOWED at high/critical (L1/L2) where the threat is confident. The
+	# active-mode + protected-namespace hard gates above already prevent
+	# any containment in observe-only or in kube-system/kube-public.
+	"isolate_pod":          {"low": 3, "medium": 3, "high": 2, "critical": 1},
+	"apply_network_policy": {"low": 3, "medium": 3, "high": 2, "critical": 1},
+	# kill_pod is irreversible (kills process state) — most conservative:
+	# only at critical, and even then it's L2 (allowed but the audit makes
+	# the destructive nature explicit).
+	"kill_pod":             {"low": 4, "medium": 4, "high": 3, "critical": 2},
+	# quarantine_pod = isolate + evidence hold. Same gating as isolate.
+	"quarantine_pod":       {"low": 3, "medium": 3, "high": 2, "critical": 1},
+	# capture_forensics is read-only (annotate + log dump). Always allowed —
+	# capturing evidence is never the wrong call.
+	"capture_forensics":    {"low": 1, "medium": 1, "high": 1, "critical": 1},
+	# page_security must never be gated — escalation is always permitted.
+	"page_security":        {"low": 1, "medium": 1, "high": 1, "critical": 1},
 }
 
 # Namespaces the agent must never touch, regardless of matrix outcome.

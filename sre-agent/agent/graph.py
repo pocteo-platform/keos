@@ -90,6 +90,17 @@ def node_triage(state: IncidentState) -> dict[str, Any]:
     pod = fields.get("k8s.pod.name") or ""
     container = fields.get("container.name")
     rule = event.get("rule", "<unknown rule>")
+    # Phase 21 — domain discriminator. An incoming event is "security" when it
+    # carries an explicit domain tag, OR when its source is a runtime-security
+    # telemetry producer (falco / tetragon). Everything else is "sre". The
+    # value flows into diagnose/plan_action (prompt selection) and execute
+    # (tool catalog). State can also carry a pre-set domain (set by the
+    # security NATS consumer) which we honour.
+    domain = (
+        state.get("domain")
+        or event.get("domain")
+        or ("security" if event.get("source") in ("falco", "tetragon") else "sre")
+    )
     # Snapshot the current mode RIGHT NOW so every incident (including ones
     # that short-circuit at triage) carries the correct agent_mode for the
     # UI. Without this, short-circuited incidents render "None" in the
@@ -105,6 +116,7 @@ def node_triage(state: IncidentState) -> dict[str, Any]:
         "container": container,
         "rule": rule,
         "agent_mode": current_mode,
+        "domain": domain,
     }
 
     # Staleness check. On CPU-only inference the graph takes 3-5 minutes
@@ -219,7 +231,9 @@ def node_retrieve_context(state: IncidentState) -> dict[str, Any]:
     query = f"{state.get('rule', '')} :: {event.get('output', '')}"
     try:
         vec = tools.embed_text(query)
-        hits = tools.vector_search(vec, top_k=3)
+        # Phase 21 — filter the RAG corpus to the incident's domain so a
+        # security incident retrieves security runbooks, not SRE ones.
+        hits = tools.vector_search(vec, top_k=3, domain=state.get("domain"))
     except Exception as exc:  # noqa: BLE001
         log.exception("retrieve_context failed")
         hits = []
@@ -388,6 +402,7 @@ def node_diagnose(state: IncidentState) -> dict[str, Any]:
         ctx.get("pod_describe", ""),
         state.get("k8sgpt_findings", []),
         state.get("baselines", []),
+        domain=state.get("domain", "sre"),
     )
     if d is None:
         audit.emit(state["incident_id"], "diagnose_failed", {"reason": "validation"})
@@ -428,13 +443,19 @@ def node_diagnose(state: IncidentState) -> dict[str, Any]:
 
 def node_plan_action(state: IncidentState) -> dict[str, Any]:
     p = llm_plan_action(
-        state["raw_event"], state.get("diagnosis", {}), state.get("pod"), state.get("namespace")
+        state["raw_event"],
+        state.get("diagnosis", {}),
+        state.get("pod"),
+        state.get("namespace"),
+        domain=state.get("domain", "sre"),
     )
     if p is None:
         audit.emit(state["incident_id"], "plan_action_failed", {"reason": "validation"})
-        # Fall back to page_human so the gate still has a real action shape.
+        # Fall back to the domain's escalation tool so the gate still has a
+        # real action shape. Security incidents page the IR channel.
+        fallback_tool = "page_security" if state.get("domain") == "security" else "page_human"
         fallback = ProposedAction(
-            tool="page_human",
+            tool=fallback_tool,
             args={"reason": "plan_action LLM produced no valid response"},
             scope="n/a",
             reversible=True,
@@ -901,6 +922,30 @@ def _dispatch(action: ProposedAction, dry_run: bool):
         )
     if tool == "page_human":
         return tools.page_human(reason=args.get("reason", "no reason given"), dry_run=dry_run)
+    # ── Security domain (Phase 21) ──────────────────────────────────────
+    if tool in ("isolate_pod", "apply_network_policy", "kill_pod", "quarantine_pod"):
+        from agent import security_tools
+
+        fn = security_tools.SECURITY_TOOLS[tool]
+        return fn(
+            pod_name=args.get("pod_name") or args.get("pod") or args.get("name", ""),
+            namespace=args["namespace"],
+            dry_run=dry_run,
+        )
+    if tool == "capture_forensics":
+        from agent import security_tools
+
+        return security_tools.capture_forensics(
+            pod_name=args.get("pod_name") or args.get("pod") or args.get("name", ""),
+            namespace=args["namespace"],
+            dry_run=dry_run,
+        )
+    if tool == "page_security":
+        from agent import security_tools
+
+        return security_tools.page_security(
+            reason=args.get("reason", "no reason given"), dry_run=dry_run
+        )
     raise ValueError(f"unknown tool {tool!r}")
 
 
