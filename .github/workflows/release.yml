@@ -43,7 +43,7 @@ jobs:
           - { name: mcp-server, context: sre-agent,          dockerfile: sre-agent/mcp_server/Dockerfile }
           - { name: frontend,   context: sre-agent/frontend, dockerfile: sre-agent/frontend/Dockerfile }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # full history for the changelog generator below
 
@@ -120,7 +120,7 @@ jobs:
     needs: build-and-publish
     if: ${{ !startsWith(github.ref, 'refs/tags/prerelease-') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -163,7 +163,7 @@ jobs:
     needs: build-and-publish
     if: ${{ !startsWith(github.ref, 'refs/tags/prerelease-') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: azure/setup-helm@v4
         with:
           version: v3.16.4
