@@ -3,6 +3,11 @@
     "title": "Agent K8s Auto-réparateur",
     "subtitle": "Réponse aux incidents au bord du réseau, contrôlée par politique"
   },
+  "domain": {
+    "all": "Tous",
+    "sre": "SRE",
+    "security": "Sécurité"
+  },
   "nav": {
     "dashboard": "Tableau de bord",
     "reliability": "Fiabilité",
@@ -256,6 +261,12 @@
         "predict": "Prédire",
         "heal": "Réparer",
         "learn": "Apprendre"
+      },
+      "securityPhases": {
+        "detect": "Détecter",
+        "investigate": "Investiguer",
+        "contain": "Confiner",
+        "respond": "Répondre"
       },
       "telemetry": {
         "podsReadyOverTime": "Pods prêts · 4 dernières min",

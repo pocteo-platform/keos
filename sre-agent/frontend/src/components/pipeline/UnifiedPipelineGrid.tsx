@@ -11,6 +11,7 @@ import { ResourcesAffectedList } from "./ResourcesAffectedList";
 import { ActionChainStepper } from "./ActionChainStepper";
 import type { PipelineState } from "@/hooks/usePipelineState";
 import type { NodeKind } from "@/lib/pipeline-topology";
+import type { Domain } from "@/lib/branding";
 
 /**
  * Komodor-pro unified layout — replaces the Phase 14.5a tab UX.
@@ -40,6 +41,8 @@ interface Props {
   state: PipelineState;
   incidentId: string;
   onSelectNode: (k: NodeKind) => void;
+  // Phase 21 — "security" re-labels the timeline phases. Defaults to "sre".
+  domain?: Domain;
 }
 
 function isTerminal(state: PipelineState): boolean {
@@ -48,7 +51,7 @@ function isTerminal(state: PipelineState): boolean {
   return v === "done" || v === "error" || e === "done" || e === "error";
 }
 
-export function UnifiedPipelineGrid({ state, incidentId, onSelectNode }: Props) {
+export function UnifiedPipelineGrid({ state, incidentId, onSelectNode, domain = "sre" }: Props) {
   const { t } = useTranslation();
   const done = useMemo(() => isTerminal(state), [state]);
 
@@ -101,13 +104,17 @@ export function UnifiedPipelineGrid({ state, incidentId, onSelectNode }: Props) 
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm uppercase tracking-wider">
-            {t("pipeline.unified.timelineTitle", {
-              defaultValue: "Observe → Predict → Heal → Learn",
-            })}
+            {domain === "security"
+              ? t("pipeline.unified.timelineTitleSecurity", {
+                  defaultValue: "Detect → Investigate → Contain → Respond",
+                })
+              : t("pipeline.unified.timelineTitle", {
+                  defaultValue: "Observe → Predict → Heal → Learn",
+                })}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-6">
-          <IncidentTimeline state={state} onSelectNode={onSelectNode} />
+          <IncidentTimeline state={state} onSelectNode={onSelectNode} domain={domain} />
         </CardContent>
       </Card>
     </div>

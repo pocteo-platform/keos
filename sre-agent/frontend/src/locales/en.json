@@ -3,6 +3,11 @@
     "title": "Self-healing K8s Edge Agent",
     "subtitle": "Policy-gated incident response on the edge"
   },
+  "domain": {
+    "all": "All",
+    "sre": "SRE",
+    "security": "Security"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "reliability": "Reliability",
@@ -292,6 +297,12 @@
         "predict": "Predict",
         "heal": "Heal",
         "learn": "Learn"
+      },
+      "securityPhases": {
+        "detect": "Detect",
+        "investigate": "Investigate",
+        "contain": "Contain",
+        "respond": "Respond"
       },
       "telemetry": {
         "podsReadyOverTime": "Pods ready · last ~4 min",

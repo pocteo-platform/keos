@@ -120,6 +120,7 @@ function LiveCanvas() {
           state={state}
           incidentId={state.incidentId}
           onSelectNode={setSelected}
+          domain={(state.nodes.triage?.output?.domain as "sre" | "security" | undefined) ?? "sre"}
         />
       ) : (
         <Card>
@@ -324,6 +325,7 @@ function ReplayCanvas({ incidentId }: { incidentId: string }) {
           state={state}
           incidentId={incidentId}
           onSelectNode={setSelected}
+          domain={(incidentQ.data?.domain as "sre" | "security" | undefined) ?? "sre"}
         />
       )}
       {trace.length > 0 ? (

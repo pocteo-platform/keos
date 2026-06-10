@@ -202,6 +202,8 @@ export interface IncidentSummary {
   healed: boolean | null;
   escalated: boolean;
   agent_mode: AgentMode | null;
+  /** Phase 21 — which agent domain handled this incident. */
+  domain: "sre" | "security";
   /** True when the graph short-circuited at triage because the event
    *  was stale (older than STALE_EVENT_S) AND the target pod was
    *  currently Ready. UI shows "Auto-resolved" instead of "Escalated". */
@@ -289,6 +291,9 @@ export interface UseCase {
   description_en: string;
   description_fr: string;
   tags: string[];
+  /** Phase 21 — "sre" (default) or "security". Drives the domain badge +
+   *  filter and which pipeline phase labels render. */
+  domain?: "sre" | "security";
   target: {
     namespace: string;
     pod_name?: string | null;
@@ -441,11 +446,10 @@ export const api = {
   getCalibrationRule: (rule: string) =>
     request<CalibrationRule>("GET", `/api/calibration/${encodeURIComponent(rule)}`),
   setCalibrationThreshold: (rule: string, threshold: number | null, note?: string) =>
-    request<CalibrationRule>(
-      "POST",
-      `/api/calibration/${encodeURIComponent(rule)}/threshold`,
-      { threshold, note: note ?? null },
-    ),
+    request<CalibrationRule>("POST", `/api/calibration/${encodeURIComponent(rule)}/threshold`, {
+      threshold,
+      note: note ?? null,
+    }),
 
   listIncidents: (
     params: {

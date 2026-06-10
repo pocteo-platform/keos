@@ -87,16 +87,22 @@ def _render_event(use_case: UseCase, namespace: str, pod: str) -> dict[str, Any]
     for k, v in placeholders.items():
         rendered_output = rendered_output.replace("{" + k + "}", str(v))
 
-    return {
+    # Phase 21 — a security use case must carry source∈{falco,tetragon} +
+    # domain=security so node_triage routes it down the security branches.
+    is_security = use_case.domain == "security"
+    event: dict[str, Any] = {
         "uuid": str(uuid.uuid4()),
         "time": _now_iso(),
         "rule": use_case.falco.rule,
         "priority": use_case.falco.priority,
-        "source": "syscall",
+        "source": "falco" if is_security else "syscall",
         "output": rendered_output,
         "output_fields": fields,
         "use_case_id": use_case.id,
     }
+    if is_security:
+        event["domain"] = "security"
+    return event
 
 
 def _seed_runbook_if_present(use_case: UseCase) -> None:
@@ -115,11 +121,16 @@ def _seed_runbook_if_present(use_case: UseCase) -> None:
 
 
 async def _publish_async(subject: str, payload: dict[str, Any]) -> None:
+    # Phase 21 — security use cases publish to the SECURITY stream;
+    # everything else to INFRA. The subject prefix picks the stream.
+    is_security = subject.startswith("security.events.")
+    stream_name = "SECURITY" if is_security else "INFRA"
+    stream_subjects = ["security.events.>"] if is_security else ["infra.events.>"]
     nc = await nats.connect(settings.nats_url)
     try:
         js = nc.jetstream()
         try:
-            await js.add_stream(name="INFRA", subjects=["infra.events.>"])
+            await js.add_stream(name=stream_name, subjects=stream_subjects)
         except Exception:  # noqa: BLE001 — already-exists is fine
             pass
         await js.publish(subject, json.dumps(payload).encode("utf-8"))
@@ -147,11 +158,103 @@ def run(use_case: UseCase) -> tuple[str, dict[str, Any]]:
     incident_id = f"uc-{uuid.uuid4().hex[:10]}"
     event["incident_id"] = incident_id  # passed through to triage
 
-    _apply_chaos_if_requested(use_case, ns, pod, incident_id)
+    if use_case.domain == "security":
+        # Try the real attack simulation (live eBPF telemetry). Best-effort:
+        # if it can't run (no eBPF, no cluster), the synthetic event below
+        # still drives the demo.
+        _apply_attack_sim_if_requested(use_case, ns, pod, incident_id)
+        subject = f"security.events.usecase.{use_case.id}"
+    else:
+        _apply_chaos_if_requested(use_case, ns, pod, incident_id)
+        subject = f"infra.events.usecase.{use_case.id}"
 
-    subject = f"infra.events.usecase.{use_case.id}"
     asyncio.run(_publish_async(subject, event))
     return incident_id, event
+
+
+# ---------------------------------------------------------------------------
+# Attack simulation (Phase 21). When a security use case carries an
+# `attack_sim`, apply a short-lived Job that actually performs the suspicious
+# action against / next to the target pod so Falco/Tetragon detect it for
+# REAL. TTL-cleaned. Best-effort — failure never blocks the synthetic event.
+# ---------------------------------------------------------------------------
+
+
+def _apply_attack_sim_if_requested(use_case: UseCase, ns: str, pod: str, incident_id: str) -> None:
+    sim = use_case.attack_sim
+    if sim is None:
+        return
+    # exec_shell runs the suspicious command INSIDE the live target pod (so
+    # Falco's "Terminal shell in container" sees the real container context).
+    # The other kinds run a throwaway Job in the namespace.
+    try:
+        if sim.kind == "exec_shell" and pod:
+            cmd = sim.command or ["/bin/sh", "-c", "echo keos-attack-sim; sleep 1"]
+            p = subprocess.run(
+                ["kubectl", *kubectl_auth_args(), "exec", "-n", ns, pod, "--", *cmd],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            log.info(
+                "attack-sim exec_shell on %s/%s rc=%d for use_case=%s",
+                ns,
+                pod,
+                p.returncode,
+                use_case.id,
+            )
+            return
+        # run_miner / sensitive_mount / egress → a TTL'd Job.
+        cr = _build_attack_job(sim, ns, use_case, incident_id)
+        p = subprocess.run(
+            ["kubectl", *kubectl_auth_args(), "apply", "-f", "-"],
+            input=json.dumps(cr),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if p.returncode == 0:
+            log.info("attack-sim %s applied for use_case=%s", sim.kind, use_case.id)
+        else:
+            log.warning("attack-sim apply failed (rc=%d): %s", p.returncode, p.stderr.strip())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("attack-sim skipped (%s) — synthetic event still fires", exc)
+
+
+def _build_attack_job(sim: Any, ns: str, use_case: UseCase, incident_id: str) -> dict[str, Any]:
+    """A Job that performs the suspicious action. ttlSecondsAfterFinished=60
+    so it self-cleans. sensitive_mount mounts the host containerd/docker
+    socket path; egress dials an external IP; run_miner masquerades as xmrig."""
+    name = f"keos-sim-{use_case.id[:18]}-{incident_id[-6:]}"
+    cmd = sim.command or ["sh", "-c", "echo keos-attack-sim; sleep 2"]
+    container: dict[str, Any] = {
+        "name": "sim",
+        "image": sim.image,
+        "command": cmd,
+    }
+    pod_spec: dict[str, Any] = {
+        "restartPolicy": "Never",
+        "containers": [container],
+    }
+    if sim.kind == "sensitive_mount":
+        # Mount the host's /var/run so the docker/containerd socket is
+        # visible inside the container — the escape primitive Falco flags.
+        container["volumeMounts"] = [{"name": "hostrun", "mountPath": "/var/run", "readOnly": True}]
+        pod_spec["volumes"] = [{"name": "hostrun", "hostPath": {"path": "/var/run"}}]
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": name,
+            "namespace": ns,
+            "labels": {"keos.pocteo/attack-sim": use_case.id, "keos.pocteo/incident": incident_id},
+        },
+        "spec": {
+            "ttlSecondsAfterFinished": 60,
+            "backoffLimit": 0,
+            "template": {"metadata": {"labels": {"app": "keos-attack-sim"}}, "spec": pod_spec},
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
