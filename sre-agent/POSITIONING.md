@@ -49,6 +49,32 @@ We deliberately do *not* claim originality on: RAG over runbooks (kagent and
 K8sGPT both do this), MCP exposure (everyone is converging on it), or
 Pydantic-validated LLM outputs (standard practice).
 
+## 2b. Two agent domains over one graph (Phase 21)
+
+Keos runs **two domains** on the same LangGraph + OPA gate + HMAC audit chain:
+
+- **SRE reliability** — Observe → Predict → Heal → Learn, driven by kubelet /
+  Chaos Mesh events on `infra.events.*`.
+- **Runtime security** — Detect → Investigate → Contain → Respond, driven by
+  **Falco + Tetragon** eBPF telemetry on `security.events.*`.
+
+A single `domain` discriminator (set at triage from the event source) branches
+the graph at three nodes — prompt, tool catalog, RAG filter — and nothing else.
+One product, two facets; the operator sees both incident streams in one SPA and
+one `keosctl`, each badged by domain.
+
+**The security layering is the point.** Keos does not replace
+[Tetragon](https://tetragon.io) / [Falco](https://falco.org); it sits *above*
+them. Tetragon enforces at the **kernel/syscall layer** (it can `Sigkill` a
+malicious process before its syscall completes); Keos adds the
+**orchestration layer** — LLM diagnosis over process ancestry + RAG, gated
+cross-resource containment (`isolate_pod`, `apply_network_policy`, `kill_pod`),
+forensics capture, and human escalation with a signed audit trail. And the
+guide's recommended runtime-security rollout — *detection-first, then
+enforcement* — **is exactly our observe-only → active posture**. (Design
+follows Cilium's
+[Kubernetes Runtime Security: The Guide](https://cilium.io/blog/2026/06/07/kubernetes-runtime-security-the-guide/).)
+
 ## 3. What we are NOT trying to be
 
 - **Not a replacement for SREs.** We accelerate *known-knowns*; humans own

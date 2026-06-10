@@ -13,7 +13,12 @@ mkdir -p "$OUT"
 # Normalise line endings (repo may be checked out with CRLF on Windows).
 sed -i 's/\r$//' "$HERE"/*.sh
 
-for ep in ep01-status ep02-usecase ep03-introspection ep04-day2 ep05-help; do
+# SRE-domain episodes + the Phase 21 security-domain series. The sec-*
+# episodes drive the security domain (reverse shell, miner, priv-esc, exfil)
+# — on the dev box they use synthetic events; on eBPF workshop hardware the
+# same scenarios fire from live Falco/Tetragon.
+for ep in ep01-status ep02-usecase ep03-introspection ep04-day2 ep05-help \
+          sec-ep01-reverse-shell sec-ep02-crypto-miner sec-ep03-priv-esc sec-ep04-data-exfil; do
   echo "=== Recording $ep ==="
   rm -f "$OUT/$ep.cast"
   asciinema rec --cols 100 --rows 32 --overwrite \

@@ -386,21 +386,24 @@ EOF
 keosctl events — list recent incidents (colored by outcome)
 
 USAGE
-  keosctl events [-n N|--limit N] [-w|--watch] [--filter outcome=X] [--since DUR]
+  keosctl events [-n N|--limit N] [-w|--watch] [--filter outcome=X] [--since DUR] [--domain D]
 
 COLOURS
   green  healed       yellow  escalated       red  failed       dim  other
+  SEC tag marks a security-domain incident; sre tag marks a reliability one.
 
 OPTIONS
   -n, --limit N        Number of incidents (default 10)
   -w, --watch          Refresh every 3s
   --filter outcome=X   (client-side, server filter coming)
   --since DUR          (client-side, server filter coming)
+  --domain D           sre | security — show only that agent domain (Phase 21)
 
 EXAMPLES
   keosctl events -n 20
   keosctl events --watch
   keosctl events --filter outcome=escalated
+  keosctl events --domain security
 EOF
       ;;
     incidents) cat <<'EOF'
@@ -421,12 +424,16 @@ EOF
 keosctl usecases — list or inspect use case definitions
 
 USAGE
-  keosctl usecases list
+  keosctl usecases list [--domain D]
   keosctl usecases show <slug>
+
+OPTIONS
+  --domain D   sre | security — show only that domain's scenarios (Phase 21)
 
 EXAMPLES
   keosctl usecases list
-  keosctl usecases show lib-memory-leak
+  keosctl usecases list --domain security
+  keosctl usecases show lib-reverse-shell
 EOF
       ;;
     run) cat <<'EOF'
@@ -1335,39 +1342,45 @@ cmd_link() {
 cmd_events() {
   _check_help events "$@"
   require_namespace
-  local limit=10 watch=0 filter="" since=""
+  local limit=10 watch=0 filter="" since="" domain=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -n|--limit) limit="$2"; shift 2 ;;
       -w|--watch) watch=1; shift ;;
       --filter)   filter="$2"; shift 2 ;;
       --since)    since="$2"; shift 2 ;;
+      --domain)   domain="$2"; shift 2 ;;   # sre | security (Phase 21)
       *) die "unknown arg: $1" ;;
     esac
   done
-  # Future API extension hook — filter / since not enforced on the server
-  # yet, applied client-side after fetch.
+  # Future API extension hook — filter / since / domain not enforced on the
+  # server yet, applied client-side after fetch.
   _filter_outcome="${filter#outcome=}"
   _render_events() {
-    heading "Recent incidents"
-    api_curl "/api/incidents?limit=$limit" 2>/dev/null | python3 -c "
-import json, sys
+    heading "Recent incidents${domain:+ · domain=$domain}"
+    api_curl "/api/incidents?limit=$limit" 2>/dev/null | KEOS_DOMAIN="$domain" python3 -c "
+import json, os, sys
 raw = sys.stdin.read() or '[]'
+want = (os.environ.get('KEOS_DOMAIN') or '').strip()
 try:
     data = json.loads(raw)
 except Exception:
     print('  ${C_RED}✗${C_RST} could not parse API response'); sys.exit(0)
 items = data if isinstance(data, list) else data.get('items', [])
+if want:
+    items = [i for i in items if (i.get('domain') or 'sre') == want]
 if not items:
-    print('  ${C_DIM}No incidents yet — try \"keosctl run lib-memory-leak\".${C_RST}')
+    print('  ${C_DIM}No incidents yet — try \"keosctl run lib-reverse-shell\".${C_RST}')
 else:
     for i in items[:$limit]:
         ts = (i.get('triage_ts') or i.get('ts') or '?')[:19]
-        rule = i.get('rule_id') or '?'
-        outcome = i.get('outcome') or '?'
-        tool = (i.get('proposed_action') or {}).get('tool') or '?'
+        rule = i.get('rule_id') or i.get('rule') or '?'
+        outcome = i.get('outcome') or ('escalated' if i.get('escalated') else ('healed' if i.get('healed') else '?'))
+        tool = i.get('proposed_tool') or (i.get('proposed_action') or {}).get('tool') or '?'
+        dom = i.get('domain') or 'sre'
+        dtag = '${C_RED}SEC${C_RST}' if dom == 'security' else '${C_DIM}sre${C_RST}'
         color = '${C_GREEN}' if outcome == 'healed' else '${C_YELLOW}' if outcome == 'escalated' else '${C_RED}' if outcome == 'failed' else '${C_DIM}'
-        print(f'  {color}●${C_RST}  {ts:<20} {rule:<28} {tool:<18} {color}{outcome}${C_RST}')
+        print(f'  {color}●${C_RST}  {ts:<20} {dtag:<14} {rule:<26} {tool:<18} {color}{outcome}${C_RST}')
 " 2>/dev/null || warn "API unreachable — is the api pod Ready?"
   }
   if [[ $watch -eq 1 ]]; then
@@ -1386,15 +1399,27 @@ cmd_usecases() {
   shift || true
   case "$action" in
     list)
-      heading "Available use cases"
-      api_curl "/api/usecases" 2>/dev/null | python3 -c "
-import json, sys
+      local uc_domain=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --domain) uc_domain="$2"; shift 2 ;;   # sre | security (Phase 21)
+          *) shift ;;
+        esac
+      done
+      heading "Available use cases${uc_domain:+ · domain=$uc_domain}"
+      api_curl "/api/usecases" 2>/dev/null | KEOS_DOMAIN="$uc_domain" python3 -c "
+import json, os, sys
+want = (os.environ.get('KEOS_DOMAIN') or '').strip()
 data = json.load(sys.stdin)
 items = data if isinstance(data, list) else data.get('items', [])
+if want:
+    items = [u for u in items if (u.get('domain') or 'sre') == want]
 for u in items:
     slug = u.get('slug') or u.get('id') or '?'
     title = u.get('name') or u.get('title_en') or u.get('description_en') or '?'
-    print(f'  ${C_CYAN}{slug:<28}${C_RST}  {title}')
+    dom = u.get('domain') or 'sre'
+    dtag = '${C_RED}SEC${C_RST}' if dom == 'security' else '${C_DIM}sre${C_RST}'
+    print(f'  {dtag:<14} ${C_CYAN}{slug:<24}${C_RST}  {title}')
 " 2>/dev/null || warn "Could not fetch use cases (API down?)"
       ;;
     show)
@@ -2258,7 +2283,10 @@ cmd_runbooks() {
   case "$action" in
     list|ls)
       heading "Runbook corpus"
-      kc exec "$api_pod" -- ls /app/agent/runbooks 2>/dev/null | awk '{printf "  • %s\n", $1}'
+      # Recurse so the security/ subdir (Phase 21) shows alongside the
+      # top-level SRE runbooks; print paths relative to the runbooks root.
+      kc exec "$api_pod" -- sh -c 'cd /app/agent/runbooks && find . -name "*.md" | sed "s|^\./||" | sort' 2>/dev/null \
+        | awk '{printf "  • %s\n", $1}'
       local pts
       pts=$(kc exec "$api_pod" -- curl -sf http://qdrant:6333/collections/runbooks 2>/dev/null \
               | python3 -c "import json,sys;print(json.load(sys.stdin)['result']['points_count'])" 2>/dev/null)
