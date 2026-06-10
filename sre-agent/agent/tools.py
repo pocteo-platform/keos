@@ -129,7 +129,9 @@ def embed_text(text: str) -> list[float]:
     raise RuntimeError(f"embed_text failed after {_QDRANT_RETRY_ATTEMPTS} attempts: {last_err}")
 
 
-def vector_search(vector: list[float], top_k: int = 3) -> list[dict[str, Any]]:
+def vector_search(
+    vector: list[float], top_k: int = 3, domain: str | None = None
+) -> list[dict[str, Any]]:
     """Search the runbooks collection with bounded retries.
 
     On any failure after all retries, returns `[]` (graceful degrade). The
@@ -137,9 +139,28 @@ def vector_search(vector: list[float], top_k: int = 3) -> list[dict[str, Any]]:
     lower-confidence answer that's more likely to escalate, which is the
     correct safety behavior. Better than crashing the graph.
 
+    `domain` (Phase 21) restricts results to runbooks tagged with that domain
+    ("sre" | "security"). When None, no filter is applied (back-compat: pre-
+    Phase-21 points have no `domain` payload, so an unfiltered search returns
+    them as before).
+
     Returns [{slug, text, score}, ...].
     """
     import time as _time
+
+    # Build a Qdrant payload filter for the domain tag when requested.
+    query_filter = None
+    if domain:
+        try:
+            from qdrant_client import models as _qmodels
+
+            query_filter = _qmodels.Filter(
+                must=[
+                    _qmodels.FieldCondition(key="domain", match=_qmodels.MatchValue(value=domain))
+                ]
+            )
+        except Exception as exc:  # noqa: BLE001 — filter is best-effort
+            log.debug("vector_search: could not build domain filter (%s)", exc)
 
     last_err: Exception | None = None
     for attempt in range(_QDRANT_RETRY_ATTEMPTS):
@@ -150,6 +171,7 @@ def vector_search(vector: list[float], top_k: int = 3) -> list[dict[str, Any]]:
                 query=vector,
                 limit=top_k,
                 with_payload=True,
+                query_filter=query_filter,
             ).points
             return [
                 {

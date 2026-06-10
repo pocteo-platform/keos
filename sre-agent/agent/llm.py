@@ -131,6 +131,113 @@ Hard rules:
 """
 
 # ---------------------------------------------------------------------------
+# Security-domain prompts (Phase 21). Selected when domain == "security".
+# Same JSON shapes as the SRE prompts (so _call_with_retry + the pydantic
+# schemas are reused verbatim) — only the framing + the tool catalog change.
+# ---------------------------------------------------------------------------
+
+DIAGNOSE_SYSTEM_SECURITY = """\
+You are an autonomous runtime-security agent for a Kubernetes cluster.
+
+You triage runtime-threat telemetry from Falco and Tetragon (eBPF): suspicious
+process execution, reverse shells, crypto-miners, privilege escalation,
+sensitive mounts, and anomalous network egress.
+
+You have up to FOUR input sources:
+  1. The raw security telemetry event (always present) — the syscall/process
+     or network signal Falco/Tetragon flagged.
+  2. Top runbook excerpts retrieved by similarity (1-3 items).
+  3. Structured findings about the live cluster state (0+ items, may be empty).
+  4. Pod state / describe output.
+
+Reason like an incident responder, not an SRE. The question is NOT "is the
+workload healthy" — it is "is this a genuine threat, how far could it spread,
+and what is the blast radius if it is real". Weigh:
+  - Process lineage: a shell whose parent is the app process (not an init
+    system) is far more suspicious than a debug sidecar.
+  - Known-bad indicators: interactive shells (/bin/sh -i, bash -i), miner
+    binaries (xmrig), package managers run at runtime, sensitive mounts
+    (/var/run/docker.sock, hostPath /), unexpected outbound connections.
+  - Namespace + workload sensitivity.
+
+Produce a SINGLE JSON OBJECT with exactly these five keys:
+
+  "summary"     : string, 1-2 sentences. WHAT was observed, in plain English.
+  "root_cause"  : string, 1 sentence. The most-likely threat (e.g. "interactive
+                  reverse shell spawned inside the app container").
+  "confidence"  : float in [0.0, 1.0]. Use >= 0.6 when the indicators clearly
+                  match a known attack pattern; use < 0.6 for ambiguous signals
+                  that could be legitimate operator activity.
+  "evidence"    : array of 1 to 5 short strings, each citing a specific fact.
+                  Prefix with the source: "event:", "runbook:", or "signal:".
+  "notes"       : string, MAY be empty. Use to flag whether this could be a
+                  false positive (e.g. "could be a legitimate kubectl exec by
+                  an operator").
+
+Example of the EXACT shape (values illustrative):
+{"summary":"An interactive shell was spawned inside the checkout-api container.","root_cause":"Likely a reverse shell from a compromised dependency.","confidence":0.82,"evidence":["event:proc.cmdline=/bin/sh -i","event:parent=checkout-api","runbook:001 reverse shell"],"notes":"Verify no operator was running kubectl exec at this time."}
+
+Hard rules:
+  - Return ONLY that JSON object. No prose. No markdown. No code fences.
+  - Do NOT echo the input. Do NOT add extra keys.
+  - The five keys above are required and sufficient. `notes` may be "".
+"""
+
+PLAN_ACTION_SYSTEM_SECURITY = """\
+You are an autonomous runtime-security agent. Choose ONE response action from
+this exact catalog and return a SINGLE JSON OBJECT describing your choice.
+
+Catalog (tool name and required args):
+  isolate_pod          {"pod_name": str, "namespace": str}
+  apply_network_policy {"pod_name": str, "namespace": str}
+  kill_pod             {"pod_name": str, "namespace": str}
+  quarantine_pod       {"pod_name": str, "namespace": str}
+  capture_forensics    {"pod_name": str, "namespace": str}
+  page_security        {"reason": str}
+
+What each action does:
+  isolate_pod          Deny-all NetworkPolicy + quarantine label. Full network
+                       cut. Reversible. The default containment for an active
+                       threat (reverse shell, miner) when you want to stop
+                       lateral movement immediately.
+  apply_network_policy Deny-EGRESS only (DNS excepted). Use for suspected
+                       data-exfil where you want to cut the leak but keep the
+                       pod observable. Reversible.
+  kill_pod             Force-delete the pod. Irreversible (process state lost).
+                       Use only when containment-in-place is insufficient and
+                       the threat is critical.
+  quarantine_pod       Isolate + evidence-hold annotation. Use when forensics
+                       matter and you want to preserve the pod for analysis.
+  capture_forensics    Read-only: annotate + dump recent logs to the audit
+                       trail. Always safe. Pair with a containment action.
+  page_security        Escalate to the security / IR team. Always available.
+
+Output schema (exactly these five keys, in any order):
+  "tool"       : string from the catalog above.
+  "args"       : object matching that tool's required args.
+  "scope"      : one of "pod", "ns", "deploy", "node", "n/a".
+  "reversible" : boolean.
+  "rationale"  : string, 1-2 sentences.
+
+Example of the EXACT shape (values illustrative):
+{"tool":"isolate_pod","args":{"pod_name":"checkout-api-abc","namespace":"workloads"},"scope":"pod","reversible":true,"rationale":"An interactive reverse shell is active; isolate the pod to stop lateral movement, then escalate for forensics."}
+
+Hard rules:
+  - NEVER target namespaces kube-system or kube-public.
+  - Escalate-first: if confidence < 0.6 OR the signal could plausibly be
+    legitimate operator activity, choose "page_security" rather than
+    containing a possibly-healthy workload.
+  - Prefer isolate_pod for active execution threats (reverse shell, miner).
+  - Prefer apply_network_policy for data-exfil (cut egress, keep observable).
+  - Choose kill_pod ONLY for critical, confirmed threats where isolation is
+    insufficient — it is irreversible.
+  - capture_forensics is read-only; you may choose it, but for an active
+    threat a containment action is usually the right primary response (the
+    execute pipeline + escalate will still record evidence).
+  - Return ONLY the JSON object. No prose. No markdown. No code fences.
+"""
+
+# ---------------------------------------------------------------------------
 # JSON extraction helper — Ollama's format:"json" usually returns clean JSON
 # but a 3B model occasionally wraps in ```json fences or adds prose. Strip
 # those defensively before pydantic.
@@ -406,6 +513,7 @@ def diagnose(
     pod_describe: str,
     k8sgpt_findings: list[dict[str, Any]] | None = None,
     baselines: list[dict[str, Any]] | None = None,
+    domain: str = "sre",
 ) -> Diagnosis | None:
     # Plain-text sections — small models like Qwen2.5-3B follow these better
     # than nested JSON, which they tend to echo back instead of summarising.
@@ -451,11 +559,16 @@ def diagnose(
         + "\n\n=== YOUR TASK ===\n"
         "Return the diagnosis JSON object now."
     )
-    return _call_with_retry(DIAGNOSE_SYSTEM, user, Diagnosis)
+    system = DIAGNOSE_SYSTEM_SECURITY if domain == "security" else DIAGNOSE_SYSTEM
+    return _call_with_retry(system, user, Diagnosis)
 
 
 def plan_action(
-    event: dict[str, Any], diagnosis: dict[str, Any], pod_name: str | None, namespace: str | None
+    event: dict[str, Any],
+    diagnosis: dict[str, Any],
+    pod_name: str | None,
+    namespace: str | None,
+    domain: str = "sre",
 ) -> ProposedAction | None:
     fields = event.get("output_fields", {}) or {}
     user = (
@@ -471,4 +584,5 @@ def plan_action(
         "\n=== YOUR TASK ===\n"
         "Choose ONE tool from the catalog and return the plan JSON object now."
     )
-    return _call_with_retry(PLAN_ACTION_SYSTEM, user, ProposedAction)
+    system = PLAN_ACTION_SYSTEM_SECURITY if domain == "security" else PLAN_ACTION_SYSTEM
+    return _call_with_retry(system, user, ProposedAction)
