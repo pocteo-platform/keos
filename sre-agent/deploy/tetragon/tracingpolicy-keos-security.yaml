@@ -1,0 +1,149 @@
+# Keos security domain — example Tetragon TracingPolicy (Phase 21).
+#
+# This is the REAL Tetragon integration the Cilium "Kubernetes Runtime
+# Security" guide describes: a declarative TracingPolicy CRD with the three
+# parts the guide names —
+#
+#   • Hook Point  — where in the kernel Tetragon attaches its eBPF sensor
+#                   (kprobe / tracepoint / uprobe).
+#   • Selectors   — in-kernel BPF filtering (matchArgs, matchBinaries,
+#                   matchParentBinaries — PROCESS ANCESTRY — matchCapabilities…)
+#                   so irrelevant events are dropped before they ever reach
+#                   user space.
+#   • Actions     — Post (emit a JSON event), NoPost (drop), Sigkill (kill the
+#                   process in-kernel), Override (return EPERM to the caller).
+#
+# POSTURE — detection-first, exactly as the guide recommends ("apply with the
+# POST action first, monitor, then switch to enforcement"). Every selector
+# below uses action: Post (observability only). The commented `Sigkill` /
+# `Override` blocks show how to flip a rule to IN-KERNEL ENFORCEMENT once the
+# operator has confirmed it's safe — this is the kernel-layer that sits BELOW
+# the Keos security agent's pod-level containment + forensics + escalation.
+#
+# How it feeds Keos: Tetragon's Post action emits a JSON event. Configure
+# Tetragon's Kubernetes-event export (or forward the JSON stream) so the
+# Keos agent's security consumer sees it on `security.events.*`. On the dev
+# kind cluster (no eBPF), use the synthetic generator instead:
+#   keosctl run lib-reverse-shell   (and the other 3 scenarios)
+#
+# Install (workshop hardware, Tetragon present):
+#   kubectl apply -f deploy/tetragon/tracingpolicy-keos-security.yaml
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: keos-suspicious-process-exec
+  labels:
+    app.kubernetes.io/managed-by: keos-security-agent
+    keos.pocteo/domain: security
+spec:
+  # Hook point: the kernel security_bprm_creds_for_exec LSM hook fires on
+  # every execve — the single most fundamental runtime-security signal
+  # ("if you can answer what is running, spawned by what, as which user,
+  # you can stop almost any runtime threat").
+  kprobes:
+    - call: "security_bprm_creds_for_exec"
+      syscall: false
+      args:
+        - index: 0
+          type: "linux_binprm"
+      selectors:
+        # ── Reverse shell: an interactive shell binary executing. The real
+        #    signal is PROCESS ANCESTRY (a shell whose parent is the app,
+        #    not an init system) — matchParentBinaries narrows it so a
+        #    legitimate operator `kubectl exec sh` from a debug container
+        #    doesn't fire. Detection mode: Post only.
+        - matchBinaries:
+            - operator: "In"
+              values:
+                - "/bin/sh"
+                - "/bin/bash"
+                - "/usr/bin/sh"
+                - "/usr/bin/bash"
+                - "/bin/dash"
+          matchActions:
+            - action: Post
+            # ── Enforcement (uncomment after confirming safe): kill the
+            #    shell in-kernel BEFORE execve completes. This is Tetragon's
+            #    cornerstone — it stops lateral movement before the attacker
+            #    takes a single step.
+            # - action: Sigkill
+        # ── Crypto-miner / suspicious tool: a known miner binary name.
+        - matchBinaries:
+            - operator: "In"
+              values:
+                - "/usr/bin/xmrig"
+                - "/usr/local/bin/xmrig"
+                - "/tmp/xmrig"
+                - "/usr/bin/minerd"
+          matchActions:
+            - action: Post
+            # - action: Sigkill
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: keos-privilege-escalation
+  labels:
+    app.kubernetes.io/managed-by: keos-security-agent
+    keos.pocteo/domain: security
+spec:
+  # Hook point: capset() — the syscall a process calls to change its Linux
+  # capabilities. matchCapabilities catches a process attempting to gain
+  # CAP_SYS_ADMIN (the container-escape capability). The guide flags exactly
+  # this: "matchNamespaces & matchCapabilities detect when a process attempts
+  # to change its isolation boundaries or elevate its Linux privileges."
+  kprobes:
+    - call: "sys_capset"
+      syscall: true
+      args:
+        - index: 0
+          type: "uint64"
+      selectors:
+        - matchCapabilities:
+            - type: Effective
+              operator: "In"
+              values:
+                - "CAP_SYS_ADMIN"
+                - "CAP_SYS_PTRACE"
+                - "CAP_SYS_MODULE"
+          matchActions:
+            - action: Post
+            # - action: Override        # return EPERM — thwart without crash
+            #   argError: -1
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: keos-unexpected-egress
+  labels:
+    app.kubernetes.io/managed-by: keos-security-agent
+    keos.pocteo/domain: security
+spec:
+  # Hook point: tcp_connect — the kernel function that initiates an outbound
+  # connection. The guide: "Instead of looking at packets on the wire,
+  # Tetragon hooks tcp_connect / tcp_close … O(1) visibility into network
+  # state without packet capture." Process-to-network correlation makes the
+  # difference between nginx serving traffic vs. curl-spawned-by-bash phoning
+  # an attacker's C2.
+  kprobes:
+    - call: "tcp_connect"
+      syscall: false
+      args:
+        - index: 0
+          type: "sock"
+      selectors:
+        # Flag outbound connections initiated by shell/transfer tools — the
+        # data-exfil / C2 download pattern. matchBinaries pins it to the
+        # suspicious initiators rather than every egress.
+        - matchBinaries:
+            - operator: "In"
+              values:
+                - "/usr/bin/curl"
+                - "/usr/bin/wget"
+                - "/bin/nc"
+                - "/usr/bin/ncat"
+                - "/bin/busybox"
+          matchActions:
+            - action: Post
+            # - action: Sigkill        # cut the exfil channel in-kernel

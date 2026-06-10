@@ -123,6 +123,37 @@ Everything is **local-first**: the LLM uses the node's GPU, the audit log is HMA
 | 🏗️ **Edge-native packaging** | Single Helm chart (`pocteo/pocteo`). Multi-arch images (amd64 + arm64). NetworkPolicies. PodSecurity:restricted. PDBs. Ships on Keos OS first-class; also installs on any conformant K8s (k3s / Kairos / Talos / kubeadm / EKS / GKE / AKS). |
 | 🔍 **GitOps drift detection** | ArgoCD `Application` + Flux `Kustomization` source-of-truth comparators. `infra.events.drift` published into NATS, picked up like any other event. |
 | 📦 **Air-gapped install path** | Pre-built bundle script + `--airgap` install flag. No external image pulls during install. |
+| 🛡️ **Runtime security domain** | A 2nd agent domain over the same graph: **Falco + Tetragon** eBPF telemetry → **Detect → Investigate → Contain → Respond**. 6 containment tools (`isolate_pod` · `apply_network_policy` · `kill_pod` · `quarantine_pod` · `capture_forensics` · `page_security`), escalate-first + OPA-gated. Reverse shell · crypto-miner · privilege-escalation · data-exfil scenarios. [Security docs →](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/security/overview.md) |
+
+---
+
+## Two domains, one agent — SRE + runtime security
+
+Keos runs **two agent domains over one LangGraph**, sharing the OPA gate and
+the HMAC audit chain:
+
+- **SRE reliability** — Observe → Predict → Heal → Learn, on `infra.events.*`.
+- **Runtime security** — Detect → Investigate → Contain → Respond, on
+  `security.events.*`, fed by **Falco + Tetragon** eBPF telemetry.
+
+Keos doesn't replace [Tetragon](https://tetragon.io) / [Falco](https://falco.org)
+— it sits **above** them. Tetragon enforces in-kernel (it can `Sigkill` a
+malicious process before its syscall completes); Keos adds LLM diagnosis over
+process ancestry, gated cross-resource containment, forensics, and signed-audit
+escalation. The recommended *detection-first → enforcement* rollout is exactly
+Keos's `observe-only → active` posture. (Design follows Cilium's
+[Kubernetes Runtime Security: The Guide](https://cilium.io/blog/2026/06/07/kubernetes-runtime-security-the-guide/).)
+
+```bash
+keosctl mode active
+keosctl deps install falco && keosctl deps install tetragon   # live eBPF (workshop hardware)
+keosctl run lib-reverse-shell        # synthetic path works anywhere (no eBPF)
+keosctl events --domain security     # SEC-tagged incidents
+```
+
+🎬 A 4-episode **security** screencast series (reverse shell · miner · priv-esc
+· exfil) records alongside the SRE episodes via `scripts/demo/record-all.sh`.
+Workshop presenters: see the [workshop runbook](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/security/workshop.md).
 
 ---
 
