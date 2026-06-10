@@ -20,8 +20,10 @@ import { useApp } from "@/lib/store";
 import { UseCaseWizard } from "@/components/usecases/UseCaseWizard";
 import { emptyDraft, fromUseCase, type Draft } from "@/components/usecases/types";
 import { Spinner } from "@/components/pipeline/RunningIndicator";
+import { DOMAIN_VARIANT, type Domain } from "@/lib/branding";
 
 type WizardMode = { kind: "new" } | { kind: "edit"; draft: Draft } | null;
+type DomainFilter = "all" | "sre" | "security";
 
 export default function UseCasesPage() {
   const { t } = useTranslation();
@@ -31,6 +33,7 @@ export default function UseCasesPage() {
   const [wizard, setWizard] = useState<WizardMode>(null);
   const [filter, setFilter] = useState("");
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [domainFilter, setDomainFilter] = useState<DomainFilter>("all");
 
   const q = useQuery({ queryKey: ["usecases"], queryFn: api.listUseCases });
 
@@ -45,6 +48,8 @@ export default function UseCasesPage() {
   const filtered = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     return (q.data ?? []).filter((uc) => {
+      const dom: Domain = uc.domain === "security" ? "security" : "sre";
+      if (domainFilter !== "all" && dom !== domainFilter) return false;
       if (activeTag && !uc.tags.includes(activeTag)) return false;
       if (!needle) return true;
       const desc = `${uc.description_en} ${uc.description_fr}`.toLowerCase();
@@ -55,7 +60,7 @@ export default function UseCasesPage() {
         uc.falco.rule.toLowerCase().includes(needle)
       );
     });
-  }, [q.data, filter, activeTag]);
+  }, [q.data, filter, activeTag, domainFilter]);
 
   const delMut = useMutation({
     mutationFn: (id: string) => api.deleteUseCase(id),
@@ -113,6 +118,29 @@ export default function UseCasesPage() {
                 <X className="h-3.5 w-3.5" />
               </button>
             ) : null}
+          </div>
+          {/* Domain toggle: All / SRE / Security (Phase 21) */}
+          <div className="flex items-center gap-1">
+            {(["all", "sre", "security"] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDomainFilter(d)}
+                className="rounded-none"
+              >
+                <Badge
+                  variant={
+                    domainFilter === d ? (d === "security" ? "danger" : "info") : "secondary"
+                  }
+                  className={cn(
+                    "cursor-pointer text-[10px] uppercase tracking-wider",
+                    domainFilter === d && "ring-1 ring-current",
+                  )}
+                >
+                  {d === "all" ? t("domain.all", { defaultValue: "All" }) : t(`domain.${d}`)}
+                </Badge>
+              </button>
+            ))}
           </div>
           {allTags.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1">
@@ -230,10 +258,16 @@ function UseCaseCard({
     locale === "fr"
       ? uc.description_fr || uc.description_en
       : uc.description_en || uc.description_fr;
+  const dom: Domain = uc.domain === "security" ? "security" : "sre";
   return (
-    <Card>
+    <Card className={cn(dom === "security" && "border-danger/40")}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">{uc.name}</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base">{uc.name}</CardTitle>
+          <Badge variant={DOMAIN_VARIANT[dom]} className="shrink-0 text-[10px] uppercase">
+            {t(`domain.${dom}`)}
+          </Badge>
+        </div>
         <CardDescription className="line-clamp-3">{desc}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">

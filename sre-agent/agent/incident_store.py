@@ -183,6 +183,7 @@ def summarise(incident: dict[str, Any]) -> dict[str, Any]:
         "healed": ver.get("healed") if ver else None,
         "escalated": bool(incident.get("escalated", False)),
         "agent_mode": incident.get("agent_mode"),
+        "domain": incident.get("domain", "sre"),
         "stale_resolved": bool(incident.get("stale_resolved", False)),
     }
 

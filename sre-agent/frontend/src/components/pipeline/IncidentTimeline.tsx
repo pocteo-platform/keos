@@ -3,30 +3,42 @@ import { useTranslation } from "react-i18next";
 import { Activity, Brain, CheckCircle, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { LOOP_PHASES, PHASE_VARIANT, type LoopPhase } from "@/lib/branding";
-import { phaseOfNode } from "@/hooks/usePhaseGrouping";
+import {
+  type Domain,
+  phaseByNodeForDomain,
+  phaseLabelKeyForDomain,
+  phaseVariantForDomain,
+  phasesForDomain,
+} from "@/lib/branding";
 import { NODE_ORDER, type NodeKind } from "@/lib/pipeline-topology";
 import type { NodeStatus, PipelineState } from "@/hooks/usePipelineState";
 
-// Badge accepts a fixed variant union; PHASE_VARIANT["heal"] = "primary"
-// isn't in that union, so we map it to "default" (which IS the brand
-// primary colour via the shadcn Badge defaults).
+// Badge accepts a fixed variant union; the phase "primary" token isn't in
+// that union, so we map it to "default" (which IS the brand primary colour
+// via the shadcn Badge defaults).
 type BadgeVariant = "warn" | "info" | "ok" | "default";
-const phaseBadgeVariant = (phase: LoopPhase): BadgeVariant => {
-  const v = PHASE_VARIANT[phase];
-  return v === "primary" ? "default" : (v as BadgeVariant);
-};
+const toBadgeVariant = (v: "warn" | "info" | "primary" | "ok"): BadgeVariant =>
+  v === "primary" ? "default" : v;
 
 interface Props {
   state: PipelineState;
   onSelectNode?: (kind: NodeKind) => void;
+  // Phase 21 — "security" re-labels the phases Detect→Investigate→Contain→
+  // Respond (same nodes). Defaults to "sre" (Observe→Predict→Heal→Learn).
+  domain?: Domain;
 }
 
-const PHASE_ICON: Record<LoopPhase, typeof Activity> = {
+// One icon per phase, for both domains. The security phases map to the same
+// conceptual icons (signal / reason / act / close).
+const PHASE_ICON: Record<string, typeof Activity> = {
   observe: Activity,
   predict: Brain,
   heal: Wrench,
   learn: CheckCircle,
+  detect: Activity,
+  investigate: Brain,
+  contain: Wrench,
+  respond: CheckCircle,
 };
 
 const STATUS_ACCENT: Record<NodeStatus, string> = {
@@ -37,39 +49,43 @@ const STATUS_ACCENT: Record<NodeStatus, string> = {
   skipped: "border-l-muted-foreground/20 opacity-60",
 };
 
-/** Vertical Observe → Predict → Heal → Learn timeline.
+/** Vertical pipeline timeline, domain-aware.
  *
- *  One row per LangGraph node that has been reached (status !== pending),
- *  grouped under phase chips with the relative timestamp ("T+02:14")
- *  computed from the reducer's t0 anchor. Phase chips ALSO render when
- *  empty, so the operator sees the whole skeleton from the first event. */
-function IncidentTimelineRaw({ state, onSelectNode }: Props) {
+ *  SRE: Observe → Predict → Heal → Learn.
+ *  Security: Detect → Investigate → Contain → Respond.
+ *
+ *  One row per LangGraph node that has been reached, grouped under phase
+ *  chips with the relative timestamp ("T+02:14"). Phase chips ALSO render
+ *  when empty, so the operator sees the whole skeleton from the first
+ *  event. */
+function IncidentTimelineRaw({ state, onSelectNode, domain = "sre" }: Props) {
   const { t } = useTranslation();
+  const phases = phasesForDomain(domain);
+  const nodeToPhase = phaseByNodeForDomain(domain);
 
   // Group nodes by phase, preserving NODE_ORDER within each phase.
   const byPhase = useMemo(() => {
-    const map: Record<LoopPhase, NodeKind[]> = {
-      observe: [],
-      predict: [],
-      heal: [],
-      learn: [],
-    };
-    for (const k of NODE_ORDER) map[phaseOfNode(k)].push(k);
+    const map: Record<string, NodeKind[]> = {};
+    for (const p of phases) map[p] = [];
+    for (const k of NODE_ORDER) {
+      const p = nodeToPhase[k] ?? phases[phases.length - 1];
+      (map[p] ??= []).push(k);
+    }
     return map;
-  }, []);
+  }, [phases, nodeToPhase]);
 
   return (
     <div className="space-y-6">
-      {LOOP_PHASES.map((phase) => {
-        const Icon = PHASE_ICON[phase];
-        const variant = phaseBadgeVariant(phase);
-        const nodes = byPhase[phase];
+      {phases.map((phase) => {
+        const Icon = PHASE_ICON[phase] ?? Activity;
+        const variant = toBadgeVariant(phaseVariantForDomain(domain, phase));
+        const nodes = byPhase[phase] ?? [];
         return (
           <section key={phase}>
             <header className="mb-3 flex items-center gap-2">
               <Badge variant={variant} className="gap-1 uppercase tracking-wider">
                 <Icon className="h-3 w-3" />
-                {t(`pipeline.timeline.phases.${phase}`)}
+                {t(phaseLabelKeyForDomain(domain, phase))}
               </Badge>
             </header>
             <ol className="space-y-2">

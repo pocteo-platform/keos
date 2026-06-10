@@ -237,6 +237,9 @@ class IncidentSummary(BaseModel):
     healed: bool | None = None
     escalated: bool
     agent_mode: AgentModeLiteral | None = None
+    # Phase 21 — which agent domain handled this incident. The SPA renders a
+    # badge (SRE vs Security) and can filter the list by it.
+    domain: Literal["sre", "security"] = "sre"
     # True when the graph short-circuited at triage because the event was
     # stale + the target pod was already Ready. UI shows a distinct
     # "Auto-resolved" outcome chip for these instead of "Escalated".
@@ -509,15 +512,39 @@ class UseCaseTarget(BaseModel):
     owner_kind: Literal["Deployment", "StatefulSet", "DaemonSet", "Standalone"] = "Deployment"
 
 
+class UseCaseAttackSim(BaseModel):
+    """Phase 21 — a real attack simulation that fires LIVE eBPF telemetry.
+
+    When a security use case has an `attack_sim`, the runner applies a short-
+    lived K8s Job (TTL-cleaned) that actually performs the suspicious action
+    (`kubectl exec … bash -i`, run xmrig, mount the docker socket, curl an
+    external IP) so Falco/Tetragon detect it for real. When absent — or when
+    the cluster has no eBPF telemetry installed — the runner falls back to
+    the synthetic event so the demo always works.
+
+    `kind` picks the simulation shape; `command` overrides the default for
+    advanced operators.
+    """
+
+    kind: Literal["exec_shell", "run_miner", "sensitive_mount", "egress"] = "exec_shell"
+    command: list[str] = Field(default_factory=list)
+    image: str = "busybox:1.36"
+
+
 class UseCase(BaseModel):
     id: str
     name: str
     description_en: str = ""
     description_fr: str = ""
     tags: list[str] = Field(default_factory=list)
+    # Phase 21 — which agent domain this scenario drives. "sre" (default,
+    # back-compat) publishes to infra.events.*; "security" publishes to
+    # security.events.* and may carry an attack_sim.
+    domain: Literal["sre", "security"] = "sre"
     target: UseCaseTarget
     falco: UseCaseFalcoTemplate
     expectation: UseCaseExpectation = Field(default_factory=UseCaseExpectation)
+    attack_sim: UseCaseAttackSim | None = None
     runbook_en: str = ""
     runbook_fr: str = ""
     created_at: datetime

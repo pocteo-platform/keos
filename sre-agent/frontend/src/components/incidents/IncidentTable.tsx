@@ -338,7 +338,18 @@ export function IncidentTable({ items }: { items: IncidentSummary[] }) {
                     onClick={() => navigate(`/incidents/${i.incident_id}`)}
                     className="cursor-pointer"
                   >
-                    <SeverityChip severity={i.severity} />
+                    <div className="flex items-center gap-1.5">
+                      <SeverityChip severity={i.severity} />
+                      {i.domain === "security" ? (
+                        <Badge
+                          variant="danger"
+                          className="text-[9px] uppercase tracking-wider"
+                          title={t("domain.security")}
+                        >
+                          {t("domain.security")}
+                        </Badge>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell
                     onClick={() => navigate(`/incidents/${i.incident_id}`)}

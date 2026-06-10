@@ -25,6 +25,7 @@ function makeIncident(overrides: Partial<IncidentSummary> = {}): IncidentSummary
     healed: null,
     escalated: false,
     agent_mode: "active",
+    domain: "sre",
     stale_resolved: false,
     ...overrides,
   };
