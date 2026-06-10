@@ -220,7 +220,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
       - name: Build api
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: sre-agent
           file: sre-agent/agent/Dockerfile.api
@@ -229,7 +229,7 @@ jobs:
           cache-from: type=gha,scope=api
           cache-to: type=gha,scope=api,mode=max
       - name: Build mcp-server
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: sre-agent
           file: sre-agent/mcp_server/Dockerfile
@@ -238,7 +238,7 @@ jobs:
           cache-from: type=gha,scope=mcp
           cache-to: type=gha,scope=mcp,mode=max
       - name: Build frontend
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: sre-agent/frontend
           file: sre-agent/frontend/Dockerfile
