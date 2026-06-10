@@ -237,7 +237,7 @@ def fake_qdrant(monkeypatch):
     """Stub Qdrant: vector_search returns one canned runbook hit."""
     import agent.tools as t
 
-    def fake_search(vector, top_k=3):
+    def fake_search(vector, top_k=3, domain=None):
         return [
             {
                 "slug": "001-shell-in-container",
@@ -322,11 +322,13 @@ def patch_llm(monkeypatch):
     def set_scenario(key):
         state["scenario"] = key
 
-    def fake_diagnose(event, runbook_hits, pod_describe, k8sgpt_findings=None, baselines=None):
+    def fake_diagnose(
+        event, runbook_hits, pod_describe, k8sgpt_findings=None, baselines=None, domain="sre"
+    ):
         canned = CANNED_LLM[state["scenario"]]["diagnosis"]
         return Diagnosis.model_validate(canned)
 
-    def fake_plan(event, diagnosis, pod_name, namespace):
+    def fake_plan(event, diagnosis, pod_name, namespace, domain="sre"):
         canned = CANNED_LLM[state["scenario"]]["plan"]
         return ProposedAction.model_validate(canned)
 
