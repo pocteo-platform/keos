@@ -13,9 +13,15 @@ export function Step6Review({ draft }: { draft: Draft }) {
           <CardTitle className="text-sm">{t("usecases.wizard.review.summary")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
-          <div>
+          <div className="flex items-center gap-2">
             <span className="text-muted-foreground">name:</span>{" "}
             <span className="font-medium">{draft.name}</span>
+            <Badge
+              variant={draft.domain === "security" ? "danger" : "info"}
+              className="text-[10px] uppercase tracking-wider"
+            >
+              {t(`domain.${draft.domain}`)}
+            </Badge>
           </div>
           <div className="flex flex-wrap gap-2">
             {draft.tags.map((tag) => (
