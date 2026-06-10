@@ -1393,7 +1393,7 @@ data = json.load(sys.stdin)
 items = data if isinstance(data, list) else data.get('items', [])
 for u in items:
     slug = u.get('slug') or u.get('id') or '?'
-    title = u.get('title_en') or u.get('title') or '?'
+    title = u.get('name') or u.get('title_en') or u.get('description_en') or '?'
     print(f'  ${C_CYAN}{slug:<28}${C_RST}  {title}')
 " 2>/dev/null || warn "Could not fetch use cases (API down?)"
       ;;
