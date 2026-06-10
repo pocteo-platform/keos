@@ -78,6 +78,10 @@ class DetectedOperators(BaseModel):
     prometheus: bool = False
     cert_manager: bool = False
     kube_state_metrics: bool = False
+    # Security-domain telemetry sources (Phase 21). Present → the SPA can
+    # show the security domain as "live eBPF" vs "synthetic only".
+    falco: bool = False
+    tetragon: bool = False
 
 
 class AgentSelf(BaseModel):

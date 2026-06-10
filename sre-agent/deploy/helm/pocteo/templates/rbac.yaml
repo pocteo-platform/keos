@@ -64,6 +64,29 @@ rules:
   - apiGroups: [chaos-mesh.org]
     resources: [podchaos, networkchaos, stresschaos, iochaos, timechaos]
     verbs: [get, list, watch]
+  # ── Security domain (Phase 21) ──────────────────────────────────────
+  # Containment tools act cluster-wide (a threat can appear in any
+  # namespace); the OPA matrix + protected-namespace gate are the real
+  # guards on top of this RBAC.
+  #   isolate_pod / apply_network_policy → create + delete NetworkPolicies,
+  #     label/annotate pods (patch)
+  #   kill_pod → delete pods (cluster-wide; namespaced Role only covers
+  #     the release namespace)
+  #   quarantine_pod / capture_forensics → patch + read pod logs
+  - apiGroups: ["networking.k8s.io"]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, patch, delete]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  # Tetragon observer watches TracingPolicy resources to surface eBPF
+  # runtime-security signals.
+  - apiGroups: ["cilium.io"]
+    resources: [tracingpolicies, tracingpoliciesnamespaced]
+    verbs: [get, list, watch]
   # Cluster-context probe needs to enumerate the cluster's surface:
   # - CRDs (detect Argo CD / Flux / cert-manager / Chaos Mesh)
   # - Namespaces (which ones to probe)
