@@ -133,12 +133,10 @@ async def _call(name: str, args: dict[str, Any]):
 
 
 @pytest.mark.asyncio
-async def test_lists_eleven_tools_with_schemas() -> None:
+async def test_lists_all_tools_with_schemas() -> None:
     tools = await _list_tools()
     names = {t.name for t in tools}
-    # 11 actions — 5 pod/deploy-scoped + node-scope's cordon/drain/uncordon
-    # trio + Phase-14's predictive trio + Phase-15's revert_drift +
-    # the always-allowed page_human.
+    # 11 SRE actions + 6 Phase-21 security tools = 17.
     assert names == {
         "restart_pod",
         "rollout_undo",
@@ -153,6 +151,13 @@ async def test_lists_eleven_tools_with_schemas() -> None:
         # Phase 15 — GitOps drift revert.
         "revert_drift",
         "page_human",
+        # Phase 21 — security domain containment + escalation.
+        "isolate_pod",
+        "apply_network_policy",
+        "kill_pod",
+        "quarantine_pod",
+        "capture_forensics",
+        "page_security",
     }
     by_name = {t.name: t for t in tools}
     # restart_pod needs pod + namespace.
@@ -175,6 +180,11 @@ async def test_lists_eleven_tools_with_schemas() -> None:
     assert "kind" in by_name["revert_drift"].inputSchema["properties"]
     # page_human needs reason.
     assert "reason" in by_name["page_human"].inputSchema["properties"]
+    # Phase 21 — security tools carry pod + namespace (page_security: reason).
+    assert "pod" in by_name["isolate_pod"].inputSchema["properties"]
+    assert "namespace" in by_name["isolate_pod"].inputSchema["properties"]
+    assert "pod" in by_name["kill_pod"].inputSchema["properties"]
+    assert "reason" in by_name["page_security"].inputSchema["properties"]
 
 
 # ---------------------------------------------------------------------------
@@ -298,3 +308,93 @@ async def test_audit_records_source_mcp(
     rec = json.loads(lines[-1])
     assert rec["payload"]["source"] == "mcp"
     assert rec["event_type"] == "execute"
+
+
+# ---------------------------------------------------------------------------
+# Phase 21 — security domain tools over MCP. Proves the agent's live (non-
+# dry-run) containment path actually dispatches; without these tools on the
+# MCP server, a security incident in active mode would 404.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def stub_security_tools(monkeypatch):
+    """Patch agent.security_tools.* so the MCP security tools don't shell out
+    to kubectl. The MCP functions import the module lazily, so patching the
+    module attribute is enough."""
+    import agent.security_tools as st
+
+    calls: dict[str, list[dict[str, Any]]] = {}
+
+    def make_stub(name: str):
+        def fake(**kwargs):
+            calls.setdefault(name, []).append(kwargs)
+            return ActionResult(
+                tool=name, args=kwargs, dry_run=False, success=True, stdout=f"stub-{name} ok"
+            )
+
+        return fake
+
+    for name in (
+        "isolate_pod",
+        "apply_network_policy",
+        "kill_pod",
+        "quarantine_pod",
+        "capture_forensics",
+        "page_security",
+    ):
+        monkeypatch.setattr(st, name, make_stub(name))
+    return calls
+
+
+SECURITY_TOOL_CASES = [
+    ("isolate_pod", {"pod": "nginx-x", "namespace": "workloads"}),
+    ("apply_network_policy", {"pod": "nginx-x", "namespace": "workloads"}),
+    ("kill_pod", {"pod": "nginx-x", "namespace": "workloads"}),
+    ("quarantine_pod", {"pod": "nginx-x", "namespace": "workloads"}),
+    ("capture_forensics", {"pod": "nginx-x", "namespace": "workloads"}),
+    ("page_security", {"reason": "reverse shell detected"}),
+]
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"), SECURITY_TOOL_CASES, ids=[c[0] for c in SECURITY_TOOL_CASES]
+)
+@pytest.mark.asyncio
+async def test_security_tool_allow_path_active_mode(
+    tool: str,
+    args: dict[str, Any],
+    stub_mode,
+    stub_opa,
+    stub_security_tools,
+    stub_audit,
+) -> None:
+    """In active mode + OPA-allow, each security tool dispatches + returns
+    success through MCP."""
+    stub_mode["mode"] = "active"
+    res = await _call(tool, args)
+    assert res.is_error is False
+    payload = json.loads(res.content[0].text) if res.content else {}
+    assert payload.get("success") is True
+    assert stub_security_tools.get(tool), f"{tool} was not dispatched"
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"), SECURITY_TOOL_CASES, ids=[c[0] for c in SECURITY_TOOL_CASES]
+)
+@pytest.mark.asyncio
+async def test_security_tool_deny_in_observe_only(
+    tool: str,
+    args: dict[str, Any],
+    stub_mode,
+    stub_opa,
+    stub_security_tools,
+    stub_audit,
+) -> None:
+    """observe-only denies EVERY tool at the MCP gate — the OPA mode-gate is
+    global (it overrides the matrix), so even page_security is denied via the
+    direct MCP path. (In the graph, escalation runs page_security through
+    node_escalate, which bypasses this gate.)"""
+    stub_mode["mode"] = "observe-only"
+    res = await _call(tool, args)
+    assert res.is_error is True

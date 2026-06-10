@@ -802,7 +802,27 @@ DESCRIPTION
 EXAMPLES
   keosctl runbooks list
   keosctl runbooks show 001-memory-leak
-  keosctl runbooks show 005-rollout-regression.md
+  keosctl runbooks show security/001-reverse-shell
+EOF
+      ;;
+    quarantine) cat <<'EOF'
+keosctl quarantine — list / release security containment (Phase 21)
+
+USAGE
+  keosctl quarantine list                          (alias: ls)
+  keosctl quarantine release <pod> <namespace>     (alias: undo)
+
+DESCRIPTION
+  The security domain's containment tools (isolate_pod / apply_network_policy
+  / quarantine_pod) apply a deny-all or deny-egress NetworkPolicy + a
+  keos.pocteo/quarantine label. This is the reversible half:
+    list     Show every contained pod + the keos-security-agent NetworkPolicies
+    release  Delete those NetworkPolicies + strip the labels/annotations,
+             returning the pod to normal networking
+
+EXAMPLES
+  keosctl quarantine list
+  keosctl quarantine release nginx-demo-7b8d5-abc workloads
 EOF
       ;;
     bus) cat <<'EOF'
@@ -2303,6 +2323,54 @@ cmd_runbooks() {
   esac
 }
 
+# ─── Subcommand: quarantine (security containment: list / release) ───────────
+# The security domain's containment tools (isolate_pod / apply_network_policy /
+# quarantine_pod) apply a deny-all or deny-egress NetworkPolicy + a
+# keos.pocteo/quarantine label. This command lists what's contained and
+# RELEASES it — the reversible half of the containment story.
+cmd_quarantine() {
+  _check_help quarantine "$@"
+  local action="${1:-list}"
+  shift || true
+  case "$action" in
+    list|ls)
+      heading "Quarantined / contained workloads"
+      # Pods carrying the quarantine or contain label, across all namespaces.
+      printf "  ${C_BOLD}Pods${C_RST}\n"
+      kc_cluster get pods -A \
+        -l 'keos.pocteo/quarantine=true' -o wide 2>/dev/null | sed 's/^/    /' \
+        | grep -v '^    NAME' || true
+      kc_cluster get pods -A \
+        -l 'keos.pocteo/contain' -o wide 2>/dev/null | sed 's/^/    /' \
+        | grep -v '^    NAME' || true
+      printf "\n  ${C_BOLD}NetworkPolicies (keos-security-agent)${C_RST}\n"
+      kc_cluster get networkpolicy -A \
+        -l 'app.kubernetes.io/managed-by=keos-security-agent' \
+        -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name 2>/dev/null \
+        | sed 's/^/    /' | grep -v '^    NS ' || note "none — nothing contained"
+      printf "\n  ${C_DIM}Release one: keosctl quarantine release <pod> <namespace>${C_RST}\n"
+      ;;
+    release|undo)
+      local pod="${1:-}" ns="${2:-}"
+      [[ -z "$pod" || -z "$ns" ]] && die "usage: keosctl quarantine release <pod> <namespace>"
+      heading "Releasing $ns/$pod from containment"
+      # Delete the deny-all + deny-egress NetworkPolicies the tools create.
+      local np_iso="keos-isolate-$pod" np_exf="keos-noexfil-$pod"
+      kc_cluster delete networkpolicy "${np_iso:0:63}" -n "$ns" 2>/dev/null \
+        && ok "deleted NetworkPolicy ${np_iso:0:63}" || note "no deny-all NetworkPolicy"
+      kc_cluster delete networkpolicy "${np_exf:0:63}" -n "$ns" 2>/dev/null \
+        && ok "deleted NetworkPolicy ${np_exf:0:63}" || note "no deny-egress NetworkPolicy"
+      # Strip the labels + forensics-hold annotation (trailing - = remove).
+      kc_cluster label   pod "$pod" -n "$ns" keos.pocteo/quarantine-     2>/dev/null && ok "removed quarantine label" || true
+      kc_cluster label   pod "$pod" -n "$ns" keos.pocteo/contain-        2>/dev/null || true
+      kc_cluster annotate pod "$pod" -n "$ns" keos.pocteo/forensics-hold- 2>/dev/null || true
+      ok "released $ns/$pod"
+      note "Verify: keosctl quarantine list"
+      ;;
+    *) die "unknown action '$action' — valid: list, release" ;;
+  esac
+}
+
 # ─── Subcommand: bus (NATS subject tail / streams) ───────────────────────────
 
 cmd_bus() {
@@ -2537,12 +2605,13 @@ main() {
     values)          cmd_values "$@" ;;
     policy)          cmd_policy "$@" ;;
     runbooks|runbook) cmd_runbooks "$@" ;;
+    quarantine)      cmd_quarantine "$@" ;;
     bus|nats)        cmd_bus "$@" ;;
     help|--help|-h|"") cmd_help ;;
     *)
       printf "${C_RED}${CROSS}${C_RST} unknown command '%s'\n\n" "$cmd"
       printf "Did you mean one of these?\n"
-      for c in install uninstall status doctor mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update deps images values policy runbooks bus help; do
+      for c in install uninstall status doctor mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update deps images values policy runbooks quarantine bus help; do
         # Cheap fuzzy: print commands that share a prefix or contain the typo.
         if [[ "$c" == "$cmd"* || "$c" == *"$cmd"* ]]; then
           printf "  ${C_CYAN}%s${C_RST}\n" "$c"

@@ -593,6 +593,20 @@ def _action_to_mcp_args(action: ProposedAction, args: dict[str, Any]) -> dict[st
         }
     if action.tool == "page_human":
         return {"reason": args.get("reason", "no reason given")}
+    # ── Security domain (Phase 21) ──────────────────────────────────────
+    if action.tool in {
+        "isolate_pod",
+        "apply_network_policy",
+        "kill_pod",
+        "quarantine_pod",
+        "capture_forensics",
+    }:
+        return {
+            "pod": args.get("pod_name") or args.get("pod") or args.get("name") or "",
+            "namespace": args.get("namespace", ""),
+        }
+    if action.tool == "page_security":
+        return {"reason": args.get("reason", "no reason given")}
     return args
 
 
@@ -609,6 +623,26 @@ def node_verify(state: IncidentState) -> dict[str, Any]:
     ns = args.get("namespace") or state.get("namespace") or "workloads"
     pod = args.get("pod_name") or state.get("pod") or ""
     deploy = args.get("deployment_name")
+    # Security containment actions (Phase 21) — success means the pod is now
+    # ISOLATED, not that it recovered. A deny-all NetworkPolicy deliberately
+    # keeps the pod from becoming Ready, so verify_pod_recovered() would wait
+    # 30s and wrongly report healed=False. The kubectl call succeeding IS the
+    # verification: the containment landed. `page_security` is escalation —
+    # healed=None (a human owns the next step), like page_human below.
+    if tool in {
+        "isolate_pod",
+        "apply_network_policy",
+        "kill_pod",
+        "quarantine_pod",
+        "capture_forensics",
+    }:
+        contained = bool(action_result.get("success"))
+        v = Verification(
+            healed=contained,
+            notes=f"{tool} {'applied — pod contained' if contained else 'failed to apply'}",
+        )
+        audit.emit(state["incident_id"], "verify", v.model_dump())
+        return {"verification": v.model_dump()}
     # Node-scoped actions (cordon / drain) ARE healing actions — their
     # whole purpose is to mutate node state; kubectl-call success means
     # the heal happened. `healed=True` is correct here.
@@ -621,10 +655,12 @@ def node_verify(state: IncidentState) -> dict[str, Any]:
     # the outcome chip is "Escalated" (not the misleading "Healed").
     # `healed=None` because we genuinely don't know whether the operator
     # will fix it.
-    if tool == "page_human":
+    # page_security (Phase 21) is the security-domain escalation tool —
+    # same semantics as page_human: a human owns the next step.
+    if tool in {"page_human", "page_security"}:
         v = Verification(
             healed=None,
-            notes="page delivered to human; cluster state unchanged",
+            notes=f"{tool} delivered; cluster state unchanged",
         )
         audit.emit(state["incident_id"], "verify", v.model_dump())
         return {"verification": v.model_dump(), "escalated": True}

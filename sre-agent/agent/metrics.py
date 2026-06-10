@@ -45,9 +45,10 @@ REGISTRY = CollectorRegistry()
 
 graph_runs_total = Counter(
     "keos_graph_runs_total",
-    "Total agent graph runs, partitioned by outcome and the action that was "
-    "ultimately attempted (None when the graph short-circuited at triage).",
-    labelnames=("outcome", "tool"),
+    "Total agent graph runs, partitioned by outcome, the action that was "
+    "ultimately attempted (None when the graph short-circuited at triage), "
+    "and the agent domain (sre | security).",
+    labelnames=("outcome", "tool", "domain"),
     registry=REGISTRY,
 )
 

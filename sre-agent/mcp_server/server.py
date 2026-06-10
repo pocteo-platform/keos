@@ -416,3 +416,154 @@ def page_human(reason: str, severity: str = DEFAULT_SEVERITY) -> dict[str, Any]:
     payload = result.model_dump() | {"mode": mode, "severity": severity, "incident_id": inc}
     _emit(inc, "execute", payload)
     return payload
+
+
+# ---------------------------------------------------------------------------
+# Security domain tools (Phase 21). Same pattern as above — OPA gate, then
+# dispatch to agent.security_tools.*. These are what the agent's execute node
+# calls over MCP for a security incident in active mode; without them, live
+# containment would 404 on the MCP server.
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def isolate_pod(pod: str, namespace: str, severity: str = DEFAULT_SEVERITY) -> dict[str, Any]:
+    """Cut a compromised pod off the network (deny-all NetworkPolicy +
+    quarantine label) and hold it for forensics. Reversible: delete the
+    NetworkPolicy + remove the label. The default containment for an active
+    runtime threat (reverse shell, miner)."""
+    from agent import security_tools
+
+    inc = _new_incident_id()
+    action = ProposedAction(
+        tool="isolate_pod",
+        args={"pod_name": pod, "namespace": namespace},
+        scope="pod",
+        reversible=True,
+        rationale="MCP-driven isolate_pod call",
+    )
+    mode = _gate(action, severity)
+    result = security_tools.isolate_pod(pod_name=pod, namespace=namespace, dry_run=False)
+    payload = result.model_dump() | {"mode": mode, "severity": severity, "incident_id": inc}
+    _emit(inc, "execute", payload)
+    if not result.success:
+        raise ToolError(f"isolate_pod failed: {result.error or result.stderr}")
+    return payload
+
+
+@mcp.tool()
+def apply_network_policy(
+    pod: str, namespace: str, severity: str = DEFAULT_SEVERITY
+) -> dict[str, Any]:
+    """Block a pod's outbound traffic (deny-egress NetworkPolicy, DNS
+    excepted) while keeping it observable. The data-exfil containment.
+    Reversible: delete the NetworkPolicy."""
+    from agent import security_tools
+
+    inc = _new_incident_id()
+    action = ProposedAction(
+        tool="apply_network_policy",
+        args={"pod_name": pod, "namespace": namespace},
+        scope="pod",
+        reversible=True,
+        rationale="MCP-driven apply_network_policy call",
+    )
+    mode = _gate(action, severity)
+    result = security_tools.apply_network_policy(pod_name=pod, namespace=namespace, dry_run=False)
+    payload = result.model_dump() | {"mode": mode, "severity": severity, "incident_id": inc}
+    _emit(inc, "execute", payload)
+    if not result.success:
+        raise ToolError(f"apply_network_policy failed: {result.error or result.stderr}")
+    return payload
+
+
+@mcp.tool()
+def kill_pod(pod: str, namespace: str, severity: str = DEFAULT_SEVERITY) -> dict[str, Any]:
+    """Force-delete a compromised pod (irreversible — process state is lost).
+    Use only when containment-in-place is insufficient and the threat is
+    critical. The owning controller respawns a clean pod."""
+    from agent import security_tools
+
+    inc = _new_incident_id()
+    action = ProposedAction(
+        tool="kill_pod",
+        args={"pod_name": pod, "namespace": namespace},
+        scope="pod",
+        reversible=False,
+        rationale="MCP-driven kill_pod call",
+    )
+    mode = _gate(action, severity)
+    result = security_tools.kill_pod(pod_name=pod, namespace=namespace, dry_run=False)
+    payload = result.model_dump() | {"mode": mode, "severity": severity, "incident_id": inc}
+    _emit(inc, "execute", payload)
+    if not result.success:
+        raise ToolError(f"kill_pod failed: {result.error or result.stderr}")
+    return payload
+
+
+@mcp.tool()
+def quarantine_pod(pod: str, namespace: str, severity: str = DEFAULT_SEVERITY) -> dict[str, Any]:
+    """Isolate a pod AND annotate it for a forensics hold (preserve evidence).
+    Reversible: remove the label + annotation + delete the NetworkPolicy."""
+    from agent import security_tools
+
+    inc = _new_incident_id()
+    action = ProposedAction(
+        tool="quarantine_pod",
+        args={"pod_name": pod, "namespace": namespace},
+        scope="pod",
+        reversible=True,
+        rationale="MCP-driven quarantine_pod call",
+    )
+    mode = _gate(action, severity)
+    result = security_tools.quarantine_pod(pod_name=pod, namespace=namespace, dry_run=False)
+    payload = result.model_dump() | {"mode": mode, "severity": severity, "incident_id": inc}
+    _emit(inc, "execute", payload)
+    if not result.success:
+        raise ToolError(f"quarantine_pod failed: {result.error or result.stderr}")
+    return payload
+
+
+@mcp.tool()
+def capture_forensics(pod: str, namespace: str, severity: str = DEFAULT_SEVERITY) -> dict[str, Any]:
+    """Read-only evidence capture: annotate the pod + dump its recent logs
+    into the audit trail. Safe to run anytime; pair with a containment
+    action."""
+    from agent import security_tools
+
+    inc = _new_incident_id()
+    action = ProposedAction(
+        tool="capture_forensics",
+        args={"pod_name": pod, "namespace": namespace},
+        scope="pod",
+        reversible=True,
+        rationale="MCP-driven capture_forensics call",
+    )
+    mode = _gate(action, severity)
+    result = security_tools.capture_forensics(pod_name=pod, namespace=namespace, dry_run=False)
+    payload = result.model_dump() | {"mode": mode, "severity": severity, "incident_id": inc}
+    _emit(inc, "execute", payload)
+    if not result.success:
+        raise ToolError(f"capture_forensics failed: {result.error or result.stderr}")
+    return payload
+
+
+@mcp.tool()
+def page_security(reason: str, severity: str = DEFAULT_SEVERITY) -> dict[str, Any]:
+    """Page the security / incident-response channel. The security-domain
+    escalation tool — always allowed by the OPA matrix."""
+    from agent import security_tools
+
+    inc = _new_incident_id()
+    action = ProposedAction(
+        tool="page_security",
+        args={"reason": reason},
+        scope="n/a",
+        reversible=True,
+        rationale="MCP-driven page_security call",
+    )
+    mode = _gate(action, severity)
+    result = security_tools.page_security(reason=reason, dry_run=False)
+    payload = result.model_dump() | {"mode": mode, "severity": severity, "incident_id": inc}
+    _emit(inc, "execute", payload)
+    return payload

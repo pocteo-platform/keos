@@ -96,9 +96,10 @@ async def _process_message(m, label: str) -> None:
             if final:
                 outcome = _classify_outcome(final)
                 tool = ((final.get("proposed_action") or {}).get("tool")) or "none"
-                _m.graph_runs_total.labels(outcome=outcome, tool=tool).inc()
+                domain = final.get("domain") or "sre"
+                _m.graph_runs_total.labels(outcome=outcome, tool=tool, domain=domain).inc()
             else:
-                _m.graph_runs_total.labels(outcome="crashed", tool="none").inc()
+                _m.graph_runs_total.labels(outcome="crashed", tool="none", domain="sre").inc()
         except Exception:  # noqa: BLE001
             pass
 
