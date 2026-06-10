@@ -399,7 +399,10 @@
         "descriptionFr": "Description (FR)",
         "descriptionFrPlaceholder": "Ce que ce cas illustre, en markdown.",
         "tags": "Tags",
-        "tagsPlaceholder": "Type a tag and press Enter"
+        "tagsPlaceholder": "Type a tag and press Enter",
+        "domain": "Domain",
+        "domainHintSre": "Publishes to infra.events.* — Observe → Predict → Heal → Learn, with the SRE remediation tools.",
+        "domainHintSecurity": "Publishes to security.events.* — Detect → Investigate → Contain → Respond, with the security containment tools."
       },
       "target": {
         "namespace": "Namespace",

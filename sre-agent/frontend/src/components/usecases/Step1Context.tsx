@@ -3,6 +3,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { X } from "lucide-react";
 import type { Draft } from "./types";
 
@@ -27,6 +28,38 @@ export function Step1Context({ draft, setDraft }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* Phase 21 — which agent domain this scenario drives. */}
+      <div className="space-y-2">
+        <Label>{t("usecases.wizard.context.domain", { defaultValue: "Domain" })}</Label>
+        <ToggleGroup
+          type="single"
+          value={draft.domain}
+          onValueChange={(v) =>
+            v &&
+            // Reset the expected tool — the catalog differs per domain, so a
+            // tool picked for the other domain would no longer be valid.
+            setDraft({
+              domain: v as "sre" | "security",
+              expectation: { ...draft.expectation, proposed_tool: null },
+            })
+          }
+        >
+          <ToggleGroupItem value="sre">{t("domain.sre")}</ToggleGroupItem>
+          <ToggleGroupItem value="security">{t("domain.security")}</ToggleGroupItem>
+        </ToggleGroup>
+        <p className="text-xs text-muted-foreground">
+          {draft.domain === "security"
+            ? t("usecases.wizard.context.domainHintSecurity", {
+                defaultValue:
+                  "Publishes to security.events.* — Detect → Investigate → Contain → Respond, with the security containment tools.",
+              })
+            : t("usecases.wizard.context.domainHintSre", {
+                defaultValue:
+                  "Publishes to infra.events.* — Observe → Predict → Heal → Learn, with the SRE remediation tools.",
+              })}
+        </p>
+      </div>
+
       <div className="space-y-2">
         <Label htmlFor="name">
           {t("usecases.wizard.context.name")} <span className="text-danger">*</span>
