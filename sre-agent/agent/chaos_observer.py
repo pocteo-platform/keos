@@ -113,9 +113,37 @@ class ChaosObserver:
         # a non-main thread raises on Python 3.10+, which is the bug this
         # field exists to dodge.
         self._loop: asyncio.AbstractEventLoop | None = None
+        # CoreV1Api handle, stashed in run() so the worker-thread _handle()
+        # can pre-check pod readiness before publishing (see _pod_is_ready).
+        self._api = None
 
     def stop(self) -> None:
         self._stop.set()
+
+    # ---- readiness pre-check ---------------------------------------------
+
+    def _pod_is_ready(self, namespace: str, name: str) -> bool:
+        """True if the pod is currently Ready=True. Used to suppress ghost
+        incidents: kubelet re-emits transient `Unhealthy`/`BackOff` warnings
+        for pods that have already recovered (a flapping probe re-fires every
+        few minutes, sails past the debounce, and would otherwise spawn an
+        endless stream of auto-resolved incidents). If the pod is Ready right
+        now, the signal no longer reflects reality — skip it at the source
+        instead of letting the graph create an incident the triage node will
+        only mark stale. Fail-OPEN (return False) on any error so a real
+        problem is never silently dropped."""
+        api = self._api
+        if api is None:
+            return False
+        try:
+            pod = api.read_namespaced_pod_status(name=name, namespace=namespace)
+            conds = (pod.status.conditions or []) if pod and pod.status else []
+            for c in conds:
+                if getattr(c, "type", "") == "Ready":
+                    return getattr(c, "status", "") == "True"
+            return False
+        except Exception:  # noqa: BLE001 — readiness check is best-effort
+            return False
 
     # ---- rate limit ------------------------------------------------------
 
@@ -181,6 +209,7 @@ class ChaosObserver:
             pass
 
         api = client.CoreV1Api()
+        self._api = api  # for _handle()'s readiness pre-check
         allow = _watched_namespaces()
         if allow:
             log.info("chaos_observer: allowlist mode — watching ns=%s", sorted(allow))
@@ -263,6 +292,20 @@ class ChaosObserver:
         now = time.monotonic()
         last = self._last_emit.get(key, 0.0)
         if now - last < DEBOUNCE_S:
+            return
+
+        # Readiness pre-check (Pod events only). kubelet re-emits transient
+        # `Unhealthy`/`BackOff` warnings for pods that have already recovered;
+        # a flapping probe re-fires every few minutes, clears the debounce,
+        # and would spawn an endless stream of auto-resolved "ghost"
+        # incidents. If the pod is Ready right now, the signal is stale — drop
+        # it here so the graph never creates an incident triage would only
+        # skip. Node events (kind=Node) and not-found pods fall through.
+        if kind == "Pod" and self._pod_is_ready(ns, name):
+            log.debug(
+                "chaos_observer: skip %s/%s reason=%s — pod is Ready (transient)",
+                kind, name, reason,
+            )
             return
 
         if not self._take_token():
