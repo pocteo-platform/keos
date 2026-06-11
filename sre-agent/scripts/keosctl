@@ -1234,7 +1234,8 @@ cmd_ui() {
     fi
   fi
 
-  exec kc port-forward svc/pocteo "$port:80" --address=0.0.0.0
+  # kc is a shell function — exec can't run it (exec needs a real binary).
+  kc port-forward svc/pocteo "$port:80" --address=0.0.0.0
 }
 
 # ─── Subcommand: token ───────────────────────────────────────────────────────
@@ -1559,7 +1560,7 @@ cmd_portforward() {
     *) die "unknown component '$component'" ;;
   esac
   info "Forwarding svc/$component :$target_port → localhost:$port"
-  exec kc port-forward "svc/$component" "$port:$target_port"
+  kc port-forward "svc/$component" "$port:$target_port"
 }
 
 # ─── Subcommand: upgrade ─────────────────────────────────────────────────────
