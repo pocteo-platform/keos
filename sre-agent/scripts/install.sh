@@ -469,6 +469,61 @@ run_install() {
   fi
 }
 
+# Make sure ~/.local/bin is on PATH for the user's *login* shell, whatever
+# the distro/shell combo. Appends one guarded line to the file that login
+# shells actually read (announced to the user), like rustup/pyenv do.
+_wire_local_bin_path() {
+  # Already resolvable → nothing to do.
+  if command -v keosctl >/dev/null 2>&1; then return 0; fi
+  if [[ "${KEOS_NO_PATH_WIRING:-0}" == "1" ]]; then
+    note "Add ~/.local/bin to your PATH (KEOS_NO_PATH_WIRING=1, not touching profiles):"
+    note "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+    return 0
+  fi
+
+  local login_shell rc="" line='if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; fi'
+  login_shell="$(basename "${SHELL:-/bin/bash}")"
+
+  case "$login_shell" in
+    zsh)
+      # zsh login shells read ~/.zprofile (not ~/.profile).
+      rc="$HOME/.zprofile"
+      ;;
+    fish)
+      # fish has its own PATH mechanism — no rc-file PATH line.
+      if command -v fish >/dev/null 2>&1; then
+        fish -c 'contains "$HOME/.local/bin" $fish_user_paths; or set -U fish_user_paths "$HOME/.local/bin" $fish_user_paths' 2>/dev/null \
+          && ok "PATH" "~/.local/bin added to fish_user_paths (new shells pick it up)"
+      fi
+      return 0
+      ;;
+    *)
+      # bash & friends. Order matters: bash reads the FIRST of
+      # .bash_profile / .bash_login / .profile for login shells and
+      # ignores the rest — so append to the one that actually wins.
+      if   [[ -f "$HOME/.bash_profile" ]]; then rc="$HOME/.bash_profile"
+      elif [[ -f "$HOME/.bash_login"   ]]; then rc="$HOME/.bash_login"
+      else                                      rc="$HOME/.profile"
+      fi
+      ;;
+  esac
+
+  if [[ -n "$rc" ]]; then
+    if [[ -f "$rc" ]] && grep -q '\.local/bin' "$rc" 2>/dev/null; then
+      # The winning rc file already handles ~/.local/bin — current shell
+      # just predates the directory; a re-login fixes it.
+      note "~/.local/bin is wired in $(basename "$rc") — open a new terminal to pick it up."
+    else
+      {
+        printf '\n# Added by Keos installer — keosctl lives in ~/.local/bin\n'
+        printf '%s\n' "$line"
+      } >> "$rc"
+      ok "PATH" "~/.local/bin appended to $(basename "$rc") (login shell: $login_shell)"
+    fi
+  fi
+  note "For THIS terminal session, run:  export PATH=\"\$HOME/.local/bin:\$PATH\""
+}
+
 step_done() {
   printf "\n"
   printf "${C_GREEN}"
@@ -487,16 +542,21 @@ EOF
   fi
 
   # Symlink keosctl to ~/.local/bin so the operator can use the CLI
-  # without remembering the repo path.
+  # without remembering the repo path — then make sure ~/.local/bin is
+  # actually on PATH for the user's login shell. Distros disagree here:
+  #   - Debian/Ubuntu: ~/.profile adds ~/.local/bin, BUT only when no
+  #     ~/.bash_profile exists — bash reads .bash_profile INSTEAD and
+  #     skips .profile entirely (common leftover from pyenv/nvm setups).
+  #   - Fedora/RHEL/Arch: ~/.bash_profile is the canonical login file.
+  #   - zsh (macOS default, some Arch setups): ~/.zprofile.
+  #   - fish: fish_user_paths, not an rc-file PATH line.
+  # Opt out with KEOS_NO_PATH_WIRING=1.
   local link_target="$HOME/.local/bin/keosctl"
   if [[ -e "$SCRIPT_DIR/keosctl" && ! -e "$link_target" ]]; then
     mkdir -p "$HOME/.local/bin"
     ln -sfn "$SCRIPT_DIR/keosctl" "$link_target"
     ok "keosctl" "symlinked to ~/.local/bin/keosctl"
-    if ! command -v keosctl >/dev/null 2>&1; then
-      note "Add ~/.local/bin to your PATH if it's not already there:"
-      note "  export PATH=\"\$HOME/.local/bin:\$PATH\""
-    fi
+    _wire_local_bin_path
     printf "\n"
   fi
 
