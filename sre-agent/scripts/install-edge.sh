@@ -57,10 +57,12 @@
 #   # with --no-local-build-fallback).
 #   bash install-edge.sh --local-build
 #
-#   # Install the security domain too — Falco + Tetragon for live eBPF
-#   # runtime-threat detection (reverse shells, miners, priv-esc, exfil).
-#   # Both are eBPF agents and reuse the detected containerd socket path.
-#   bash install-edge.sh --security
+#   # Security sensors — Falco + Tetragon for live eBPF runtime-threat
+#   # detection (reverse shells, miners, priv-esc, exfil) — are installed
+#   # BY DEFAULT (both are eBPF agents and reuse the detected containerd
+#   # socket path). They need a capable kernel (BTF/CO-RE); on WSL2 or
+#   # locked-down kernels they may not start. Opt out with:
+#   bash install-edge.sh --no-security
 #
 #   # Probe-only — show what the script would install, then exit.
 #   # Useful for verifying the kubeconfig + distro detection before
@@ -96,7 +98,7 @@ IMAGE_REGISTRY=""
 LOCAL_BUILD=0
 LOCAL_BUILD_AUTO=1     # default: auto-fall-back to local build if public images aren't reachable
 LOCAL_CHART_PATH="${KEOS_LOCAL_CHART:-}"   # for `make install-edge` against k3d
-ENABLE_SECURITY=0     # --security: install Falco + Tetragon for live eBPF threat detection
+ENABLE_SECURITY=1     # security sensors (Falco + Tetragon) install by default; --no-security opts out
 
 # ─── Argparse ──────────────────────────────────────────────────────────────
 
@@ -116,7 +118,8 @@ while [[ $# -gt 0 ]]; do
     --local-build) LOCAL_BUILD=1; LOCAL_BUILD_AUTO=0; shift ;;
     --no-local-build-fallback) LOCAL_BUILD_AUTO=0; shift ;;
     --local-chart) LOCAL_CHART_PATH="$2"; shift 2 ;;
-    --security)    ENABLE_SECURITY=1; shift ;;
+    --security)    ENABLE_SECURITY=1; shift ;;   # explicit (default); kept for back-compat
+    --no-security|--skip-security) ENABLE_SECURITY=0; shift ;;
     -h|--help)     PRINT_HELP=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -531,6 +534,19 @@ if [[ "$ENABLE_SECURITY" -eq 1 ]]; then
     --set "tetragon.tetragon.hostProcPath=/proc"
   )
   ok "security domain: Falco + Tetragon enabled (live eBPF detection)"
+  # Non-blocking capability warning. eBPF sensors need a real, BTF-capable
+  # kernel; WSL2 and some minimal/locked-down kernels can't run them and
+  # the DaemonSet pods will CrashLoop. We still attempt (operator asked
+  # for sensors); just flag it so a crashloop isn't a mystery.
+  _krel="$(uname -r 2>/dev/null || echo unknown)"
+  if grep -qiE "microsoft|wsl" /proc/version 2>/dev/null || [[ "$_krel" == *microsoft* ]]; then
+    warn "kernel '$_krel' looks like WSL2 — Falco/Tetragon may not start here."
+    warn "  If the falco/tetragon pods CrashLoop, re-run with --no-security."
+  fi
+else
+  note "security sensors (Falco + Tetragon) skipped (--no-security). The"
+  note "  security domain still works on synthetic events, but live eBPF"
+  note "  threat detection is off."
 fi
 helm "${HELM_ARGS[@]}"
 ok "Helm release '$RELEASE' deployed"

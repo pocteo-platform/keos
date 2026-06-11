@@ -413,6 +413,24 @@ step_mode() {
   note "Selected: ${ANS[MODE]}"
 }
 
+step_security() {
+  step_header 7 "Live security sensors"
+  say "Falco + Tetragon are eBPF agents that give the agent ${C_BOLD}live${C_RST} runtime-"
+  say "threat detection — reverse shells, crypto miners, privilege escalation,"
+  say "and data exfil — instead of only synthetic events."
+  printf "\n"
+  note "They need a capable kernel (BTF/CO-RE). On a real node (incl. Jetson)"
+  note "they just work; on ${C_BOLD}WSL2${C_RST} or locked-down kernels they may CrashLoop."
+  printf "\n"
+  if confirm "Install Falco + Tetragon? (recommended)" "Y"; then
+    ANS[SECURITY]="true"
+    note "Selected: install security sensors"
+  else
+    ANS[SECURITY]="false"
+    note "Selected: skip sensors (security domain runs on synthetic events only)"
+  fi
+}
+
 step_summary() {
   heading "Review · ready to install"
   info "Cluster"       "${ANS[CONTEXT]:-(via $-kubeconfig)} · distro=${ANS[DISTRO]}"
@@ -422,6 +440,7 @@ step_summary() {
   info "Chat model"    "${ANS[CHAT_MODEL]}"
   info "Embed model"   "${ANS[EMBED_MODEL]}"
   info "Default mode"  "${ANS[MODE]}"
+  info "Security"      "$( [[ "${ANS[SECURITY]}" == "true" ]] && echo "Falco + Tetragon (live eBPF)" || echo "sensors skipped" )"
   info "Namespace"     "${ANS[NAMESPACE]}"
   info "Helm release"  "${ANS[RELEASE]}"
   printf "\n"
@@ -447,6 +466,10 @@ run_install() {
                          "--local-chart" "$REPO_ROOT/deploy/helm/pocteo") ;;
     public)      args+=("--no-local-build-fallback") ;;
   esac
+  # Security sensors default on; only pass --no-security when opted out.
+  # (Default unset — e.g. the --yes fast path — leaves install-edge's own
+  # default-on behavior in place.)
+  if [[ "${ANS[SECURITY]}" == "false" ]]; then args+=("--no-security"); fi
 
   # Models — passed via env so install-edge.sh's `ollama pull` picks them up.
   export KEOS_CHAT_MODEL="${ANS[CHAT_MODEL]}"
@@ -604,6 +627,7 @@ main() {
   step_model
   step_images
   step_mode
+  step_security
   step_summary
   if run_install; then
     step_done
