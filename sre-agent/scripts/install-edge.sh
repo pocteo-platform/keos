@@ -99,6 +99,7 @@ LOCAL_BUILD=0
 LOCAL_BUILD_AUTO=1     # default: auto-fall-back to local build if public images aren't reachable
 LOCAL_CHART_PATH="${KEOS_LOCAL_CHART:-}"   # for `make install-edge` against k3d
 ENABLE_SECURITY=1     # security sensors (Falco + Tetragon) install by default; --no-security opts out
+SEED_DEMO_WORKLOADS=1 # seed the demo namespaces + nginx-demo so use-cases have a live target; --no-demo-workloads opts out
 
 # ─── Argparse ──────────────────────────────────────────────────────────────
 
@@ -120,6 +121,7 @@ while [[ $# -gt 0 ]]; do
     --local-chart) LOCAL_CHART_PATH="$2"; shift 2 ;;
     --security)    ENABLE_SECURITY=1; shift ;;   # explicit (default); kept for back-compat
     --no-security|--skip-security) ENABLE_SECURITY=0; shift ;;
+    --no-demo-workloads|--skip-demo-workloads) SEED_DEMO_WORKLOADS=0; shift ;;
     -h|--help)     PRINT_HELP=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -579,6 +581,29 @@ if [[ "$SKIP_MODEL_PULL" -eq 0 ]]; then
 fi
 
 # ─── Runbook seed ──────────────────────────────────────────────────────────
+
+# ─── Demo workloads ───────────────────────────────────────────────────────
+# The use-case library (security + SRE scenarios) targets app=nginx-demo in
+# the `workloads` namespace. Without it, every containment/heal action fails
+# with "namespace not found" because there's nothing to act on. Seed the demo
+# namespaces + nginx-demo by default so the use cases work out of the box on a
+# fresh install. Opt out with --no-demo-workloads on a real edge cluster that
+# already has its own workloads to protect.
+if [[ "$SEED_DEMO_WORKLOADS" -eq 1 ]]; then
+  _manifests_dir=""
+  for _d in "$REPO_ROOT/manifests" "$(dirname "$(cd "$(dirname "$0")" && pwd)")/manifests"; do
+    if [[ -f "$_d/demo-workloads.yaml" ]]; then _manifests_dir="$_d"; break; fi
+  done
+  if [[ -n "$_manifests_dir" ]]; then
+    step "Seeding demo workloads (namespaces + nginx-demo)…"
+    kubectl apply -f "$_manifests_dir/namespaces.yaml" >/dev/null 2>&1 \
+      && kubectl apply -f "$_manifests_dir/demo-workloads.yaml" >/dev/null 2>&1 \
+      && ok "demo workloads applied — use cases have a live target (app=nginx-demo/workloads)" \
+      || warn "demo-workload apply returned non-zero; run 'kubectl apply -f $_manifests_dir/' manually"
+  else
+    warn "demo workloads manifests not found; skipping (use cases will have no target until you deploy one)"
+  fi
+fi
 
 step "Seeding the runbook corpus into Qdrant…"
 # Same shape as above: wait Ready before exec, then seed.
