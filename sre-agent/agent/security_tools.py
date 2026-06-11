@@ -58,6 +58,24 @@ def _apply_manifest(manifest: dict[str, Any], timeout: float = 30.0) -> tuple[in
             pass
 
 
+def _isolation_error(lcode: int, lerr: str, acode: int, aerr: str) -> str:
+    """Build a human-useful error for a failed label+apply containment.
+
+    The old message ("label exit 1 / apply exit 1") told the operator
+    nothing — the most common cause is a missing target (namespace/pod not
+    found) and the kubectl stderr says exactly that. Fold the real stderr in
+    so the SPA's failure banner is actionable. Kept compact (first stderr
+    line per step) so it reads cleanly in a chip."""
+    parts: list[str] = []
+    if lcode != 0:
+        detail = (lerr or "").strip().splitlines()
+        parts.append(f"label failed (exit {lcode}): {detail[0] if detail else 'no detail'}")
+    if acode != 0:
+        detail = (aerr or "").strip().splitlines()
+        parts.append(f"apply failed (exit {acode}): {detail[0] if detail else 'no detail'}")
+    return "; ".join(parts) or "containment failed"
+
+
 # ---------------------------------------------------------------------------
 # isolate_pod — deny-all NetworkPolicy + quarantine label.
 # ---------------------------------------------------------------------------
@@ -121,7 +139,7 @@ def isolate_pod(pod_name: str, namespace: str, dry_run: bool = False) -> ActionR
         success=ok,
         stdout=aout.strip(),
         stderr=(lerr + aerr).strip(),
-        error=None if ok else f"label exit {lcode} / apply exit {acode}",
+        error=None if ok else _isolation_error(lcode, lerr, acode, aerr),
         meta={"reversible": True, "network_policy": np_name},
     )
 
@@ -193,7 +211,7 @@ def apply_network_policy(pod_name: str, namespace: str, dry_run: bool = False) -
         success=ok,
         stdout=aout.strip(),
         stderr=(lerr + aerr).strip(),
-        error=None if ok else f"label exit {lcode} / apply exit {acode}",
+        error=None if ok else _isolation_error(lcode, lerr, acode, aerr),
         meta={"reversible": True, "network_policy": np_name},
     )
 
