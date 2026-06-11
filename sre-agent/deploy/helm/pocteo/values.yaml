@@ -116,6 +116,23 @@ backup:
 # ---------------------------------------------------------------------------
 networkPolicy:
   enabled: true
+  # CIDRs where the Kubernetes API server is reachable. The apiserver
+  # ALWAYS lives on a private IP (ClusterIP like 10.43.0.1 / 10.96.0.1,
+  # or the node IP), so the agent's egress policy must allow these — the
+  # earlier "0.0.0.0/0 except RFC1918" rule blocked the apiserver and
+  # left the agent unable to read its own cluster (0 nodes / 0 pods).
+  # Default to the three private ranges so it works on any distro
+  # (k3d, k3s, kubeadm, EKS/GKE/AKS, Talos). Operators who know their
+  # apiserver CIDR can narrow this to e.g. ["10.43.0.0/16"] (k3s svc range).
+  apiServerCIDRs:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+  # Allow egress to the public internet on 443 (for external LLM APIs
+  # such as Anthropic/OpenAI when not using in-cluster Ollama). Excludes
+  # RFC1918 to limit LAN/metadata SSRF. Set false for a fully air-gapped
+  # edge node that only uses in-cluster Ollama.
+  allowPublicEgress: true
 
 # Agent runtime defaults to observe-only — safest on first install.
 agent:
