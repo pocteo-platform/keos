@@ -69,3 +69,35 @@ securityContext:
 {{ toYaml . | indent 2 }}
 {{- end }}
 {{- end -}}
+
+{{/* NetworkPolicy egress rules for reaching the Kubernetes API server
+     (and optionally the public internet for external LLM APIs). The
+     apiserver always lives on a private IP, so we explicitly allow the
+     configured apiServerCIDRs on 443/6443 — the previous
+     "0.0.0.0/0 except RFC1918" rule blocked it. Render under a netpol's
+     `egress:` list. Usage: {{ include "pocteo.apiServerEgress" . | nindent 4 }} */}}
+{{- define "pocteo.apiServerEgress" -}}
+# Kubernetes API server — reachable only on private IPs (ClusterIP or
+# node IP), so allow the configured apiserver CIDRs on 443/6443.
+- to:
+  {{- range .Values.networkPolicy.apiServerCIDRs }}
+    - ipBlock:
+        cidr: {{ . }}
+  {{- end }}
+  ports:
+    - { port: 443, protocol: TCP }
+    - { port: 6443, protocol: TCP }
+{{- if .Values.networkPolicy.allowPublicEgress }}
+# Public internet on 443 for external LLM APIs (excludes RFC1918 to limit
+# LAN/metadata SSRF). Disable via networkPolicy.allowPublicEgress=false.
+- to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+  ports:
+    - { port: 443, protocol: TCP }
+{{- end }}
+{{- end -}}

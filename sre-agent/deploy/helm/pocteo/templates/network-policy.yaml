@@ -70,22 +70,7 @@ spec:
       ports:
         - { port: 53, protocol: UDP }
         - { port: 53, protocol: TCP }
-    # Kubernetes API server. We can't pin its IP — allow egress to the
-    # default service range. Operators who want stricter rules can pin
-    # to the kubernetes.default.svc endpoint via NetworkPolicy egress
-    # selectors that match their cluster's apiserver namespace label.
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              # Exclude RFC1918 — we only need the apiserver address. If
-              # your apiserver is on a private LB, drop this except block.
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-      ports:
-        - { port: 443, protocol: TCP }
-        - { port: 6443, protocol: TCP }
+    {{- include "pocteo.apiServerEgress" . | nindent 4 }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -124,16 +109,7 @@ spec:
         - { port: 53, protocol: TCP }
     # K8s apiserver — required because the MCP tools call kubectl, which
     # talks to the apiserver under the hood.
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-      ports:
-        - { port: 443, protocol: TCP }
-        - { port: 6443, protocol: TCP }
+    {{- include "pocteo.apiServerEgress" . | nindent 4 }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -195,14 +171,5 @@ spec:
       ports:
         - { port: 53, protocol: UDP }
         - { port: 53, protocol: TCP }
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-      ports:
-        - { port: 443, protocol: TCP }
-        - { port: 6443, protocol: TCP }
+    {{- include "pocteo.apiServerEgress" . | nindent 4 }}
 {{- end }}
