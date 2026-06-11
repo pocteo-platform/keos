@@ -149,6 +149,15 @@ def node_triage(state: IncidentState) -> dict[str, Any]:
                     # the pod no longer exists (both = nothing to act on).
                     if pod and namespace:
                         resolved, why = _is_pod_state_resolved(namespace, pod)
+                        # Domain guard: a SECURITY event must never be skipped
+                        # just because the pod is Ready — a reverse shell,
+                        # miner, or exfil runs happily inside a perfectly
+                        # healthy pod. Pod readiness is an SRE/infra signal,
+                        # irrelevant to whether the pod is compromised. We
+                        # still honour `pod_gone` (can't contain a pod that no
+                        # longer exists) for both domains.
+                        if domain == "security" and why == "already_ready":
+                            resolved = False
                         if resolved:
                             is_stale = True
                             out["stale_resolved"] = True
