@@ -1,0 +1,8 @@
+# SOPS encryption rules for the GitOps config. Only Kubernetes Secret
+# data/stringData is encrypted (metadata stays readable so kustomize-controller
+# can route the resource). The recipient age public key is supplied at encrypt
+# time via `sops --age $KEOS_AGE_RECIPIENT` (or SOPS_AGE_RECIPIENTS), so this
+# file carries no key material and is safe to commit.
+creation_rules:
+  - path_regex: .*secret.*\.ya?ml$
+    encrypted_regex: ^(data|stringData)$

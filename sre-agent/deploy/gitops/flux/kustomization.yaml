@@ -1,0 +1,23 @@
+# Root reconciler. Applied ONCE at bootstrap by `install-edge.sh --gitops`.
+# Pulls the `./config` tree from the keos-config artifact, SOPS-decrypts the
+# Secret with the cluster's age key, and applies everything (OCIRepository for
+# the chart + HelmRelease + Secret). helm-controller then installs/upgrades.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: keos
+  namespace: flux-system
+spec:
+  interval: 5m0s
+  retryInterval: 1m0s
+  timeout: 10m0s
+  sourceRef:
+    kind: OCIRepository
+    name: keos-config
+  path: ./config
+  prune: true
+  wait: true
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age   # the fleet age PRIVATE key, installed at bootstrap

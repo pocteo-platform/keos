@@ -248,7 +248,7 @@ spec:
               value: /secrets/api-token
           envFrom:
             - secretRef:
-                name: {{ include "pocteo.fullname" . }}-auth
+                name: {{ include "pocteo.authSecretName" . }}
           volumeMounts:
             - name: audit
               mountPath: /audit
@@ -282,7 +282,7 @@ spec:
             sizeLimit: 64Mi
         - name: api-token
           secret:
-            secretName: {{ include "pocteo.fullname" . }}-auth
+            secretName: {{ include "pocteo.authSecretName" . }}
             items:
               - key: SHP_API_TOKEN
                 path: api-token

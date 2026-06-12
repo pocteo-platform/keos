@@ -15,7 +15,7 @@ Get the SPA URL:
 
 Get the bearer token (paste into the SPA login screen):
 
-  kubectl -n {{ .Release.Namespace }} get secret {{ include "pocteo.fullname" . }}-auth \
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "pocteo.authSecretName" . }} \
       -o jsonpath='{.data.SHP_API_TOKEN}' | base64 -d
 
 Flip the agent into active mode:

@@ -74,7 +74,7 @@ spec:
               value: {{ .Values.mcpServer.fallbackMode | quote }}
           envFrom:
             - secretRef:
-                name: {{ include "pocteo.fullname" . }}-auth
+                name: {{ include "pocteo.authSecretName" . }}
           volumeMounts:
             - name: audit
               mountPath: /audit

@@ -1,0 +1,17 @@
+# Root source — the desired-state artifact in the private registry.
+# Applied ONCE at bootstrap by `install-edge.sh --gitops` (placeholders
+# substituted there). After this, Flux pulls every change from here.
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: OCIRepository
+metadata:
+  name: keos-config
+  namespace: flux-system
+spec:
+  interval: 5m0s
+  url: oci://${REGISTRY}/keos-config
+  ref:
+    tag: "${CONFIG_TAG}"
+  # Plain-HTTP :5000 lab registry → insecure: true (set by --plain-http).
+  # Self-signed TLS instead → drop `insecure` and add:
+  #   certSecretRef: { name: keos-registry-ca }
+  insecure: ${OCI_INSECURE}

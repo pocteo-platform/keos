@@ -10,10 +10,12 @@
 #   mirror       copy every pinned third-party image into ${REGISTRY},
 #                preserving multi-arch manifest lists (skopeo)
 #   chart        helm package + push the chart to oci://${REGISTRY}/charts
+#   config       render + SOPS-encrypt + push the GitOps desired-state artifact
+#                to oci://${REGISTRY}/keos-config (Flux pulls it). Phase 23.
 #   images-list  print the third-party image list (derived from the chart —
 #                single source of truth, also consumed by build-airgap-bundle.sh)
 #   verify       multi-arch audit of everything in ${REGISTRY} (scripts/audit-images.sh)
-#   all          build + mirror + chart + verify
+#   all          build + mirror + chart + verify  (NOT config — that's per-cluster)
 #
 # Env / flags:
 #   REGISTRY        (required) e.g. registry.fleet.local:5000
@@ -46,12 +48,17 @@ CMD=""
 for a in "$@"; do
   case "$a" in
     --insecure) INSECURE=1 ;;
-    build|mirror|chart|images-list|verify|all) CMD="$a" ;;
+    build|mirror|chart|config|images-list|verify|all) CMD="$a" ;;
     -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $a (see --help)" ;;
   esac
 done
-[[ -n "$CMD" ]] || die "missing subcommand (build|mirror|chart|images-list|verify|all)"
+[[ -n "$CMD" ]] || die "missing subcommand (build|mirror|chart|config|images-list|verify|all)"
+
+# GitOps (config) settings — Phase 23.
+GITOPS_DIR="$REPO_ROOT/deploy/gitops"
+ENV_NAME="${ENV:-edge}"                       # per-cluster config env name
+GITOPS_SECRETS_DIR="${KEOS_GITOPS_SECRETS_DIR:-$HOME/.keos-gitops}"
 
 # images-list works offline; everything else needs the registry.
 if [[ "$CMD" != "images-list" ]]; then
@@ -86,6 +93,12 @@ cmd_images_list() {
     # Not rendered by the chart but required by the install flow:
     echo "nvcr.io/nvidia/k8s-device-plugin:v0.16.2"   # keosctl gpu-setup
     echo "busybox:stable"                              # falco prebuilt-probe carrier
+    # Flux controllers — the GitOps delivery path (Phase 23). `flux install
+    # --registry=<reg>/fluxcd` pulls these from the mirror. Keep in lockstep
+    # with FLUX_VERSION below + docs/GITOPS.md.
+    echo "ghcr.io/fluxcd/source-controller:v1.4.1"
+    echo "ghcr.io/fluxcd/kustomize-controller:v1.4.0"
+    echo "ghcr.io/fluxcd/helm-controller:v1.1.0"
   } | grep -v '^ghcr.io/pocteo-platform/' \
     | grep -v '^appropriate/curl$' \
     | sort -u
@@ -179,11 +192,74 @@ cmd_verify() {
     bash "$SCRIPT_DIR/audit-images.sh"
 }
 
+# ─── config (GitOps desired state) ───────────────────────────────────────────
+# Render the Flux config tree (OCIRepository[chart] + HelmRelease[values] +
+# SOPS-encrypted Secret) and push it as an OCI artifact Flux pulls. Per-cluster
+# (env), so NOT part of `all`. Tokens are generated once and cached under
+# $KEOS_GITOPS_SECRETS_DIR so re-pushes don't churn the secret (which would
+# bounce pods). Inputs: ENV (default edge), CONFIG_TAG (default <ver>-<env>),
+# VALUES_FILE (default deploy/gitops/config/values-<env>.example.yaml),
+# KEOS_AGE_RECIPIENT (required, the fleet age public key), NODE_NAME.
+cmd_config() {
+  for b in flux sops yq envsubst openssl; do
+    command -v "$b" >/dev/null || die "$b not on PATH (config needs: flux sops yq envsubst openssl)"
+  done
+  [[ -n "${KEOS_AGE_RECIPIENT:-}" ]] || die "KEOS_AGE_RECIPIENT (fleet age public key) required — see deploy/gitops/README.md"
+  [[ -d "$GITOPS_DIR/config" ]] || die "missing $GITOPS_DIR/config"
+
+  local config_tag="${CONFIG_TAG:-${VERSION}-${ENV_NAME}}"
+  local oci_insecure="false"; [[ "$INSECURE" -eq 1 ]] && oci_insecure="true"
+  local values_file="${VALUES_FILE:-$GITOPS_DIR/config/values-${ENV_NAME}.example.yaml}"
+  [[ -f "$values_file" ]] || die "values file not found: $values_file (set VALUES_FILE= or run 'keosctl gitops render')"
+
+  step "Rendering GitOps config (env=${ENV_NAME}) → oci://${REGISTRY}/keos-config:${config_tag}"
+  local build vals; build="$(mktemp -d)"; vals="$(mktemp)"
+  export REGISTRY VERSION OCI_INSECURE="$oci_insecure" NODE_NAME="${NODE_NAME:-CHANGEME}"
+
+  # 1. plain manifests (no per-cluster values)
+  cp "$GITOPS_DIR/config/kustomization.yaml" "$GITOPS_DIR/config/namespace.yaml" "$build/"
+  envsubst '${REGISTRY} ${VERSION} ${OCI_INSECURE}' \
+    < "$GITOPS_DIR/config/ocirepository-chart.yaml" > "$build/ocirepository-chart.yaml"
+
+  # 2. HelmRelease = base + deep-merged per-cluster values (yq)
+  envsubst '${REGISTRY} ${NODE_NAME}' < "$values_file" > "$vals"
+  envsubst '${REGISTRY} ${VERSION} ${OCI_INSECURE}' < "$GITOPS_DIR/config/helmrelease.yaml" > "$build/hr.base.yaml"
+  yq eval-all 'select(fi==0).spec.values = (select(fi==0).spec.values * select(fi==1)) | select(fi==0)' \
+    "$build/hr.base.yaml" "$vals" > "$build/helmrelease.yaml"
+  rm -f "$build/hr.base.yaml" "$vals"
+
+  # 3. Secret — load/generate tokens, fill, SOPS-encrypt
+  mkdir -p "$GITOPS_SECRETS_DIR"; chmod 700 "$GITOPS_SECRETS_DIR" 2>/dev/null || true
+  local sfile="$GITOPS_SECRETS_DIR/${ENV_NAME}.env"
+  if [[ ! -f "$sfile" ]]; then
+    { echo "API_TOKEN=$(openssl rand -base64 32 | tr -d '=' | head -c 32)"
+      echo "HMAC_KEY=$(openssl rand -base64 32)"
+      echo "FALCO_WEBHOOK_TOKEN=$(openssl rand -base64 32 | tr -d '=' | head -c 32)"
+    } > "$sfile"; chmod 600 "$sfile"
+    warn "generated tokens at $sfile (reused on later pushes — BACK THIS UP)"
+  fi
+  set -a; . "$sfile"; set +a
+  envsubst '${API_TOKEN} ${HMAC_KEY} ${FALCO_WEBHOOK_TOKEN}' \
+    < "$GITOPS_DIR/config/secret.example.yaml" > "$build/secret.plain.yaml"
+  sops --encrypt --age "$KEOS_AGE_RECIPIENT" --encrypted-regex '^(data|stringData)$' \
+    "$build/secret.plain.yaml" > "$build/secret.sops.yaml"
+  rm -f "$build/secret.plain.yaml"
+
+  # 4. push the artifact
+  [[ "$INSECURE" -eq 1 ]] && warn "plain-HTTP registry: 'flux push artifact' needs the registry on HTTPS or a docker/containerd insecure-registries entry — see docs/GITOPS.md"
+  flux push artifact "oci://${REGISTRY}/keos-config:${config_tag}" \
+    --path "$build" --source "keos-gitops" --revision "${config_tag}" \
+    || die "flux push artifact failed (registry reachable? plain-HTTP caveat above?)"
+  rm -rf "$build"
+  ok "config pushed: oci://${REGISTRY}/keos-config:${config_tag} (env=${ENV_NAME}, chart ${VERSION})"
+}
+
 case "$CMD" in
   images-list) cmd_images_list ;;
   build)       cmd_build ;;
   mirror)      cmd_mirror ;;
   chart)       cmd_chart ;;
+  config)      cmd_config ;;
   verify)      cmd_verify ;;
   all)         cmd_build; cmd_mirror; cmd_chart; cmd_verify ;;
 esac

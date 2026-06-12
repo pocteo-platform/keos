@@ -1,0 +1,43 @@
+# Per-cluster Helm values, merged under HelmRelease.spec.values by
+# `release.sh config`. This is the GitOps home for everything install-edge.sh
+# would otherwise pass as transient --set flags. `keosctl gitops render`
+# probes a live cluster and emits a filled-in copy of this for the operator to
+# commit. Placeholders (${...}) are substituted by `release.sh config`.
+
+# --- private registry: repoint EVERY image at :5000 (apply_registry_overrides) ---
+global:
+  imageRegistry: ${REGISTRY}/pocteo-platform   # first-party keos-*
+caddy:    { image: { repository: ${REGISTRY}/library/caddy } }
+nats:     { image: { repository: ${REGISTRY}/library/nats } }
+ollama:   { image: { repository: ${REGISTRY}/ollama/ollama } }
+qdrant:   { image: { repository: ${REGISTRY}/qdrant/qdrant } }
+opa:      { image: { repository: ${REGISTRY}/openpolicyagent/opa } }
+chaos-mesh: { images: { registry: ${REGISTRY} } }
+
+# --- auth: provided by the SOPS Secret, not here ---
+auth:
+  existingSecret: keos-pocteo-auth
+
+# --- agent runtime ---
+agent:
+  defaultMode: observe-only            # observe-only | active | frozen
+  attachment:
+    mode: hard
+    nodeName: ${NODE_NAME}             # the GPU/edge node to pin to
+
+# --- GPU (set by the probe; Jetson swaps the ollama image + JETSON_JETPACK) ---
+ollama:
+  gpu:
+    enabled: false
+    runtimeClassName: nvidia
+
+# --- security sensors (capability ladder: modern_ebpf | ebpf-prebuilt | off) ---
+falco:
+  enabled: false
+tetragon:
+  enabled: false
+
+# --- containerd socket (distro-specific; Talos differs from k3s/Kairos) ---
+chaos-mesh:
+  chaosDaemon:
+    socketPath: /run/k3s/containerd/containerd.sock

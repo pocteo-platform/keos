@@ -40,14 +40,27 @@ app.kubernetes.io/part-of: pocteo
 {{- end -}}
 {{- end -}}
 
-{{/* Pre-install validation — refuse install with empty auth secrets. */}}
+{{/* Pre-install validation — refuse install with empty auth secrets,
+     UNLESS auth.existingSecret points at a pre-created Secret (GitOps/SOPS
+     path — Helm never sees the plaintext token). */}}
 {{- define "pocteo.requireAuth" -}}
+{{- if not .Values.auth.existingSecret -}}
 {{- if not .Values.auth.apiToken -}}
-{{ fail "values.auth.apiToken must be set (e.g. --set-string auth.apiToken=$(openssl rand -base64 32))" }}
+{{ fail "values.auth.apiToken must be set (e.g. --set-string auth.apiToken=$(openssl rand -base64 32)) — or set auth.existingSecret to use a pre-created (SOPS/GitOps-managed) Secret" }}
 {{- end -}}
 {{- if not .Values.auth.hmacKey -}}
-{{ fail "values.auth.hmacKey must be set (e.g. --set-string auth.hmacKey=$(openssl rand -base64 32))" }}
+{{ fail "values.auth.hmacKey must be set (e.g. --set-string auth.hmacKey=$(openssl rand -base64 32)) — or set auth.existingSecret" }}
 {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Name of the Secret holding SHP_API_TOKEN / AUDIT_HMAC_KEY /
+     FALCO_WEBHOOK_TOKEN. Defaults to the chart-managed `<fullname>-auth`;
+     set `auth.existingSecret` to point at a pre-created Secret instead —
+     the GitOps path supplies a SOPS-decrypted Secret this way, so Helm
+     never templates the plaintext (Phase 23). */}}
+{{- define "pocteo.authSecretName" -}}
+{{- .Values.auth.existingSecret | default (printf "%s-auth" (include "pocteo.fullname" .)) -}}
 {{- end -}}
 
 {{/* Pod-level security context block. Renders the configured

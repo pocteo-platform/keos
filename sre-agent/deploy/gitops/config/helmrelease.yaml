@@ -1,0 +1,31 @@
+# The Keos release, reconciled by helm-controller from the private-registry
+# chart. `release.sh config` MERGES the per-cluster values-<env>.yaml under
+# spec.values (via yq) before packaging — keep the auth.existingSecret pointer
+# here as the base so Helm never templates the plaintext token (the SOPS
+# Secret of that name is applied alongside this).
+# Requires Flux >= 2.3 (chartRef → OCIRepository; HelmRelease v2 GA).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: keos
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  releaseName: keos
+  targetNamespace: keos
+  storageNamespace: keos
+  install:
+    createNamespace: false   # namespace.yaml owns it
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  chartRef:
+    kind: OCIRepository
+    name: keos-chart
+  values:
+    auth:
+      # Point at the SOPS-decrypted Secret (config/secret.sops.yaml). The
+      # chart then skips its own auth Secret (see pocteo.authSecretName).
+      existingSecret: keos-pocteo-auth

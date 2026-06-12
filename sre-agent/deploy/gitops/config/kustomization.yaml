@@ -1,0 +1,11 @@
+# kustomize index for the keos-config artifact contents. kustomize-controller
+# builds this, decrypts secret.sops.yaml, and applies the set. Namespace first
+# (Flux orders Namespaces ahead of namespaced resources), then the Secret the
+# HelmRelease's pods need, then the chart source + the release.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - secret.sops.yaml
+  - ocirepository-chart.yaml
+  - helmrelease.yaml
