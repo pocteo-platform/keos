@@ -74,6 +74,7 @@ Step-by-step for each: **[Installation](docs/INSTALLATION.md)**.
 | [User & Operator Guide](docs/USER_GUIDE.md) | running it day to day |
 | [Architecture](docs/ARCHITECTURE.md) | how it works |
 | [Installation](docs/INSTALLATION.md) | every distro / arch / GPU / air-gap |
+| [Security Domain](docs/SECURITY.md) | Falco/Tetragon, detection → containment |
 | [CLI Reference](docs/CLI_REFERENCE.md) | every `keosctl` command |
 | [Operations & Release](docs/OPERATIONS.md) | registry, GitOps, GPU, backup, release |
 | [Developer Guide](docs/DEVELOPER_GUIDE.md) | repo layout, tests, extending the agent |
