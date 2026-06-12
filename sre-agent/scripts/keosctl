@@ -254,6 +254,32 @@ EXAMPLES
   keosctl preflight --json | jq '.checks[] | select(.status!="ok")'
 EOF
       ;;
+    gpu-setup) cat <<'EOF'
+keosctl gpu-setup — wire the NVIDIA GPU into k3s containerd (host-side)
+
+USAGE
+  keosctl gpu-setup [--apply]      # default: PRINT the commands only
+  keosctl gpu-setup status
+
+DESCRIPTION
+  Prepares a node so pods can request nvidia.com/gpu:
+    1. generate the CDI spec (nvidia-ctk cdi generate --mode=csv)
+    2. on Tegra/Jetson: inject the `tegra` alias device into the spec —
+       the k8s device plugin allocates under device id `tegra`, which
+       neither CSV mode nor the stock CDI spec knows (toolkit/R39 bug)
+    3. switch the nvidia runtime to CDI mode
+    4. apply the RuntimeClass + NVIDIA device plugin (vendored manifest,
+       image mirrored by release.sh — airgap-safe)
+
+  --apply executes (sudo; must run ON the GPU node — the kernel is
+  checked). Without it the exact commands are printed for review.
+  `status` shows CDI spec / tegra alias / runtime mode / allocatable.
+
+NOTE
+  Re-run after a JetPack upgrade: regenerating the CDI spec loses the
+  tegra alias. `keosctl doctor` warns when the alias is missing.
+EOF
+      ;;
     mode) cat <<'EOF'
 keosctl mode — print or set the agent's mode
 
@@ -1065,6 +1091,111 @@ cmd_preflight() {
   exec bash "$SCRIPT_DIR/preflight.sh" "$@"
 }
 
+# ─── Subcommand: gpu-setup ───────────────────────────────────────────────────
+
+_gpu_tegra_alias_py() {
+  # Injects a `tegra` alias device (copy of `all`) into /etc/cdi/nvidia.yaml.
+  # The k8s device plugin allocates the Tegra iGPU under device id `tegra`,
+  # which the stock CDI spec doesn't define (nvidia-container-toolkit ≤1.19
+  # on L4T R39). Idempotent.
+  cat <<'PYEOF'
+import yaml
+p = "/etc/cdi/nvidia.yaml"
+spec = yaml.safe_load(open(p))
+names = [d["name"] for d in spec["devices"]]
+if "tegra" not in names:
+    alias = dict(next(d for d in spec["devices"] if d["name"] == "all"))
+    alias["name"] = "tegra"
+    spec["devices"].append(alias)
+    yaml.safe_dump(spec, open(p, "w"), default_flow_style=False)
+print("devices:", [d["name"] for d in yaml.safe_load(open(p))["devices"]])
+PYEOF
+}
+
+cmd_gpu_setup() {
+  _check_help gpu-setup "$@"
+  local mode="print" plugin_manifest="$REPO_ROOT/manifests/nvidia-device-plugin.yaml"
+  case "${1:-}" in
+    --apply) mode="apply" ;;
+    status)  mode="status" ;;
+    "")      ;;
+    *) die "usage: keosctl gpu-setup [--apply] | keosctl gpu-setup status" ;;
+  esac
+
+  local is_tegra=0
+  [[ -f /etc/nv_tegra_release ]] && is_tegra=1
+
+  if [[ "$mode" == "status" ]]; then
+    heading "GPU setup status (host: $(hostname))"
+    if [[ -f /etc/cdi/nvidia.yaml ]]; then
+      ok "CDI spec present: /etc/cdi/nvidia.yaml"
+      if grep -qE '^\s*-?\s*name:\s*tegra\b' /etc/cdi/nvidia.yaml; then
+        ok "tegra alias device present"
+      elif [[ "$is_tegra" -eq 1 ]]; then
+        warn "tegra alias MISSING — pods will fail with 'unsupported device id: tegra'; run: keosctl gpu-setup --apply"
+      fi
+    else
+      warn "no CDI spec at /etc/cdi/nvidia.yaml"
+    fi
+    if [[ -r /etc/nvidia-container-runtime/config.toml ]]; then
+      note "runtime mode: $(grep -E '^mode = ' /etc/nvidia-container-runtime/config.toml || echo 'mode = (default auto)')"
+    fi
+    note "allocatable: nvidia.com/gpu=$(kc get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null || echo '?')"
+    return 0
+  fi
+
+  # The CDI spec must match THIS host's driver — refuse to apply remotely.
+  if [[ "$mode" == "apply" ]]; then
+    command -v nvidia-ctk >/dev/null || die "nvidia-ctk not found — install nvidia-container-toolkit first"
+    python3 -c "import yaml" 2>/dev/null || die "python3-yaml needed for the tegra alias (apt install python3-yaml)"
+  fi
+
+  local cmds=(
+    "sudo nvidia-ctk cdi generate --mode=csv --output=/etc/cdi/nvidia.yaml"
+  )
+  [[ "$is_tegra" -eq 1 || "$mode" == "print" ]] && cmds+=(
+    "sudo python3 - <<'PY'  # tegra alias (Jetson only — see 'keosctl help gpu-setup')
+$(_gpu_tegra_alias_py)
+PY"
+  )
+  cmds+=(
+    "sudo nvidia-ctk config --in-place --set nvidia-container-runtime.mode=cdi"
+    "kubectl apply -f ${plugin_manifest:-<repo>/manifests/nvidia-device-plugin.yaml}"
+  )
+
+  if [[ "$mode" == "print" ]]; then
+    heading "GPU setup — commands to run on the GPU node (or: keosctl gpu-setup --apply)"
+    printf '%s\n\n' "${cmds[@]}"
+    note "verify afterwards: kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\\.com/gpu}' → 1"
+    return 0
+  fi
+
+  heading "GPU setup — applying on $(hostname)"
+  sudo nvidia-ctk cdi generate --mode=csv --output=/etc/cdi/nvidia.yaml \
+    || die "CDI spec generation failed"
+  ok "CDI spec generated"
+  if [[ "$is_tegra" -eq 1 ]]; then
+    _gpu_tegra_alias_py | sudo python3 - || die "tegra alias injection failed"
+    ok "tegra alias device ensured"
+  fi
+  sudo nvidia-ctk config --in-place --set nvidia-container-runtime.mode=cdi \
+    || die "could not set runtime mode=cdi"
+  ok "nvidia runtime mode=cdi"
+  [[ -f "$plugin_manifest" ]] || die "device-plugin manifest not found at $plugin_manifest"
+  kc apply -f "$plugin_manifest" >/dev/null || die "device plugin apply failed"
+  ok "RuntimeClass + NVIDIA device plugin applied"
+  note "waiting for the kubelet to advertise the GPU…"
+  local i
+  for i in $(seq 1 24); do
+    local alloc
+    alloc=$(kc get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null || true)
+    if [[ -n "$alloc" && "$alloc" != "0" ]]; then ok "nvidia.com/gpu allocatable: $alloc"; return 0; fi
+    sleep 5
+  done
+  warn "GPU still not allocatable after 2m — check: kubectl -n kube-system logs ds/nvidia-device-plugin-daemonset"
+  return 1
+}
+
 # ─── Subcommand: doctor ──────────────────────────────────────────────────────
 
 cmd_doctor() {
@@ -1659,7 +1790,7 @@ _keosctl_complete() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  cmds="install uninstall link status doctor preflight mode logs ui token seed models
+  cmds="install uninstall link status doctor preflight gpu-setup mode logs ui token seed models
         events incidents usecases run restart shell describe port-forward upgrade
         audit completion context version help api backup restore diag calibration
         config chaos top update deps images values policy runbooks bus"
@@ -1693,7 +1824,7 @@ COMPLETION
 #   eval "$(keosctl completion zsh)"
 _keosctl() {
   local -a cmds
-  cmds=(install uninstall link status doctor preflight mode logs ui token seed models
+  cmds=(install uninstall link status doctor preflight gpu-setup mode logs ui token seed models
         events usecases run restart shell describe port-forward upgrade
         audit completion context version help)
   if (( CURRENT == 2 )); then
@@ -1707,7 +1838,7 @@ COMPLETION
       cat <<'COMPLETION'
 # fish completion for keosctl. Save as ~/.config/fish/completions/keosctl.fish
 complete -c keosctl -f
-for cmd in install uninstall link status doctor preflight mode logs ui token seed models events usecases run restart shell describe port-forward upgrade audit completion context version help
+for cmd in install uninstall link status doctor preflight gpu-setup mode logs ui token seed models events usecases run restart shell describe port-forward upgrade audit completion context version help
   complete -c keosctl -n "__fish_use_subcommand" -a $cmd
 end
 COMPLETION
@@ -2492,6 +2623,7 @@ EOF
   printf "  ${C_CYAN}status${C_RST} [--watch] [--json]     Release + pods + agent mode summary\n"
   printf "  ${C_CYAN}doctor${C_RST}                        Health check across every component\n"
   printf "  ${C_CYAN}preflight${C_RST} [--json]            Pre-install environment checks ${C_DIM}(arch/GPU/BTF/memory/registry)${C_RST}\n"
+  printf "  ${C_CYAN}gpu-setup${C_RST} [--apply|status]      Wire the NVIDIA GPU into containerd ${C_DIM}(CDI, Jetson-aware)${C_RST}\n"
   printf "  ${C_CYAN}mode${C_RST} [obs|active|frozen]      Print or set the agent mode\n"
   printf "  ${C_CYAN}logs${C_RST} <component> [-f]         Tail pod logs ${C_DIM}(api/mcp-server/frontend/…)${C_RST}\n"
   printf "  ${C_CYAN}ui${C_RST} [--port N]                 Port-forward + open the SPA in your browser\n"
@@ -2604,6 +2736,7 @@ main() {
     status)          cmd_status "$@" ;;
     doctor)          cmd_doctor "$@" ;;
     preflight)       cmd_preflight "$@" ;;
+    gpu-setup)       cmd_gpu_setup "$@" ;;
     mode)            cmd_mode "$@" ;;
     logs)            cmd_logs "$@" ;;
     ui)              cmd_ui "$@" ;;
@@ -2644,7 +2777,7 @@ main() {
     *)
       printf "${C_RED}${CROSS}${C_RST} unknown command '%s'\n\n" "$cmd"
       printf "Did you mean one of these?\n"
-      for c in install uninstall status doctor preflight mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update deps images values policy runbooks quarantine bus help; do
+      for c in install uninstall status doctor preflight gpu-setup mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update deps images values policy runbooks quarantine bus help; do
         # Cheap fuzzy: print commands that share a prefix or contain the typo.
         if [[ "$c" == "$cmd"* || "$c" == *"$cmd"* ]]; then
           printf "  ${C_CYAN}%s${C_RST}\n" "$c"

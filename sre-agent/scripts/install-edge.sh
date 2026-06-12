@@ -609,6 +609,40 @@ if [[ "$ENABLE_GPU" == "true" ]]; then
     --set "ollama.gpu.enabled=true"
     --set-string "ollama.gpu.runtimeClassName=$GPU_RUNTIME_CLASS"
   )
+  # Tegra (Jetson) needs the sm_87 ollama variant + the JETSON_JETPACK
+  # runner override — stock arm64 ollama images enumerate the Orin iGPU
+  # then silently skip it (no sm_87 CUDA kernels), and ollama doesn't
+  # recognise L4T R39+ in /etc/nv_tegra_release. Detected from node info;
+  # no SSH needed. See docs/JETSON_VALIDATION_AND_PORTABILITY.md §1.4d.
+  IS_TEGRA=$(printf '%s' "$NODES_RAW" | python3 -c '
+import sys, json
+data = json.load(sys.stdin)
+for n in data["items"]:
+    info = (n.get("status") or {}).get("nodeInfo") or {}
+    labels = (n.get("metadata") or {}).get("labels") or {}
+    machine = str(labels.get("nvidia.com/gpu.machine", "")).lower()
+    if "-tegra" in info.get("kernelVersion", "") or "orin" in machine or "jetson" in machine:
+        print(1); sys.exit(0)
+print(0)
+')
+  if [[ "$IS_TEGRA" == "1" ]]; then
+    OLLAMA_VERSION="${KEOS_OLLAMA_VERSION:-0.30.7}"
+    if [[ -n "$IMAGE_REGISTRY" ]]; then
+      _jetson_ollama_repo="${IMAGE_REGISTRY}/pocteo-platform/keos-ollama-jetson"
+    else
+      # No registry: the image must already be in the node's containerd
+      # (scripts/release.sh build pushes it; or import it manually).
+      _jetson_ollama_repo="keos-ollama-jetson"
+      warn "Tegra node + no --image-registry: expecting keos-ollama-jetson:${OLLAMA_VERSION}-jp6 already present in containerd"
+    fi
+    HELM_ARGS+=(
+      --set-string "ollama.image.repository=${_jetson_ollama_repo}"
+      --set-string "ollama.image.tag=${OLLAMA_VERSION}-jp6"
+      --set-string "ollama.env[0].name=JETSON_JETPACK"
+      --set-string "ollama.env[0].value=6"
+    )
+    ok "Tegra/Jetson GPU detected — ollama image ${_jetson_ollama_repo}:${OLLAMA_VERSION}-jp6 + JETSON_JETPACK=6"
+  fi
 fi
 # Security domain (Phase 21): --security installs Falco + Tetragon for live
 # eBPF threat detection. Both are eBPF agents and need the same containerd
