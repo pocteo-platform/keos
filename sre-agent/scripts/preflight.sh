@@ -329,7 +329,7 @@ _pf_main() {
       add registry ok "$REGISTRY/v2/ answers"
     else
       add registry fail "$REGISTRY unreachable from this machine" \
-          "check DNS/firewall/TLS; device-side trust: docs/REGISTRY.md (k3s registries.yaml)"
+          "check DNS/firewall/TLS; device-side trust: docs/OPERATIONS.md (k3s registries.yaml)"
     fi
   fi
 

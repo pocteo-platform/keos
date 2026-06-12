@@ -323,7 +323,7 @@ build-images:
 
 # Full fleet release: build first-party + Jetson ollama variant, mirror
 # every pinned third-party image, push the chart, run the multi-arch
-# audit. See docs/REGISTRY.md. Add INSECURE=1 for a plain-HTTP registry.
+# audit. See docs/OPERATIONS.md. Add INSECURE=1 for a plain-HTTP registry.
 release:
 	@test -n "$(REGISTRY)" || (echo "REGISTRY=<host:port> required" && exit 1)
 	@REGISTRY=$(REGISTRY) bash scripts/release.sh all $(if $(INSECURE),--insecure,)

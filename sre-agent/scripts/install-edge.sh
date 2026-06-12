@@ -42,7 +42,7 @@
 #   # `scripts/release.sh all REGISTRY=<host:port>`. The chart AND every
 #   # image come from the registry: no repo clone, no docker, no ghcr.io
 #   # access needed on the device. Add --plain-http for a TLS-less registry
-#   # (device-side containerd trust: see docs/REGISTRY.md).
+#   # (device-side containerd trust: see docs/OPERATIONS.md).
 #   bash install-edge.sh --image-registry registry.fleet.local:5000 [--gpu]
 #
 #   # Explicit kubeconfig (talosctl-fetched, for example)
@@ -77,7 +77,7 @@
 #   bash install-edge.sh --probe-only
 #
 # Companion docs:
-#   docs/JETSON_FIRST_BOOT.md — end-to-end walkthrough with Talos +
+#   docs/INSTALLATION.md — end-to-end walkthrough with Talos +
 #     Kairos kubeconfig-fetch examples.
 
 set -euo pipefail

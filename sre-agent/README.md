@@ -419,7 +419,7 @@ The Keos SRE Agent ships first-class on **Keos OS**, and also installs on any co
 | **Keos OS** on Jetson Orin (recommended — GPU + EdgeVPN + immutable base) | [docs/KAIROS_JETSON.md](docs/KAIROS_JETSON.md) · [docs/platforms/jetson](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/jetson.md) |
 | **k3s on Ubuntu** (most common existing edge today) | [docs/platforms/linux](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/linux.md) |
 | **Talos Linux** (immutable production edge, no Keos OS) | [docs/platforms/talos](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/talos.md) |
-| **Air-gapped** (no outbound network at install time) | [docs/AIRGAP_INSTALL.md](docs/AIRGAP_INSTALL.md) |
+| **Air-gapped** (no outbound network at install time) | [docs/INSTALLATION.md](docs/INSTALLATION.md) |
 | **Any conformant K8s** (managed / on-prem · EKS / GKE / AKS / kubeadm) | [docs/platforms/kubernetes-helm](https://github.com/pocteo-platform/keos/blob/main/sre-agent/website/docs/platforms/kubernetes-helm.md) |
 
 ---

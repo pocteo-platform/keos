@@ -113,8 +113,8 @@ production:
 5. **Pod Security Standard** set to `restricted` on the namespace. The
    chart's security contexts are designed to pass it.
 6. **`monitoring.enabled=true`** with the alerts from
-   [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) wired to a pager.
-7. **Regular restore drills** per [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md) §"Restore drill".
+   [docs/OPERATIONS.md](docs/OPERATIONS.md) wired to a pager.
+7. **Regular restore drills** per [docs/OPERATIONS.md](docs/OPERATIONS.md) §"Restore drill".
 
 If any of these are not in place, you're running with knowingly reduced
 security guarantees. Document it.

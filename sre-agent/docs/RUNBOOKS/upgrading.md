@@ -13,7 +13,7 @@
 kubectl -n pocteo exec deploy/api -- python -m scripts.doctor
 # All [OK]; fix any [--] FIRST.
 
-# 2. Take a backup. The 5-step manual recipe in docs/BACKUP_RESTORE.md
+# 2. Take a backup. The 5-step manual recipe in docs/OPERATIONS.md
 #    takes ~2 min. The Velero path is one command if you've already set
 #    up `backup.velero.enabled=true`.
 TS=$(date -u +%Y%m%dT%H%M%SZ)
