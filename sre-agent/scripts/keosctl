@@ -172,6 +172,65 @@ EXAMPLES
 SEE ALSO  docs/GITOPS.md
 EOF
       ;;
+    release) cat <<'EOF'
+keosctl release — populate the private fleet registry (workstation)
+
+USAGE
+  REGISTRY=<host:5000> keosctl release {build|mirror|chart|config|verify|all} [--insecure]
+
+DESCRIPTION
+  The single entry point for building + publishing everything a fleet device
+  pulls: multi-arch first-party images, mirrored third-party images, the OCI
+  Helm chart, and (config) the SOPS-encrypted GitOps desired-state artifact.
+  Runs on a workstation with docker/buildx, helm, skopeo (+ flux/sops/age/yq
+  for `config`). REGISTRY is required (except for `images-list`).
+
+SUBCOMMANDS
+  build    multi-arch first-party images (+ Jetson ollama variant)
+  mirror   copy pinned third-party images into the registry (multi-arch)
+  chart    package + push the Helm chart → oci://<reg>/charts/pocteo
+  config   render + SOPS-encrypt + push the GitOps config (see keosctl gitops)
+  verify   multi-arch audit of everything in the registry
+  all      build + mirror + chart + verify
+
+EXAMPLES
+  REGISTRY=registry.fleet.local:5000 keosctl release all --insecure
+  ENV=edge KEOS_AGE_RECIPIENT=age1... REGISTRY=registry.fleet.local:5000 keosctl release config
+
+SEE ALSO  docs/INSTALLATION.md (private registry), docs/OPERATIONS.md
+EOF
+      ;;
+    bundle) cat <<'EOF'
+keosctl bundle — build an offline air-gap bundle (workstation)
+
+USAGE
+  keosctl bundle create [flags]
+
+DESCRIPTION
+  Produces a single tarball (first-party + third-party images, the Helm chart,
+  install scripts, and pre-pulled Ollama models) to carry to a fully
+  disconnected site on a USB stick. On the device: untar, load images into the
+  local registry, then `keosctl install` against it.
+
+SEE ALSO  docs/INSTALLATION.md (air-gapped)
+EOF
+      ;;
+    falco-probe) cat <<'EOF'
+keosctl falco-probe — build the Falco eBPF probe for this node's kernel
+
+USAGE
+  sudo REGISTRY=<host:5000> keosctl falco-probe build [--insecure]
+
+DESCRIPTION
+  BTF-less kernels (e.g. NVIDIA Jetson L4T) can't use Falco's CO-RE probe.
+  This compiles a legacy-eBPF probe against the running kernel's headers and
+  pushes it as a tiny OCI image the chart's initContainer fetches by `uname -r`.
+  Run ON the target node (needs the kernel headers + clang/llvm + sudo).
+  Re-run after a kernel upgrade.
+
+SEE ALSO  docs/INSTALLATION.md (security sensors), docs/OPERATIONS.md
+EOF
+      ;;
     uninstall) cat <<'EOF'
 keosctl uninstall — remove the Keos release from the cluster
 
@@ -981,7 +1040,7 @@ cmd_uninstall() {
       --keep-namespace) keep_ns=1; shift ;;
       --yes|-y)         yes=1; shift ;;
       --force|-f)       force=1; yes=1; shift ;;
-      *) die "unknown arg: $1" ;;
+      *) die "unrecognized argument '$1' — run this command with -h/--help to see valid options." ;;
     esac
   done
 
@@ -1024,7 +1083,7 @@ cmd_status() {
       -w|--watch) watch=1; shift ;;
       --interval) interval="$2"; shift 2 ;;
       --json) as_json=1; shift ;;
-      *) die "unknown arg: $1" ;;
+      *) die "unrecognized argument '$1' — run this command with -h/--help to see valid options." ;;
     esac
   done
   if [[ $as_json -eq 1 ]]; then
@@ -1485,7 +1544,7 @@ cmd_ui() {
     case "$1" in
       --port) port="$2"; shift 2 ;;
       --no-open) NO_OPEN=1; shift ;;
-      *) die "unknown arg: $1" ;;
+      *) die "unrecognized argument '$1' — run this command with -h/--help to see valid options." ;;
     esac
   done
 
@@ -1553,7 +1612,7 @@ cmd_seed() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --clear-first|--clear) clear_first=1; shift ;;
-      *) die "unknown arg: $1" ;;
+      *) die "unrecognized argument '$1' — run this command with -h/--help to see valid options." ;;
     esac
   done
   local api_pod
@@ -1656,7 +1715,7 @@ cmd_events() {
       --filter)   filter="$2"; shift 2 ;;
       --since)    since="$2"; shift 2 ;;
       --domain)   domain="$2"; shift 2 ;;   # sre | security (Phase 21)
-      *) die "unknown arg: $1" ;;
+      *) die "unrecognized argument '$1' — run this command with -h/--help to see valid options." ;;
     esac
   done
   # Future API extension hook — filter / since / domain not enforced on the
@@ -1857,7 +1916,7 @@ cmd_upgrade() {
     case "$1" in
       --chart-version) chart_version="$2"; shift 2 ;;
       --dry-run)       dry_run=1; shift ;;
-      *) die "unknown arg: $1" ;;
+      *) die "unrecognized argument '$1' — run this command with -h/--help to see valid options." ;;
     esac
   done
   require_namespace
@@ -1914,7 +1973,7 @@ _keosctl_complete() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  cmds="install gitops uninstall link status doctor preflight gpu-setup mode logs ui token seed models
+  cmds="install gitops release bundle falco-probe uninstall link status doctor preflight gpu-setup mode logs ui token seed models
         events incidents usecases run restart shell describe port-forward upgrade
         audit completion context version help api backup restore diag calibration
         config chaos top update deps images values policy runbooks bus"
@@ -1948,7 +2007,7 @@ COMPLETION
 #   eval "$(keosctl completion zsh)"
 _keosctl() {
   local -a cmds
-  cmds=(install gitops uninstall link status doctor preflight gpu-setup mode logs ui token seed models
+  cmds=(install gitops release bundle falco-probe uninstall link status doctor preflight gpu-setup mode logs ui token seed models
         events usecases run restart shell describe port-forward upgrade
         audit completion context version help)
   if (( CURRENT == 2 )); then
@@ -2020,7 +2079,7 @@ cmd_backup() {
     case "$1" in
       -o|--output) out="$2"; shift 2 ;;
       --include-models) include_models=1; shift ;;
-      *) die "unknown arg: $1" ;;
+      *) die "unrecognized argument '$1' — run this command with -h/--help to see valid options." ;;
     esac
   done
   out="${out:-keos-backup-$(date +%Y%m%d-%H%M%S).tar.gz}"
@@ -2189,7 +2248,7 @@ else:
       api_curl "/api/calibration/$rule/threshold" -X POST -H "Content-Type: application/json" \
         -d "{\"threshold\":$threshold}" >/dev/null 2>&1 \
         && ok "Threshold for '$rule' set to $threshold" \
-        || die "API rejected — is the threshold a number between 0 and 1?"
+        || die "calibration update rejected — the threshold must be a number between 0.0 and 1.0.  (try: keosctl calibration --help)"
       ;;
     reset)
       local rule="${1:-}"
@@ -2263,7 +2322,7 @@ cmd_top() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --interval) interval="$2"; shift 2 ;;
-      *) die "unknown arg: $1" ;;
+      *) die "unrecognized argument '$1' — run this command with -h/--help to see valid options." ;;
     esac
   done
   while true; do
@@ -2358,7 +2417,7 @@ cmd_deps() {
           --values)     values="$2"; shift 2 ;;
           --namespace)  ns="$2"; shift 2 ;;
           --set)        set_args+=(--set "$2"); shift 2 ;;
-          *) die "unknown arg: $1" ;;
+          *) die "unrecognized argument '$1' — run this command with -h/--help to see valid options." ;;
         esac
       done
       local def_repo="" def_chart="" def_ns=""
@@ -2434,6 +2493,12 @@ cmd_deps() {
 
 cmd_images() {
   _check_help images "$@"
+  # `audit` is a WORKSTATION action (skopeo/manifest inspect of registry tags) —
+  # it needs no cluster, so intercept it before require_namespace.
+  if [[ "${1:-}" == "audit" ]]; then
+    shift
+    exec bash "$(_helper audit-images.sh)" "$@"
+  fi
   require_namespace
   local action="${1:-list}"
   shift || true
@@ -2937,7 +3002,7 @@ _gitops_render() {
       --out)      out="$2"; shift 2 ;;
       --node)     node="$2"; shift 2 ;;
       --env)      env_name="$2"; shift 2 ;;
-      *) die "unknown arg: $1" ;;
+      *) die "unrecognized argument '$1' — run this command with -h/--help to see valid options." ;;
     esac
   done
   [[ -n "$reg" ]] || die "--registry <host:5000> required"
@@ -2961,7 +3026,56 @@ _gitops_render() {
   note "Review: security tier (falco/tetragon), containerd socket (Talos differs),"
   note "  agent.defaultMode, GPU. Then push it:"
   note "  KEOS_AGE_RECIPIENT=age1... ENV=${env_name} VALUES_FILE=$out \\"
-  note "    REGISTRY=${reg} scripts/release.sh config"
+  note "    REGISTRY=${reg} keosctl release config"
+}
+
+# ─── Workstation wrappers (Phase 24) ─────────────────────────────────────────
+# keosctl is the single operator entry point — these front the build/release
+# helpers so nobody has to remember a raw script path or its env contract.
+# Each requires REGISTRY in the environment (the private fleet registry).
+
+# Resolve an internal helper script or fail with an actionable message.
+_helper() {
+  local name="$1"
+  if [[ -r "$SCRIPT_DIR/$name" ]]; then echo "$SCRIPT_DIR/$name"; return 0; fi
+  die "internal helper '$name' not found next to keosctl ($SCRIPT_DIR).
+   keosctl must run from a full repo checkout for build/release commands.
+   Fix: re-clone the repo, or run from sre-agent/scripts/. (try: keosctl version)"
+}
+
+cmd_release() {
+  _check_help release "$@"
+  [[ $# -gt 0 ]] || die "usage: keosctl release {build|mirror|chart|config|verify|all}
+   Populate the private fleet registry (images + chart + GitOps config).
+   Needs REGISTRY in the environment, e.g.:  REGISTRY=registry.fleet.local:5000 keosctl release all
+   try: keosctl release --help"
+  [[ -n "${REGISTRY:-}" || "$1" == "images-list" ]] || die "REGISTRY is required.
+   Set the private registry first:  REGISTRY=registry.fleet.local:5000 keosctl release $1
+   (plain-HTTP/self-signed lab registry → add --insecure)"
+  exec bash "$(_helper release.sh)" "$@"
+}
+
+cmd_bundle() {
+  _check_help bundle "$@"
+  local action="${1:-create}"; shift || true
+  case "$action" in
+    create) exec bash "$(_helper build-airgap-bundle.sh)" "$@" ;;
+    *) die "usage: keosctl bundle create [flags]
+   Builds a single offline tarball (images + chart + models) for an air-gapped site.
+   try: keosctl bundle --help" ;;
+  esac
+}
+
+cmd_falco_probe() {
+  _check_help falco-probe "$@"
+  local action="${1:-build}"; shift || true
+  case "$action" in
+    build) exec bash "$(_helper build-falco-probe.sh)" "$@" ;;
+    *) die "usage: keosctl falco-probe build [--insecure]
+   Compiles the Falco eBPF probe for THIS node's kernel (BTF-less kernels, e.g. Jetson L4T)
+   and pushes it to the registry. Run on the target node with sudo + REGISTRY set.
+   try: keosctl falco-probe --help" ;;
+  esac
 }
 
 main() {
@@ -2972,6 +3086,9 @@ main() {
   case "$cmd" in
     install)         cmd_install "$@" ;;
     gitops)          cmd_gitops "$@" ;;
+    release)         cmd_release "$@" ;;
+    bundle)          cmd_bundle "$@" ;;
+    falco-probe)     cmd_falco_probe "$@" ;;
     uninstall)       cmd_uninstall "$@" ;;
     status)          cmd_status "$@" ;;
     doctor)          cmd_doctor "$@" ;;
@@ -3017,7 +3134,7 @@ main() {
     *)
       printf "${C_RED}${CROSS}${C_RST} unknown command '%s'\n\n" "$cmd"
       printf "Did you mean one of these?\n"
-      for c in install gitops uninstall status doctor preflight gpu-setup mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update deps images values policy runbooks quarantine bus help; do
+      for c in install gitops release bundle falco-probe uninstall status doctor preflight gpu-setup mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update deps images values policy runbooks quarantine bus help; do
         # Cheap fuzzy: print commands that share a prefix or contain the typo.
         if [[ "$c" == "$cmd"* || "$c" == *"$cmd"* ]]; then
           printf "  ${C_CYAN}%s${C_RST}\n" "$c"

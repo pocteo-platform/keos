@@ -266,7 +266,7 @@ _pf_main() {
       add arch ok "keos-api:${version:-1.1.0} in $REGISTRY covers node arch(es): $arches"
     elif [[ "$missing" != "__skip__" ]]; then
       add arch fail "registry image missing arch(es): $missing(nodes need: $arches)" \
-          "run: REGISTRY=$REGISTRY scripts/release.sh build"
+          "run: REGISTRY=$REGISTRY keosctl release build"
     fi
   fi
 
@@ -310,7 +310,7 @@ _pf_main() {
     add btf ok "BTF kernels: ${PF_BTF_SUMMARY% } → security tier: modern_ebpf + tetragon"
   elif [[ "$PF_BTF_SUMMARY" == *false* ]]; then
     add btf warn "no BTF kernel (${PF_BTF_SUMMARY% }) → tier: legacy ebpf w/ prebuilt probe, tetragon off" \
-        "build the probe once: scripts/build-falco-probe.sh (see docs/SECURITY_SENSORS.md)"
+        "build the probe once: keosctl falco-probe build (see docs/INSTALLATION.md)"
   else
     add btf warn "BTF state unknown (probe pod failed?) → installer will default to sensors-off" ""
   fi
