@@ -110,6 +110,9 @@ ENABLE_SECURITY=1     # security sensors (Falco + Tetragon) install by default; 
 SEED_DEMO_WORKLOADS=1 # seed the demo namespaces + nginx-demo so use-cases have a live target; --no-demo-workloads opts out
 SKIP_PREFLIGHT=0      # --skip-preflight skips the full scripts/preflight.sh suite (quick checks always run)
 CONTAINERD_SOCKET_OVERRIDE=""  # --containerd-socket overrides the distro-probed path
+GITOPS=0               # --gitops: bootstrap Flux pull-delivery instead of helm upgrade (Phase 23)
+GITOPS_AGE_KEY=""      # --age-key <file>: fleet age PRIVATE key for SOPS decryption
+GITOPS_CONFIG_TAG=""   # --config-tag <tag>: the keos-config artifact tag to reconcile
 
 # ─── Argparse ──────────────────────────────────────────────────────────────
 
@@ -135,6 +138,9 @@ while [[ $# -gt 0 ]]; do
     --security)    ENABLE_SECURITY=1; shift ;;   # explicit (default); kept for back-compat
     --no-security|--skip-security) ENABLE_SECURITY=0; shift ;;
     --no-demo-workloads|--skip-demo-workloads) SEED_DEMO_WORKLOADS=0; shift ;;
+    --gitops)      GITOPS=1; shift ;;
+    --age-key)     GITOPS_AGE_KEY="$2"; shift 2 ;;
+    --config-tag)  GITOPS_CONFIG_TAG="$2"; shift 2 ;;
     -h|--help)     PRINT_HELP=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -162,6 +168,21 @@ if [[ -z "${KUBECONFIG:-}" ]]; then
       break
     fi
   done
+fi
+
+# ─── GitOps bootstrap (Phase 23) ────────────────────────────────────────────
+# --gitops swaps the push-based `helm upgrade` for a one-time Flux bootstrap;
+# after this the cluster PULLS the keos-config artifact from the private
+# registry and reconciles itself. Delegates to `keosctl gitops bootstrap`
+# (the single implementation) with the resolved registry + kubeconfig.
+if [[ "$GITOPS" -eq 1 ]]; then
+  [[ -n "$IMAGE_REGISTRY" ]] || { echo "--gitops requires --image-registry <host:5000>" >&2; exit 2; }
+  [[ -n "$GITOPS_AGE_KEY" ]] || { echo "--gitops requires --age-key <fleet.agekey>" >&2; exit 2; }
+  [[ -n "$GITOPS_CONFIG_TAG" ]] || { echo "--gitops requires --config-tag <tag> (e.g. ${CHART_VERSION}-edge)" >&2; exit 2; }
+  _gitops_args=(gitops bootstrap --registry "$IMAGE_REGISTRY"
+    --age-key "$GITOPS_AGE_KEY" --config-tag "$GITOPS_CONFIG_TAG")
+  [[ "$HELM_PLAIN_HTTP" -eq 1 ]] && _gitops_args+=(--plain-http)
+  exec bash "$(cd "$(dirname "$0")" && pwd)/keosctl" "${_gitops_args[@]}"
 fi
 # Verify with helm too — not just the k3s kubectl fallback — so a config
 # kubectl can read but helm can't is caught here, not 10 minutes into helm.
