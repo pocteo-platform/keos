@@ -1200,6 +1200,8 @@ PY"
 
 cmd_doctor() {
   _check_help doctor "$@"
+  local e2e=0
+  for a in "$@"; do [[ "$a" == "--e2e" ]] && e2e=1; done
   require_namespace
   heading "Keos doctor"
   local fails=0
@@ -1272,6 +1274,96 @@ cmd_doctor() {
     else
       warn "$(printf '%-15s' 'runbook corpus')  no points found — run 'keosctl seed'"
       fails=$((fails + 1))
+    fi
+  fi
+
+  # ── Portability / placement checks (added for fleet installs) ──────────
+  # Arch sanity: the in-pod kubectl must run — an amd64 binary in an arm64
+  # image is the bug that crashed the agent graph on the Jetson.
+  if [[ -n "$api_pod" ]]; then
+    if kc exec "$api_pod" -- kubectl version --client >/dev/null 2>&1; then
+      ok "$(printf '%-15s' 'in-pod kubectl')  runs (arch OK)"
+    else
+      fail "$(printf '%-15s' 'in-pod kubectl')  fails to exec — image/arch mismatch"
+      fails=$((fails + 1))
+    fi
+  fi
+
+  # GPU placement: when a GPU install, the chat model must be on the GPU.
+  if [[ -n "$ollama_pod" ]]; then
+    local proc
+    proc=$(kc exec "$ollama_pod" -- ollama ps 2>/dev/null | awk 'NR==2{print $5,$6}')
+    if [[ -n "$proc" ]]; then
+      # A CPU/GPU split still means the GPU runner loaded (expected under
+      # memory pressure). Only a GPU-less placement is the silent-fallback bug.
+      if [[ "$proc" == *GPU* ]]; then
+        ok "$(printf '%-15s' 'ollama gpu')  model using GPU ($proc)"
+      else
+        warn "$(printf '%-15s' 'ollama gpu')  model on $proc (no GPU) — check runtimeClass / keosctl gpu-setup"
+      fi
+    fi
+  fi
+
+  # Security tier consistency: the recorded tier vs the BTF labels.
+  local tier
+  tier=$(helm get values "$RELEASE" -n "$NAMESPACE" -o json 2>/dev/null \
+          | jq_inline 'print((d.get("keosSecurity") or {}).get("tier",""))' 2>/dev/null || echo '')
+  if [[ -n "$tier" ]]; then
+    local btf_true
+    btf_true=$(kc_cluster get nodes -l keos.pocteo/btf-kernel=true -o name 2>/dev/null | wc -l)
+    case "$tier" in
+      modern_ebpf) [[ "$btf_true" -gt 0 ]] && ok "$(printf '%-15s' 'security tier')  modern_ebpf (BTF nodes present)" \
+                     || warn "$(printf '%-15s' 'security tier')  modern_ebpf but no btf-kernel=true node — falco may crashloop" ;;
+      ebpf-prebuilt) ok "$(printf '%-15s' 'security tier')  ebpf-prebuilt (legacy probe; tetragon off)" ;;
+      off) note "$(printf '%-15s' 'security tier')  off (synthetic events only)" ;;
+      *) note "$(printf '%-15s' 'security tier')  $tier" ;;
+    esac
+  fi
+
+  # On-device extras (only meaningful when doctor runs on the node).
+  if [[ -e /sys/kernel/btf/vmlinux || -f /etc/nv_tegra_release ]]; then :; fi
+  if [[ -f /etc/nv_tegra_release && -f /etc/cdi/nvidia.yaml ]]; then
+    if grep -qE '^\s*-?\s*name:\s*tegra\b' /etc/cdi/nvidia.yaml; then
+      ok "$(printf '%-15s' 'cdi tegra alias')  present"
+    else
+      warn "$(printf '%-15s' 'cdi tegra alias')  MISSING (JetPack upgrade?) — run 'keosctl gpu-setup --apply'"
+    fi
+  fi
+  # Swap on small nodes (the Jetson OOM lesson) — only checkable locally.
+  if [[ -r /proc/meminfo ]]; then
+    local mem_gib swap_kb
+    mem_gib=$(awk '/MemTotal/{print int($2/1024/1024)}' /proc/meminfo)
+    swap_kb=$(awk '/SwapTotal/{print $2}' /proc/meminfo)
+    if [[ "$mem_gib" -lt 16 && "${swap_kb:-0}" -eq 0 ]]; then
+      warn "$(printf '%-15s' 'swap')  none on a ${mem_gib}GiB node — model load may OOM; add a swapfile"
+    fi
+  fi
+
+  # ── Optional live security e2e ─────────────────────────────────────────
+  if [[ "$e2e" -eq 1 ]]; then
+    heading "doctor --e2e: live security detection"
+    local target
+    target=$(kc_cluster -n workloads get pod -l app=nginx-demo -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo '')
+    if [[ -z "$target" ]]; then
+      warn "no nginx-demo pod in 'workloads' — skipping e2e (install seeds it by default)"
+    else
+      local before
+      before=$(api_curl "/api/incidents?domain=security&limit=50" 2>/dev/null | jq_inline 'print(len(d or []))' 2>/dev/null || echo 0)
+      note "triggering 'Read sensitive file untrusted' in workloads/$target…"
+      kc_cluster -n workloads exec "$target" -- cat /etc/shadow >/dev/null 2>&1 || true
+      local i found=0
+      for i in $(seq 1 12); do
+        sleep 5
+        local now
+        now=$(api_curl "/api/incidents?domain=security&limit=50" 2>/dev/null | jq_inline 'print(len(d or []))' 2>/dev/null || echo 0)
+        if [[ "${now:-0}" -gt "${before:-0}" ]]; then found=1; break; fi
+      done
+      if [[ "$found" -eq 1 ]]; then
+        ok "e2e: a new security incident appeared — Falco→agent delivery works"
+      else
+        fail "e2e: no incident within 60s — check falco/falcosidekick logs + FALCO_WEBHOOK_TOKEN"
+        fails=$((fails + 1))
+      fi
     fi
   fi
 
