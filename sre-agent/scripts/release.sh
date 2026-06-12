@@ -25,7 +25,7 @@
 #   --insecure      plain-HTTP / self-signed registry: plumbs
 #                   `helm --plain-http` + `skopeo --dest-tls-verify=false`
 #
-# Device-side registry trust (k3s registries.yaml): see docs/REGISTRY.md.
+# Device-side registry trust (k3s registries.yaml): see docs/OPERATIONS.md.
 
 set -euo pipefail
 
@@ -95,7 +95,7 @@ cmd_images_list() {
     echo "busybox:stable"                              # falco prebuilt-probe carrier
     # Flux controllers — the GitOps delivery path (Phase 23). `flux install
     # --registry=<reg>/fluxcd` pulls these from the mirror. Keep in lockstep
-    # with FLUX_VERSION below + docs/GITOPS.md.
+    # with FLUX_VERSION below + docs/OPERATIONS.md.
     echo "ghcr.io/fluxcd/source-controller:v1.4.1"
     echo "ghcr.io/fluxcd/kustomize-controller:v1.4.0"
     echo "ghcr.io/fluxcd/helm-controller:v1.1.0"
@@ -133,7 +133,7 @@ dest_path() {
 #     * or build+push each arch on its own machine and `docker buildx
 #       imagetools create` a combined manifest.
 #   The native-arch images themselves are fine — this is purely an
-#   emulation limitation. See docs/RELEASE_CHECKLIST.md.
+#   emulation limitation. See docs/OPERATIONS.md.
 cmd_build() {
   command -v docker >/dev/null || die "docker not on PATH"
   docker buildx version >/dev/null 2>&1 || die "docker buildx not available"
@@ -246,7 +246,7 @@ cmd_config() {
   rm -f "$build/secret.plain.yaml"
 
   # 4. push the artifact
-  [[ "$INSECURE" -eq 1 ]] && warn "plain-HTTP registry: 'flux push artifact' needs the registry on HTTPS or a docker/containerd insecure-registries entry — see docs/GITOPS.md"
+  [[ "$INSECURE" -eq 1 ]] && warn "plain-HTTP registry: 'flux push artifact' needs the registry on HTTPS or a docker/containerd insecure-registries entry — see docs/OPERATIONS.md"
   flux push artifact "oci://${REGISTRY}/keos-config:${config_tag}" \
     --path "$build" --source "keos-gitops" --revision "${config_tag}" \
     || die "flux push artifact failed (registry reachable? plain-HTTP caveat above?)"

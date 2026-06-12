@@ -8,7 +8,7 @@ how commits should look, and what the review process expects.
 
 Pick the host you'll actually develop on:
 
-- **Windows + PowerShell:** see [docs/INSTALL.md §1](docs/INSTALL.md). You'll
+- **Windows + PowerShell:** see [docs/INSTALLATION.md §1](docs/INSTALLATION.md). You'll
   drive everything through `.\make.ps1 <target>`.
 - **macOS / Linux:** same doc; substitute `make <target>`.
 

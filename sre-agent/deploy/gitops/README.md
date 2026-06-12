@@ -53,4 +53,4 @@ grep 'public key' keos-fleet.agekey      # → age1... (the recipient; export as
 Prereqs on the build workstation: `flux`, `sops`, `age`, `yq` (in addition to
 `docker`/`helm`/`skopeo` the rest of `release.sh` needs).
 
-See `docs/GITOPS.md` for the full day-2 workflow, key rotation, and rollback.
+See `docs/OPERATIONS.md` for the full day-2 workflow, key rotation, and rollback.
