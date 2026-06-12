@@ -108,6 +108,8 @@ LOCAL_BUILD_AUTO=1     # default: auto-fall-back to local build if public images
 LOCAL_CHART_PATH="${KEOS_LOCAL_CHART:-}"   # for `make install-edge` against k3d
 ENABLE_SECURITY=1     # security sensors (Falco + Tetragon) install by default; --no-security opts out
 SEED_DEMO_WORKLOADS=1 # seed the demo namespaces + nginx-demo so use-cases have a live target; --no-demo-workloads opts out
+SKIP_PREFLIGHT=0      # --skip-preflight skips the full scripts/preflight.sh suite (quick checks always run)
+CONTAINERD_SOCKET_OVERRIDE=""  # --containerd-socket overrides the distro-probed path
 
 # ─── Argparse ──────────────────────────────────────────────────────────────
 
@@ -125,6 +127,8 @@ while [[ $# -gt 0 ]]; do
     --airgap)      AIRGAP=1; SKIP_MODEL_PULL=1; shift ;;
     --image-registry) IMAGE_REGISTRY="$2"; shift 2 ;;
     --plain-http)  HELM_PLAIN_HTTP=1; shift ;;
+    --skip-preflight) SKIP_PREFLIGHT=1; shift ;;
+    --containerd-socket) CONTAINERD_SOCKET_OVERRIDE="$2"; shift 2 ;;
     --local-build) LOCAL_BUILD=1; LOCAL_BUILD_AUTO=0; shift ;;
     --no-local-build-fallback) LOCAL_BUILD_AUTO=0; shift ;;
     --local-chart) LOCAL_CHART_PATH="$2"; shift 2 ;;
@@ -277,11 +281,16 @@ GPU_RUNTIME_CLASS="nvidia"
 # Distro-specific containerd socket path. Chaos Mesh's chaos-daemon
 # needs this. Talos uses the OS-default; k3s + Kairos (which bundles
 # k3s by default) use the k3s-specific path. RKE2 uses its own.
-case "$DISTRO" in
-  k3s|kairos) CONTAINERD_SOCKET="/run/k3s/containerd/containerd.sock" ;;
-  rke2)       CONTAINERD_SOCKET="/run/k3s/containerd/containerd.sock" ;;
-  *)          CONTAINERD_SOCKET="/run/containerd/containerd.sock" ;;
-esac
+# --containerd-socket overrides the probe for exotic layouts.
+if [[ -n "$CONTAINERD_SOCKET_OVERRIDE" ]]; then
+  CONTAINERD_SOCKET="$CONTAINERD_SOCKET_OVERRIDE"
+else
+  case "$DISTRO" in
+    k3s|kairos) CONTAINERD_SOCKET="/run/k3s/containerd/containerd.sock" ;;
+    rke2)       CONTAINERD_SOCKET="/run/k3s/containerd/containerd.sock" ;;
+    *)          CONTAINERD_SOCKET="/run/containerd/containerd.sock" ;;
+  esac
+fi
 
 ok "distro: $DISTRO · k8s: $K8S_VERSION · nodes: $NODE_COUNT"
 ok "target node: $NODE · GPU: $([[ "$ENABLE_GPU" == "true" ]] && echo "yes (nvidia.com/gpu)" || echo "no — CPU mode")"
@@ -309,6 +318,33 @@ ${C_HEAD}---${C_RST} ${C_DIM}probe-only mode — exiting before any change${C_RS
   Drop --probe-only to execute it.
 EOF
   exit 0
+fi
+
+# ─── Full preflight suite ──────────────────────────────────────────────────
+# Runs the shared checker (memory vs model, node arch vs registry, kernel
+# BTF labelling for the security ladder, registry reachability, …) when
+# preflight.sh sits next to this script (repo clone / full download). A
+# bare curl'd install-edge.sh still works — the quick checks above
+# already ran. Opt out with --skip-preflight.
+_pf_lib="$(cd "$(dirname "$0")" && pwd)/preflight.sh"
+if [[ "$SKIP_PREFLIGHT" -eq 0 && -r "$_pf_lib" ]]; then
+  step "Preflight (full suite)…"
+  _pf_args=(--node "$NODE")
+  [[ "$ENABLE_GPU" == "true"  ]] && _pf_args+=(--gpu)
+  [[ "$ENABLE_GPU" == "false" ]] && _pf_args+=(--no-gpu)
+  [[ "$LOCAL_BUILD" -eq 1     ]] && _pf_args+=(--local-build)
+  [[ -n "$IMAGE_REGISTRY"     ]] && _pf_args+=(--image-registry "$IMAGE_REGISTRY")
+  [[ "$HELM_PLAIN_HTTP" -eq 1 ]] && _pf_args+=(--insecure)
+  [[ -n "$CONTAINERD_SOCKET_OVERRIDE" ]] && _pf_args+=(--containerd-socket "$CONTAINERD_SOCKET_OVERRIDE")
+  [[ -n "${KEOS_CHAT_MODEL:-}" ]] && _pf_args+=(--model "$KEOS_CHAT_MODEL")
+  if ! bash "$_pf_lib" "${_pf_args[@]}"; then
+    die "preflight failed — fix the ✗ items above (or re-run with --skip-preflight to proceed anyway)"
+  fi
+elif [[ "$SKIP_PREFLIGHT" -eq 1 ]]; then
+  warn "full preflight skipped (--skip-preflight)"
+else
+  note "scripts/preflight.sh not found next to this script — quick checks only."
+  note "  For the full suite (memory/arch/BTF/registry): clone the repo or run 'keosctl preflight'."
 fi
 
 # ─── Token + HMAC key generation ──────────────────────────────────────────
