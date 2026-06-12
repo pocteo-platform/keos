@@ -204,7 +204,7 @@ def _is_pod_state_resolved(namespace: str, pod_name: str) -> tuple[bool, str]:
     try:
         import subprocess
 
-        from agent.config import kubectl_auth_args
+        from agent.config import kubectl_auth_args, kubectl_env
 
         p = subprocess.run(
             [
@@ -221,6 +221,7 @@ def _is_pod_state_resolved(namespace: str, pod_name: str) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=5,
+            env=kubectl_env(),
         )
         if p.returncode == 0:
             if (p.stdout or "").strip() == "True":

@@ -2173,6 +2173,13 @@ def delete_usecase(use_case_id: str) -> dict[str, bool]:
 def run_usecase(use_case_id: str) -> UseCaseRunResponse:
     uc = usecase_store.get(use_case_id)
     if uc is None:
+        # Defense-in-depth against the seed-on-first-list ordering trap:
+        # a starter use-case the library just hasn't materialised yet.
+        # Seed once and retry before 404ing. (Startup also seeds — see
+        # agent/serve.py — so this is belt-and-braces.)
+        usecase_store.seed_library_if_empty()
+        uc = usecase_store.get(use_case_id)
+    if uc is None:
         raise HTTPException(status_code=404, detail="use case not found")
     incident_id, _event = usecase_runner.run(uc)
     return UseCaseRunResponse(incident_id=incident_id, use_case_id=use_case_id)

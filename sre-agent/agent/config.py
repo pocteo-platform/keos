@@ -81,3 +81,22 @@ def kubectl_auth_args() -> list[str]:
     if settings.kubeconfig and os.path.isfile(settings.kubeconfig):
         return ["--kubeconfig", settings.kubeconfig]
     return []
+
+
+def kubectl_env() -> dict[str, str]:
+    """Environment for kubectl subprocesses. When no on-disk kubeconfig is
+    in play (in-cluster: `kubectl_auth_args()` returns []), strip a stray
+    `KUBECONFIG` from the environment so kubectl falls back to the
+    ServiceAccount instead of HARD-FAILING on an unreadable baked path.
+
+    This is the env-var counterpart to `kubectl_auth_args()`: that helper
+    controls the `--kubeconfig` flag, but a `KUBECONFIG` env var bypasses
+    it and reaches kubectl directly — which is exactly how a compose-era
+    `KUBECONFIG=/root/.kube/config` baked into an image broke `isolate_pod`
+    in-cluster (uid 1000 can't read /root, kubectl errors instead of using
+    the ServiceAccount). Pass this as `env=` to every kubectl subprocess.
+    """
+    env = dict(os.environ)
+    if not kubectl_auth_args():  # no usable on-disk kubeconfig → in-cluster
+        env.pop("KUBECONFIG", None)
+    return env

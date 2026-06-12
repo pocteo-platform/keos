@@ -361,6 +361,18 @@ async def _async_main(host: str, port: int) -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("ModeStore failed to start: %s — API will use FALLBACK_AGENT_MODE", exc)
 
+    # Seed the starter use-case library at startup, not lazily on the first
+    # GET /api/usecases. Otherwise a fresh pod that receives POST
+    # /api/usecases/<slug>/run before any list call 404s ("use case not
+    # found") — exactly what broke `keosctl run` right after install.
+    try:
+        from agent import usecase_store
+
+        usecase_store.seed_library_if_empty()
+        usecase_store.prune_invalid_and_migrate_library()
+    except Exception as exc:  # noqa: BLE001 — never block startup on seeding
+        log.warning("use-case library seed failed at startup: %s", exc)
+
     # Warm the chat model in the background — never block API readiness.
     asyncio.create_task(asyncio.to_thread(warmup_chat_model))
 

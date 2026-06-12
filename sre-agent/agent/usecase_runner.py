@@ -25,7 +25,7 @@ from typing import Any
 import nats
 
 from agent.api_models import UseCase
-from agent.config import kubectl_auth_args, settings
+from agent.config import kubectl_auth_args, kubectl_env, settings
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +60,7 @@ def _resolve_target(use_case: UseCase) -> tuple[str, str]:
                 capture_output=True,
                 text=True,
                 timeout=10,
+                env=kubectl_env(),
             )
             name = (p.stdout or "").strip()
             if name:
@@ -195,6 +196,7 @@ def _apply_attack_sim_if_requested(use_case: UseCase, ns: str, pod: str, inciden
                 capture_output=True,
                 text=True,
                 timeout=15,
+                env=kubectl_env(),
             )
             log.info(
                 "attack-sim exec_shell on %s/%s rc=%d for use_case=%s",
@@ -212,6 +214,7 @@ def _apply_attack_sim_if_requested(use_case: UseCase, ns: str, pod: str, inciden
             capture_output=True,
             text=True,
             timeout=15,
+            env=kubectl_env(),
         )
         if p.returncode == 0:
             log.info("attack-sim %s applied for use_case=%s", sim.kind, use_case.id)
@@ -289,6 +292,7 @@ def _apply_chaos_if_requested(use_case: UseCase, ns: str, pod: str, incident_id:
             capture_output=True,
             text=True,
             timeout=15,
+            env=kubectl_env(),
         )
         if p.returncode == 0:
             log.info("chaos: applied %s for use_case=%s (%s)", kind, use_case.id, p.stdout.strip())

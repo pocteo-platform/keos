@@ -23,7 +23,7 @@ from typing import Any
 
 import nats
 
-from agent.config import kubectl_auth_args, settings
+from agent.config import kubectl_auth_args, kubectl_env, settings
 from agent.logging_utils import configure_logging
 
 log = logging.getLogger("synthetic_events")
@@ -93,6 +93,7 @@ def _resolve_pod_name(namespace: str, app_label: str, fallback: str) -> str:
             capture_output=True,
             text=True,
             timeout=10,
+            env=kubectl_env(),
         )
         name = p.stdout.strip()
         if name:
