@@ -46,6 +46,8 @@ What lands in the registry:
 | first-party | `<reg>/pocteo-platform/keos-{api,mcp-server,frontend}:<version>` |
 | Jetson ollama | `<reg>/pocteo-platform/keos-ollama-jetson:<ollama-ver>-jp6` |
 | third-party | `<reg>/<original path>` (e.g. `library/caddy`, `falcosecurity/falco`, `cilium/tetragon`, `chaos-mesh/...`) — multi-arch manifests preserved via skopeo |
+| Flux controllers | `<reg>/fluxcd/{source,helm,kustomize}-controller:<ver>` — for the GitOps path (`docs/GITOPS.md`) |
+| GitOps config | `oci://<reg>/keos-config:<ver>-<env>` — the Flux desired state (HelmRelease + values + SOPS Secret), pushed by `release.sh config`. See `docs/GITOPS.md`. |
 
 `release.sh verify` (also part of `all`) runs the multi-arch audit
 (`scripts/audit-images.sh`) so an amd64-only image can never ship silently.

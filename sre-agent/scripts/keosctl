@@ -140,6 +140,38 @@ EXAMPLES
 SEE ALSO  https://pocteo-platform.github.io/keos/docs/cli/install-uninstall
 EOF
       ;;
+    gitops) cat <<'EOF'
+keosctl gitops — pull-based delivery via Flux (air-gapped, private registry)
+
+USAGE
+  keosctl gitops bootstrap --registry <host:5000> --age-key <fleet.agekey> \
+                           --config-tag <tag> [--plain-http]
+  keosctl gitops render    --registry <host:5000> [--env edge] [--out FILE] [--node NAME]
+  keosctl gitops status | sync | suspend | resume
+
+DESCRIPTION
+  The cluster runs Flux and PULLS its desired state (the keos-config OCI
+  artifact pushed by scripts/release.sh config) from the private :5000
+  registry — nothing is pushed in. Secrets are SOPS-encrypted in the
+  artifact and decrypted in-cluster with the fleet age key.
+
+  bootstrap  install Flux (images from <reg>/fluxcd), drop the age key
+             (sops-age secret), apply the root OCIRepository + Kustomization.
+  render     probe this cluster + emit a starter values-<env>.yaml to feed
+             to `release.sh config`.
+  status     flux sources / kustomizations / helmreleases.
+  sync       force an immediate reconcile (else it polls on its interval).
+  suspend/resume  pause/resume reconciliation for manual maintenance.
+
+EXAMPLES
+  keosctl gitops bootstrap --registry registry.fleet.local:5000 \
+      --age-key ./keos-fleet.agekey --config-tag 1.1.0-edge --plain-http
+  keosctl gitops render --registry registry.fleet.local:5000 --env edge
+  keosctl gitops status
+
+SEE ALSO  docs/GITOPS.md
+EOF
+      ;;
     uninstall) cat <<'EOF'
 keosctl uninstall — remove the Keos release from the cluster
 
@@ -1882,7 +1914,7 @@ _keosctl_complete() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  cmds="install uninstall link status doctor preflight gpu-setup mode logs ui token seed models
+  cmds="install gitops uninstall link status doctor preflight gpu-setup mode logs ui token seed models
         events incidents usecases run restart shell describe port-forward upgrade
         audit completion context version help api backup restore diag calibration
         config chaos top update deps images values policy runbooks bus"
@@ -1916,7 +1948,7 @@ COMPLETION
 #   eval "$(keosctl completion zsh)"
 _keosctl() {
   local -a cmds
-  cmds=(install uninstall link status doctor preflight gpu-setup mode logs ui token seed models
+  cmds=(install gitops uninstall link status doctor preflight gpu-setup mode logs ui token seed models
         events usecases run restart shell describe port-forward upgrade
         audit completion context version help)
   if (( CURRENT == 2 )); then
@@ -2817,6 +2849,121 @@ parse_global() {
   REMAINING=("$@")
 }
 
+# ─── Subcommand: gitops (Phase 23 — Flux pull-based delivery) ────────────────
+# Operator surface for the air-gapped, private-registry GitOps model. The
+# desired state is an OCI artifact in :5000 (pushed by scripts/release.sh
+# config); Flux on the cluster pulls + reconciles it. No inbound push.
+cmd_gitops() {
+  _check_help gitops "$@"
+  local action="${1:-status}"; shift || true
+  case "$action" in
+    bootstrap)        _gitops_bootstrap "$@" ;;
+    render)           _gitops_render "$@" ;;
+    status|st)        _gitops_status "$@" ;;
+    sync|reconcile)   _gitops_sync "$@" ;;
+    suspend)          command -v flux >/dev/null || die "flux CLI not found"
+                      flux suspend kustomization keos -n flux-system && ok "GitOps reconciliation suspended" ;;
+    resume)           command -v flux >/dev/null || die "flux CLI not found"
+                      flux resume kustomization keos -n flux-system && ok "GitOps reconciliation resumed" ;;
+    *) die "usage: keosctl gitops {bootstrap|render|status|sync|suspend|resume}" ;;
+  esac
+}
+
+_gitops_status() {
+  command -v flux >/dev/null || die "flux CLI not found (install it on the workstation)"
+  heading "Flux GitOps status"
+  flux get sources oci -A 2>&1 || true
+  printf "\n"
+  flux get kustomizations -A 2>&1 || true
+  printf "\n"
+  flux get helmreleases -A 2>&1 || true
+}
+
+_gitops_sync() {
+  command -v flux >/dev/null || die "flux CLI not found"
+  info "Forcing reconcile of the keos-config source + release…"
+  flux reconcile source oci keos-config -n flux-system 2>&1 || warn "source reconcile failed (bootstrapped?)"
+  flux reconcile kustomization keos -n flux-system --with-source 2>&1 || true
+  flux reconcile helmrelease keos -n flux-system 2>&1 || true
+  ok "reconcile triggered — watch with: keosctl gitops status"
+}
+
+_gitops_bootstrap() {
+  command -v flux >/dev/null || die "flux CLI required — https://fluxcd.io/flux/installation/"
+  command -v envsubst >/dev/null || die "envsubst required (gettext)"
+  local reg="" plain=0 agekey="" ctag="" comp="source-controller,helm-controller,kustomize-controller"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --registry)    reg="$2"; shift 2 ;;
+      --plain-http)  plain=1; shift ;;
+      --age-key)     agekey="$2"; shift 2 ;;
+      --config-tag)  ctag="$2"; shift 2 ;;
+      *) die "unknown arg: $1 (see 'keosctl gitops --help')" ;;
+    esac
+  done
+  [[ -n "$reg" ]]    || die "--registry <host:5000> required"
+  [[ -n "$agekey" && -f "$agekey" ]] || die "--age-key <fleet.agekey> required (the fleet age PRIVATE key)"
+  [[ -n "$ctag" ]]   || die "--config-tag <tag> required (the keos-config artifact tag, e.g. 1.1.0-edge)"
+  local oci_insecure="false"; [[ "$plain" -eq 1 ]] && oci_insecure="true"
+  local gd="$SCRIPT_DIR/../deploy/gitops/flux"
+  [[ -d "$gd" ]] || die "deploy/gitops/flux not found next to keosctl"
+
+  heading "Bootstrapping Flux GitOps from ${reg}"
+  info "Installing Flux controllers (${comp}) — images from ${reg}/fluxcd"
+  flux install --components="$comp" --registry="${reg}/fluxcd" || die "flux install failed"
+
+  info "Installing the fleet age key (sops-age secret in flux-system)"
+  kubectl create secret generic sops-age -n flux-system \
+    --from-file=age.agekey="$agekey" --dry-run=client -o yaml | kubectl apply -f - \
+    || die "could not create sops-age secret"
+
+  info "Applying root OCIRepository + Kustomization → oci://${reg}/keos-config:${ctag}"
+  REGISTRY="$reg" CONFIG_TAG="$ctag" OCI_INSECURE="$oci_insecure" \
+    envsubst '${REGISTRY} ${CONFIG_TAG} ${OCI_INSECURE}' < "$gd/ocirepository-config.yaml" | kubectl apply -f - \
+    || die "applying OCIRepository failed"
+  envsubst < "$gd/kustomization.yaml" | kubectl apply -f - || die "applying Kustomization failed"
+
+  ok "GitOps bootstrap complete — Flux now reconciles Keos from ${reg}/keos-config:${ctag}"
+  note "watch:  keosctl gitops status     force a pull:  keosctl gitops sync"
+}
+
+# Probe the live cluster (like install-edge does) and emit a starter
+# values-<env>.yaml the operator reviews + feeds to `release.sh config`.
+_gitops_render() {
+  local reg="" out="" node="" env_name="${ENV:-edge}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --registry) reg="$2"; shift 2 ;;
+      --out)      out="$2"; shift 2 ;;
+      --node)     node="$2"; shift 2 ;;
+      --env)      env_name="$2"; shift 2 ;;
+      *) die "unknown arg: $1" ;;
+    esac
+  done
+  [[ -n "$reg" ]] || die "--registry <host:5000> required"
+  command -v envsubst >/dev/null || die "envsubst required (gettext)"
+  local ex="$SCRIPT_DIR/../deploy/gitops/config/values-edge.example.yaml"
+  [[ -f "$ex" ]] || die "example values not found at $ex"
+  out="${out:-values-${env_name}.yaml}"
+
+  # Probe: GPU node (first with nvidia.com/gpu), else first node.
+  local gpu_node gpu="false"
+  gpu_node="$(kc_cluster get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.allocatable.nvidia\.com/gpu}{"\n"}{end}' 2>/dev/null | awk -F'\t' '$2>0{print $1; exit}')"
+  [[ -n "$gpu_node" ]] && gpu="true"
+  node="${node:-${gpu_node:-$(kc_cluster get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)}}"
+
+  REGISTRY="$reg" NODE_NAME="${node:-CHANGEME}" envsubst '${REGISTRY} ${NODE_NAME}' < "$ex" > "$out"
+  if [[ "$gpu" == "true" ]]; then
+    # flip ollama.gpu.enabled true (best-effort sed on the rendered block)
+    sed -i 's/^\(  gpu:\)/\1/; s/^\(    enabled: \)false/\1true/' "$out" 2>/dev/null || true
+  fi
+  ok "wrote $out  (node=${node:-?} gpu=${gpu})"
+  note "Review: security tier (falco/tetragon), containerd socket (Talos differs),"
+  note "  agent.defaultMode, GPU. Then push it:"
+  note "  KEOS_AGE_RECIPIENT=age1... ENV=${env_name} VALUES_FILE=$out \\"
+  note "    REGISTRY=${reg} scripts/release.sh config"
+}
+
 main() {
   parse_global "$@"
   set -- "${REMAINING[@]:-}"
@@ -2824,6 +2971,7 @@ main() {
   shift || true
   case "$cmd" in
     install)         cmd_install "$@" ;;
+    gitops)          cmd_gitops "$@" ;;
     uninstall)       cmd_uninstall "$@" ;;
     status)          cmd_status "$@" ;;
     doctor)          cmd_doctor "$@" ;;
@@ -2869,7 +3017,7 @@ main() {
     *)
       printf "${C_RED}${CROSS}${C_RST} unknown command '%s'\n\n" "$cmd"
       printf "Did you mean one of these?\n"
-      for c in install uninstall status doctor preflight gpu-setup mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update deps images values policy runbooks quarantine bus help; do
+      for c in install gitops uninstall status doctor preflight gpu-setup mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update deps images values policy runbooks quarantine bus help; do
         # Cheap fuzzy: print commands that share a prefix or contain the typo.
         if [[ "$c" == "$cmd"* || "$c" == *"$cmd"* ]]; then
           printf "  ${C_CYAN}%s${C_RST}\n" "$c"
