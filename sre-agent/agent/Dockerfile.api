@@ -21,7 +21,11 @@ COPY mcp_server /app/mcp_server
 
 RUN uv pip install --system --no-cache .
 
+# HOME=/tmp: the pod runs as uid 1000 with readOnlyRootFilesystem; the
+# base image's HOME=/root aims kubectl's default kubeconfig chain at an
+# unreadable dir and it errors out instead of using the ServiceAccount.
 ENV PYTHONUNBUFFERED=1 \
+    HOME=/tmp \
     LOG_LEVEL=INFO
 
 EXPOSE 8000

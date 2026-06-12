@@ -27,8 +27,13 @@ COPY mcp_server /app/mcp_server
 # Install only the runtime deps (skip pytest/respx/etc).
 RUN uv pip install --system --no-cache .
 
+# No KUBECONFIG here: in-cluster, a baked path poisons kubectl (it
+# hard-fails loading an unreadable /root/... as uid 1000 instead of
+# falling back to the ServiceAccount — this broke isolate_pod on the
+# Jetson). The compose path sets it per-service in docker-compose.yml.
+# HOME=/tmp keeps kubectl's default config chain on a readable dir.
 ENV PYTHONUNBUFFERED=1 \
-    KUBECONFIG=/root/.kube/config \
+    HOME=/tmp \
     LOG_LEVEL=INFO
 
 # The HTTP port. stdio transport doesn't open ports (it's spawned by the client).
