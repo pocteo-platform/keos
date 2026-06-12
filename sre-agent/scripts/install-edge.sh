@@ -38,6 +38,13 @@
 #   # Default — auto-detect everything
 #   bash install-edge.sh
 #
+#   # STANDARD FLEET FLOW — self-hosted registry populated by
+#   # `scripts/release.sh all REGISTRY=<host:port>`. The chart AND every
+#   # image come from the registry: no repo clone, no docker, no ghcr.io
+#   # access needed on the device. Add --plain-http for a TLS-less registry
+#   # (device-side containerd trust: see docs/REGISTRY.md).
+#   bash install-edge.sh --image-registry registry.fleet.local:5000 [--gpu]
+#
 #   # Explicit kubeconfig (talosctl-fetched, for example)
 #   bash install-edge.sh --kubeconfig ~/.kube/talos-jetson.yaml
 #
@@ -83,7 +90,8 @@ set -euo pipefail
 # the chart elsewhere; override KEOS_CHART_VERSION to pin a specific tag.
 CHART_REPO=""   # unused for OCI; kept for compat with older versions
 CHART_NAME="${KEOS_CHART_NAME:-oci://ghcr.io/pocteo-platform/charts/pocteo}"
-CHART_VERSION="${KEOS_CHART_VERSION:-1.0.0}"
+CHART_VERSION="${KEOS_CHART_VERSION:-1.1.0}"
+HELM_PLAIN_HTTP=0   # --plain-http: registry without TLS (helm OCI pulls)
 RELEASE="${KEOS_RELEASE:-keos}"
 NAMESPACE="${KEOS_NAMESPACE:-keos}"
 KUBECONFIG_OVERRIDE=""
@@ -116,6 +124,7 @@ while [[ $# -gt 0 ]]; do
     --probe-only)  PROBE_ONLY=1; shift ;;
     --airgap)      AIRGAP=1; SKIP_MODEL_PULL=1; shift ;;
     --image-registry) IMAGE_REGISTRY="$2"; shift 2 ;;
+    --plain-http)  HELM_PLAIN_HTTP=1; shift ;;
     --local-build) LOCAL_BUILD=1; LOCAL_BUILD_AUTO=0; shift ;;
     --no-local-build-fallback) LOCAL_BUILD_AUTO=0; shift ;;
     --local-chart) LOCAL_CHART_PATH="$2"; shift 2 ;;
@@ -367,6 +376,28 @@ _probe_public_images() {
     -o /dev/null 2>/dev/null
 }
 
+# ─── Fleet-registry chart resolution ────────────────────────────────────────
+# The standard production flow: a self-hosted registry populated by
+# `scripts/release.sh all` serves the chart AND every image. When the
+# operator passed --image-registry (non-airgap, no --local-chart), try
+# oci://<registry>/charts/pocteo first — if it's there, no repo clone, no
+# docker, no ghcr.io access is needed on the device at all.
+if [[ "$AIRGAP" -eq 0 && -n "$IMAGE_REGISTRY" && -z "$LOCAL_CHART_PATH" ]]; then
+  step "Probing fleet registry for the Helm chart…"
+  _helm_probe_flags=()
+  [[ "$HELM_PLAIN_HTTP" -eq 1 ]] && _helm_probe_flags+=(--plain-http)
+  if helm show chart "${_helm_probe_flags[@]}" \
+       "oci://${IMAGE_REGISTRY}/charts/pocteo" --version "$CHART_VERSION" \
+       >/dev/null 2>&1; then
+    CHART_NAME="oci://${IMAGE_REGISTRY}/charts/pocteo"
+    LOCAL_BUILD_AUTO=0   # registry serves the images too — no ghcr probe / local-build fallback
+    ok "chart found: ${CHART_NAME} (version $CHART_VERSION) — fleet-registry install"
+  else
+    warn "no chart at oci://${IMAGE_REGISTRY}/charts/pocteo:$CHART_VERSION — falling back to the usual chart sources."
+    warn "  (populate the registry with: scripts/release.sh all REGISTRY=${IMAGE_REGISTRY})"
+  fi
+fi
+
 if [[ "$AIRGAP" -eq 0 && "$LOCAL_BUILD" -eq 0 && "$LOCAL_BUILD_AUTO" -eq 1 ]]; then
   step "Probing whether public first-party images are pullable…"
   if _probe_public_images; then
@@ -467,14 +498,43 @@ HELM_ARGS=(
 # embeds the version in the .tgz filename so this is a no-op.
 if [[ "$CHART_NAME" == oci://* ]]; then
   HELM_ARGS+=(--version "$CHART_VERSION")
+  [[ "$HELM_PLAIN_HTTP" -eq 1 ]] && HELM_ARGS+=(--plain-http)
 fi
 
-# Operator-supplied registry (non-airgap): pull from a corporate Harbor /
-# Nexus / JFrog instead of ghcr.io, but otherwise install normally.
-# Airgap mode handles its own registry plumbing below.
+# Every image — first-party AND stock — comes from the operator's registry.
+# First-party (api/mcp/frontend) via global.imageRegistry (the chart's
+# `pocteo.image` helper applies it only to firstParty=true); stock images
+# need explicit per-image repo overrides because they're pulled verbatim
+# from values.yaml. Paths match what `scripts/release.sh mirror` pushes.
+apply_registry_overrides() {
+  HELM_ARGS+=(
+    --set-string "global.imageRegistry=${IMAGE_REGISTRY}/pocteo-platform"
+    --set-string "caddy.image.repository=${IMAGE_REGISTRY}/library/caddy"
+    --set-string "nats.image.repository=${IMAGE_REGISTRY}/library/nats"
+    --set-string "ollama.image.repository=${IMAGE_REGISTRY}/ollama/ollama"
+    --set-string "qdrant.image.repository=${IMAGE_REGISTRY}/qdrant/qdrant"
+    --set-string "opa.image.repository=${IMAGE_REGISTRY}/openpolicyagent/opa"
+    --set-string "chaos-mesh.images.registry=${IMAGE_REGISTRY}"
+    --set-string "agent.bootstrapNodeLabel.image=${IMAGE_REGISTRY}/alpine/k8s:1.30.0"
+    # Security subcharts (harmless when falco/tetragon disabled). Without
+    # these a --security install on a registry-only fleet still dials
+    # docker.io / quay.io. Keys verified against the vendored subcharts.
+    --set-string "falco.image.registry=${IMAGE_REGISTRY}"
+    --set-string "falco.falcoctl.image.registry=${IMAGE_REGISTRY}"
+    --set-string "falco.driver.loader.initContainer.image.registry=${IMAGE_REGISTRY}"
+    --set-string "falco.falcosidekick.image.registry=${IMAGE_REGISTRY}"
+    --set-string "tetragon.tetragon.image.repository=${IMAGE_REGISTRY}/cilium/tetragon"
+    --set-string "tetragon.tetragonOperator.image.repository=${IMAGE_REGISTRY}/cilium/tetragon-operator"
+    --set-string "tetragon.export.stdout.image.repository=${IMAGE_REGISTRY}/cilium/hubble-export-stdout"
+  )
+}
+
+# Operator-supplied registry (non-airgap): the standard fleet flow — a
+# self-hosted registry populated by `scripts/release.sh all` serves every
+# image. Same overrides as airgap; only the chart-source probing differs.
 if [[ "$AIRGAP" -eq 0 && -n "$IMAGE_REGISTRY" && "$LOCAL_BUILD" -eq 0 ]]; then
-  HELM_ARGS+=(--set-string "global.imageRegistry=$IMAGE_REGISTRY")
-  ok "using corporate registry: $IMAGE_REGISTRY (overrides default ghcr.io/pocteo-platform)"
+  apply_registry_overrides
+  ok "using fleet registry: $IMAGE_REGISTRY (all images redirected)"
 fi
 # Local-build: point the chart at the images we just imported into
 # containerd. global.imageRegistry="" + per-image repository overrides
@@ -503,22 +563,10 @@ HELM_ARGS+=(
   --set "chaos-mesh.chaosDaemon.socketPath=$CONTAINERD_SOCKET"
   --set-string "chaos-mesh.chaosDaemon.runtime=containerd"
 )
-# Airgap: every image gets prefixed by the operator's registry mirror.
-# First-party images (api/mcp/frontend) use global.imageRegistry (which
-# the chart's `pocteo.image` helper applies only to firstParty=true).
-# Stock images need explicit per-image repo overrides because they're
-# pulled verbatim from values.yaml.
+# Airgap: identical registry plumbing — the difference is only that the
+# chart must be local (validated above) and no public probes ever run.
 if [[ "$AIRGAP" -eq 1 ]]; then
-  HELM_ARGS+=(
-    --set-string "global.imageRegistry=${IMAGE_REGISTRY}/pocteo-platform"
-    --set-string "caddy.image.repository=${IMAGE_REGISTRY}/library/caddy"
-    --set-string "nats.image.repository=${IMAGE_REGISTRY}/library/nats"
-    --set-string "ollama.image.repository=${IMAGE_REGISTRY}/ollama/ollama"
-    --set-string "qdrant.image.repository=${IMAGE_REGISTRY}/qdrant/qdrant"
-    --set-string "opa.image.repository=${IMAGE_REGISTRY}/openpolicyagent/opa"
-    --set-string "chaos-mesh.images.registry=${IMAGE_REGISTRY}"
-    --set-string "agent.bootstrapNodeLabel.image=${IMAGE_REGISTRY}/alpine/k8s:1.30.0"
-  )
+  apply_registry_overrides
 fi
 if [[ "$ENABLE_GPU" == "true" ]]; then
   HELM_ARGS+=(

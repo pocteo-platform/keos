@@ -318,7 +318,20 @@ demo-ui: up
 # Multi-arch builds for cluster install. Requires `docker buildx` set up
 # with a builder that supports the platforms in deploy/buildx-bake.hcl.
 build-images:
-	@docker buildx bake -f deploy/buildx-bake.hcl push
+	@test -n "$(REGISTRY)" || (echo "REGISTRY=<host:port> required" && exit 1)
+	@REGISTRY=$(REGISTRY) bash scripts/release.sh build
+
+# Full fleet release: build first-party + Jetson ollama variant, mirror
+# every pinned third-party image, push the chart, run the multi-arch
+# audit. See docs/REGISTRY.md. Add INSECURE=1 for a plain-HTTP registry.
+release:
+	@test -n "$(REGISTRY)" || (echo "REGISTRY=<host:port> required" && exit 1)
+	@REGISTRY=$(REGISTRY) bash scripts/release.sh all $(if $(INSECURE),--insecure,)
+
+# Multi-arch + pin audit of everything the chart references.
+audit-images:
+	@test -n "$(REGISTRY)" || (echo "REGISTRY=<host:port> required" && exit 1)
+	@REGISTRY=$(REGISTRY) bash scripts/release.sh verify
 
 # Install Keos into a target cluster via Helm. KUBECONFIG must point at
 # the target. apiToken + hmacKey are required; minted on the fly if not
