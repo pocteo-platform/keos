@@ -149,6 +149,34 @@ if [[ -n "$KUBECONFIG_OVERRIDE" ]]; then
   export KUBECONFIG="$KUBECONFIG_OVERRIDE"
 fi
 
+# ─── Resolve ONE kubeconfig and export it ──────────────────────────────────
+# `kubectl` here is usually the k3s symlink, which silently falls back to
+# /etc/rancher/k3s/k3s.yaml — but `helm` (a standalone binary) does NOT, so
+# kubectl can reach the cluster while helm dies with "localhost:8080". Pin a
+# single readable kubeconfig and EXPORT it so every tool (kubectl, helm,
+# child processes) agrees. Honours an already-set KUBECONFIG first.
+if [[ -z "${KUBECONFIG:-}" ]]; then
+  for _kc in "$HOME/.kube/config" "/etc/rancher/k3s/k3s.yaml" "/etc/rancher/rke2/rke2.yaml"; do
+    if [[ -r "$_kc" ]]; then
+      export KUBECONFIG="$_kc"
+      break
+    fi
+  done
+fi
+# Verify with helm too — not just the k3s kubectl fallback — so a config
+# kubectl can read but helm can't is caught here, not 10 minutes into helm.
+if [[ "$PROBE_ONLY" -eq 0 ]] && command -v helm >/dev/null 2>&1; then
+  if ! helm version >/dev/null 2>&1 || ! helm list -n "$NAMESPACE" >/dev/null 2>&1; then
+    die "helm can't reach the cluster via KUBECONFIG='${KUBECONFIG:-<unset>}'.
+   kubectl may work (k3s auto-finds /etc/rancher/k3s/k3s.yaml) but helm needs an
+   explicit, readable kubeconfig. Fix one of:
+     • run as the user that owns ~/.kube/config (not via sudo/root), or
+     • export KUBECONFIG=\$HOME/.kube/config before installing, or
+     • sudo chmod 644 /etc/rancher/k3s/k3s.yaml  (single-user edge box), or
+     • pass --kubeconfig <path>."
+  fi
+fi
+
 # Local-chart mode: install from a local directory instead of the repo.
 # Useful for `make install-edge` against the k3d dev cluster, and for
 # air-gapped Talos installs where the operator brings a tarball.
