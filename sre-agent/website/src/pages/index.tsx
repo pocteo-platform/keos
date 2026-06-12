@@ -42,10 +42,10 @@ function HomepageHero(): React.JSX.Element {
           verifying the cluster healed, and writing a tamper-evident HMAC audit record. Every time.
         </p>
         <div style={{ display: "flex", gap: "1rem", justifyContent: "center", marginTop: "2rem" }}>
-          <Link className="button button--primary button--lg" to="/docs/getting-started/quickstart">
-            Quickstart →
+          <Link className="button button--primary button--lg" to="/docs/installation">
+            Get started →
           </Link>
-          <Link className="button button--outline button--lg" to="/docs/architecture/overview">
+          <Link className="button button--outline button--lg" to="/docs/architecture">
             Architecture
           </Link>
         </div>
@@ -121,8 +121,9 @@ function StatusBanner(): React.JSX.Element {
     <section style={{ padding: "2rem 0", borderTop: "1px solid var(--ifm-color-emphasis-300)" }}>
       <div className="container" style={{ textAlign: "center" }}>
         <p style={{ margin: 0 }}>
-          Status: <strong>v1.0.0-rc.1</strong> — first release candidate.{" "}
-          <Link to="/docs/release-notes/v1.0.0-rc.1">Read the release notes →</Link>
+          Autonomous SRE + security for edge Kubernetes — private-registry &
+          air-gap ready.{" "}
+          <Link to="/docs/user-guide">Read the user guide →</Link>
         </p>
       </div>
     </section>

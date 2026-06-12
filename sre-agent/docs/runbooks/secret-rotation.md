@@ -216,7 +216,7 @@ kubectl -n pocteo exec deploy/api -- python -m scripts.doctor
   zero-touch — the Operator pushes the new value, kubelet projects it
   on disk, the api re-reads. See your secrets-management runbook.
 - **Per-operator JWTs** instead of a shared bearer token. See
-  [SECURITY.md §Hardening checklist](../../SECURITY.md) item 7 + the
+  [SECURITY.md §Hardening checklist](https://github.com/pocteo-platform/keos/blob/main/sre-agent/SECURITY.md) item 7 + the
   "Going forward" section of [incident-response-agent.md](incident-response-agent.md).
 
 ## Postmortem template

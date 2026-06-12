@@ -11,9 +11,9 @@ description: Operate Keos day to day — the agent loop, the kill-switch & safet
 **Pocteo Platform** is the company; **Keos** is its Kubernetes edge OS; the
 **Keos SRE Agent** (this product) is the autonomous reliability + security layer
 that runs inside every edge node. This guide takes you from "what is it" to
-"running it day to day." For the internals see [Architecture](./architecture);
-to install see [Installation](./installation); for every command see the
-[CLI Reference](./cli).
+"running it day to day." For the internals see [Architecture](./ARCHITECTURE.md);
+to install see [Installation](./INSTALLATION.md); for every command see the
+[CLI Reference](./CLI_REFERENCE.md).
 
 ## 1. What it is (and isn't)
 
@@ -31,7 +31,7 @@ escalates everything else.
 ## 2. The agent loop
 
 Each incident runs the nine-node graph (full detail in
-[Architecture §2](./architecture#2-the-self-healing-loop-the-agent-graph)):
+[Architecture §2](./ARCHITECTURE.md#2-the-self-healing-loop-the-agent-graph)):
 triage → retrieve context (RAG) → K8sGPT enrich → **diagnose** → plan action →
 **OPA gate** → execute → verify → (escalate if low-confidence / denied /
 unhealed). Watch it live in the SPA's **Pipeline** view or with
@@ -53,7 +53,7 @@ Mode is read at the moment of execution, so flipping it takes effect on the next
 (or current) action. Behind it sit three more controls — the **OPA matrix**
 (severity × action), **scoped RBAC**, and the **HMAC audit chain**. Together
 they guarantee the agent can only do allowed, reversible things, and that every
-action is recorded and signed. See [Architecture §3](./architecture#3-the-safety-mesh).
+action is recorded and signed. See [Architecture §3](./ARCHITECTURE.md#3-the-safety-mesh).
 
 ## 4. Action catalog
 
@@ -113,7 +113,7 @@ keosctl upgrade                # helm upgrade --reuse-values
 ```
 
 Release, private-registry, GitOps, GPU verification, observability, and DR live
-in [Operations](./operations).
+in [Operations](./OPERATIONS.md).
 
 ## 8. Security operations
 
@@ -127,7 +127,7 @@ keosctl quarantine release <pod> <ns>      # undo containment
 ```
 
 Sensor tiers (BTF / prebuilt-probe / off) are chosen at install — see
-[Installation → Security sensors](./installation#security-sensors-falco--tetragon).
+[Installation → Security sensors](./INSTALLATION.md#security-sensors-falco--tetragon).
 
 ## 9. The audit trail
 
@@ -139,7 +139,7 @@ keosctl audit verify           # walks the chain; exits non-zero on any tamper
 ```
 
 If verification fails, treat it as a security event — see the
-[audit-tampering runbook](./RUNBOOKS/audit-tampering.md).
+[audit-tampering runbook](./runbooks/audit-tampering.md).
 
 ## 10. Configuration reference
 
@@ -163,7 +163,7 @@ SOPS-managed one under GitOps).
 `keosctl doctor` first — it names the fix for each failing check. For specific
 failures (api/ollama/nats down, qdrant corruption, runaway graph, drift storm,
 the agent took a destructive action, secret rotation, full DR) see the
-[Runbooks](./RUNBOOKS/index.md).
+[Runbooks](./runbooks/README.md).
 
 ## FAQ
 

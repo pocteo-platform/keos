@@ -52,7 +52,7 @@ Plus three runbooks for explicit operations (not failure modes):
 - **[upgrading.md](upgrading.md)** — Helm upgrade flow, pre-upgrade
   checks, rollback procedure.
 - **[disaster-recovery.md](disaster-recovery.md)** — Full restore from
-  backup. References [BACKUP_RESTORE.md](../BACKUP_RESTORE.md).
+  backup. References [BACKUP_RESTORE.md](../OPERATIONS.md).
 - **[secret-rotation.md](secret-rotation.md)** — Rotate
   `SHP_API_TOKEN`, `AUDIT_HMAC_KEY`, Slack webhook, Alertmanager token.
 
@@ -98,7 +98,7 @@ signal to file a PR — the runbook should match reality.
 
 - [USER_GUIDE.md §10 Troubleshooting](../USER_GUIDE.md) — symptom catalog
   for non-emergency issues
-- [OBSERVABILITY.md](../OBSERVABILITY.md) — alert rules that fire these
+- [OBSERVABILITY.md](../OPERATIONS.md) — alert rules that fire these
   runbooks
-- [BACKUP_RESTORE.md](../BACKUP_RESTORE.md) — what's recoverable from
+- [BACKUP_RESTORE.md](../OPERATIONS.md) — what's recoverable from
   backups, and how
