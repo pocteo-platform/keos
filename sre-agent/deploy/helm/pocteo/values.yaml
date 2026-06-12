@@ -22,6 +22,12 @@ auth:
   # --set-string auth.apiToken=... or a secrets manager.
   apiToken: ""
   hmacKey: ""
+  # GitOps/SOPS path (Phase 23): point at a pre-created Secret holding
+  # SHP_API_TOKEN / AUDIT_HMAC_KEY / FALCO_WEBHOOK_TOKEN instead of letting
+  # the chart template them. When set, the chart skips its own auth Secret
+  # and requireAuth no longer needs apiToken/hmacKey — Flux's kustomize-
+  # controller applies the SOPS-decrypted Secret of this name first.
+  existingSecret: ""
   # Optional bearer token for the Falco→agent webhook (/api/webhooks/falco).
   # The handler fails CLOSED when unset (503) — so live Falco detections
   # only become incidents when this is set AND falcosidekick forwards it.

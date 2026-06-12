@@ -1,0 +1,14 @@
+# Chart source — the Keos Helm chart published to the private registry by
+# `release.sh chart`. helm-controller consumes it via the HelmRelease's
+# chartRef. Placeholders substituted by `release.sh config`.
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: OCIRepository
+metadata:
+  name: keos-chart
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  url: oci://${REGISTRY}/charts/pocteo
+  ref:
+    tag: "${VERSION}"
+  insecure: ${OCI_INSECURE}

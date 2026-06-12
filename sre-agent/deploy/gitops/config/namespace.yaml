@@ -1,0 +1,7 @@
+# The release's target namespace. Created here (before the auth Secret, which
+# also targets it) rather than relying on HelmRelease install.createNamespace,
+# so the SOPS-decrypted Secret always has a namespace to land in.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keos
