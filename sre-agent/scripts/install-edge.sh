@@ -480,7 +480,7 @@ if [[ "$AIRGAP" -eq 0 && -n "$IMAGE_REGISTRY" && -z "$LOCAL_CHART_PATH" ]]; then
     ok "chart found: ${CHART_NAME} (version $CHART_VERSION) — fleet-registry install"
   else
     warn "no chart at oci://${IMAGE_REGISTRY}/charts/pocteo:$CHART_VERSION — falling back to the usual chart sources."
-    warn "  (populate the registry with: scripts/release.sh all REGISTRY=${IMAGE_REGISTRY})"
+    warn "  (populate the registry with: REGISTRY=${IMAGE_REGISTRY} keosctl release all)"
   fi
 fi
 
@@ -796,7 +796,7 @@ if [[ "$ENABLE_SECURITY" -eq 1 ]]; then
     else
       SECURITY_TIER="off"
       warn "no BTF on $NODE and no prebuilt Falco probe available — installing sensors-off."
-      note "  Build one: sudo REGISTRY=<reg> scripts/build-falco-probe.sh (on $NODE), then re-run with --image-registry <reg>."
+      note "  Build one: sudo REGISTRY=<reg> keosctl falco-probe build (on $NODE), then re-run with --image-registry <reg>."
       note "  Synthetic-event security flow still works meanwhile."
       HELM_ARGS+=(--set "falco.enabled=false" --set "tetragon.enabled=false")
     fi
