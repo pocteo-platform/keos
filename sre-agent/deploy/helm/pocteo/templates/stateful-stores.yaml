@@ -90,6 +90,12 @@ spec:
           {{- if eq $name "nats" }}
           args: ["-js", "-sd", "/data"]
           {{- end }}
+          {{- if and (eq $name "ollama") $cfg.command }}
+          command: {{- toYaml $cfg.command | nindent 12 }}
+          {{- end }}
+          {{- if and (eq $name "ollama") $cfg.env }}
+          env: {{- toYaml $cfg.env | nindent 12 }}
+          {{- end }}
           ports:
             - containerPort: {{ if eq $name "ollama" }}11434{{ else if eq $name "qdrant" }}6333{{ else }}4222{{ end }}
           {{- if and (eq $name "ollama") $cfg.gpu.enabled }}

@@ -109,6 +109,12 @@ spec:
             periodSeconds:    {{ .Values.api.probes.startup.periodSeconds }}
             failureThreshold: {{ .Values.api.probes.startup.failureThreshold }}
           env:
+            # kubectl runs as uid 1000 but the image leaves HOME=/root: it
+            # dies on the unreadable /root/.kube/config instead of falling
+            # back to the in-cluster service account. Point HOME somewhere
+            # readable so the fallback engages.
+            - name: HOME
+              value: /tmp
             # ---- Phase A — downward API: agent knows where it lives ----
             # The cluster-context endpoint reads these to populate
             # `agent_self.{namespace,pod,node}` so the dashboard's
