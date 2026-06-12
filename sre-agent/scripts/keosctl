@@ -232,6 +232,28 @@ DESCRIPTION
   of failures (CI-friendly).
 EOF
       ;;
+    preflight) cat <<'EOF'
+keosctl preflight — pre-install environment checks (run BEFORE installing)
+
+USAGE
+  keosctl preflight [--json] [--gpu|--no-gpu] [--local-build]
+                    [--image-registry <host:port>] [--insecure]
+                    [--model <ollama-model>] [--node <name>]
+                    [--containerd-socket <path>] [--no-btf-label]
+
+DESCRIPTION
+  Catches environment problems in seconds — with actionable remedies —
+  instead of a 10-minute helm timeout. Checks: binaries · cluster +
+  distro/containerd socket · node arch vs registry images · memory vs
+  model · GPU allocatable (Tegra-aware) · kernel BTF (labels nodes
+  keos.pocteo/btf-kernel, consumed by the security ladder) · WSL2 ·
+  registry reachability. Exit code = number of failures.
+
+EXAMPLES
+  keosctl preflight --gpu --image-registry registry.fleet.local:5000
+  keosctl preflight --json | jq '.checks[] | select(.status!="ok")'
+EOF
+      ;;
     mode) cat <<'EOF'
 keosctl mode — print or set the agent's mode
 
@@ -1035,6 +1057,14 @@ _print_status() {
   printf "\n"
 }
 
+# ─── Subcommand: preflight ───────────────────────────────────────────────────
+
+cmd_preflight() {
+  _check_help preflight "$@"
+  [[ -r "$SCRIPT_DIR/preflight.sh" ]] || die "preflight.sh not found at $SCRIPT_DIR (re-clone the repo or re-link keosctl)"
+  exec bash "$SCRIPT_DIR/preflight.sh" "$@"
+}
+
 # ─── Subcommand: doctor ──────────────────────────────────────────────────────
 
 cmd_doctor() {
@@ -1629,7 +1659,7 @@ _keosctl_complete() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  cmds="install uninstall link status doctor mode logs ui token seed models
+  cmds="install uninstall link status doctor preflight mode logs ui token seed models
         events incidents usecases run restart shell describe port-forward upgrade
         audit completion context version help api backup restore diag calibration
         config chaos top update deps images values policy runbooks bus"
@@ -1663,7 +1693,7 @@ COMPLETION
 #   eval "$(keosctl completion zsh)"
 _keosctl() {
   local -a cmds
-  cmds=(install uninstall link status doctor mode logs ui token seed models
+  cmds=(install uninstall link status doctor preflight mode logs ui token seed models
         events usecases run restart shell describe port-forward upgrade
         audit completion context version help)
   if (( CURRENT == 2 )); then
@@ -1677,7 +1707,7 @@ COMPLETION
       cat <<'COMPLETION'
 # fish completion for keosctl. Save as ~/.config/fish/completions/keosctl.fish
 complete -c keosctl -f
-for cmd in install uninstall link status doctor mode logs ui token seed models events usecases run restart shell describe port-forward upgrade audit completion context version help
+for cmd in install uninstall link status doctor preflight mode logs ui token seed models events usecases run restart shell describe port-forward upgrade audit completion context version help
   complete -c keosctl -n "__fish_use_subcommand" -a $cmd
 end
 COMPLETION
@@ -2461,6 +2491,7 @@ EOF
   printf "${C_BOLD}OPERATIONS${C_RST}\n"
   printf "  ${C_CYAN}status${C_RST} [--watch] [--json]     Release + pods + agent mode summary\n"
   printf "  ${C_CYAN}doctor${C_RST}                        Health check across every component\n"
+  printf "  ${C_CYAN}preflight${C_RST} [--json]            Pre-install environment checks ${C_DIM}(arch/GPU/BTF/memory/registry)${C_RST}\n"
   printf "  ${C_CYAN}mode${C_RST} [obs|active|frozen]      Print or set the agent mode\n"
   printf "  ${C_CYAN}logs${C_RST} <component> [-f]         Tail pod logs ${C_DIM}(api/mcp-server/frontend/…)${C_RST}\n"
   printf "  ${C_CYAN}ui${C_RST} [--port N]                 Port-forward + open the SPA in your browser\n"
@@ -2572,6 +2603,7 @@ main() {
     uninstall)       cmd_uninstall "$@" ;;
     status)          cmd_status "$@" ;;
     doctor)          cmd_doctor "$@" ;;
+    preflight)       cmd_preflight "$@" ;;
     mode)            cmd_mode "$@" ;;
     logs)            cmd_logs "$@" ;;
     ui)              cmd_ui "$@" ;;
@@ -2612,7 +2644,7 @@ main() {
     *)
       printf "${C_RED}${CROSS}${C_RST} unknown command '%s'\n\n" "$cmd"
       printf "Did you mean one of these?\n"
-      for c in install uninstall status doctor mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update deps images values policy runbooks quarantine bus help; do
+      for c in install uninstall status doctor preflight mode logs ui token seed models events incidents usecases run restart shell describe port-forward upgrade audit completion context version link api backup restore diag calibration config chaos top update deps images values policy runbooks quarantine bus help; do
         # Cheap fuzzy: print commands that share a prefix or contain the typo.
         if [[ "$c" == "$cmd"* || "$c" == *"$cmd"* ]]; then
           printf "  ${C_CYAN}%s${C_RST}\n" "$c"
