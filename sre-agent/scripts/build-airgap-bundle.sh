@@ -37,7 +37,7 @@
 
 set -euo pipefail
 
-VERSION="${1:-1.0.0}"
+VERSION="${1:-1.1.0}"
 OUTDIR="${OUTDIR:-/tmp/keos-airgap}"
 TARBALL="${TARBALL:-keos-airgap-v${VERSION}.tar}"
 
@@ -48,21 +48,11 @@ FIRST_PARTY=(
   "ghcr.io/pocteo-platform/keos-frontend:${VERSION}"
 )
 
-# Stock third-party images the chart pulls. Versions pinned to match
-# deploy/helm/pocteo/values.yaml — bumping the chart MUST also bump
-# this list (otherwise the airgap bundle ships stale images that
-# differ from what helm install actually requests).
-STOCK=(
-  "alpine/k8s:1.30.0"
-  "caddy:2.8-alpine"
-  "nats:2.10.22-alpine"
-  "ollama/ollama:0.4.7"
-  "openpolicyagent/opa:0.69.0"
-  "qdrant/qdrant:v1.12.4"
-  "ghcr.io/chaos-mesh/chaos-mesh:v2.7.2"
-  "ghcr.io/chaos-mesh/chaos-daemon:v2.7.2"
-  "ghcr.io/chaos-mesh/chaos-coredns:v0.2.6"
-)
+# Stock third-party images the chart pulls — DERIVED FROM THE CHART via
+# `release.sh images-list` (helm template), so this bundle can never
+# drift from what helm install actually requests. The old hardcoded
+# array here shipped stale pins (ollama 0.4.7, opa without -static).
+mapfile -t STOCK < <(bash "$(dirname "$0")/release.sh" images-list)
 
 # Ollama models to pre-pull. Saved as Ollama blobs so the seed script
 # can `ollama load <tarball>` straight into the Jetson's Ollama pod
