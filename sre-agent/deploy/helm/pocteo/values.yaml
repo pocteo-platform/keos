@@ -334,24 +334,19 @@ notifications:
 # Ollama (LLM inference).
 ollama:
   image:
-    # Jetson needs the official image + the jetpack6 runner overlaid: stock
-    # ollama/ollama arm64 images don't compile CUDA kernels for sm_87 (Orin
-    # iGPU), so the GPU is enumerated but skipped. Build locally with:
-    #   FROM ollama/ollama:<ver>
-    #   COPY <ollama-linux-arm64-jetpack6.tar.zst:lib/ollama/cuda_jetpack6> \
-    #        /usr/lib/ollama/cuda_jetpack6
-    # (see scripts on the Jetson at /tmp/ollama-jetson). The CUDA 12.6 runner
-    # works against newer host drivers via CUDA minor-version compatibility.
-    repository: keos-ollama-jetson
-    tag: "0.30.7-jp6"
-  # ollama only auto-selects cuda_jetpack* runners when it recognises the L4T
-  # release in /etc/nv_tegra_release; R39 (JetPack 7) is unknown to 0.30.x and
-  # the cuda_jetpack* dirs get skipped (OLLAMA_LLM_LIBRARY does NOT bypass
-  # that check, despite what the skip log suggests). JETSON_JETPACK is the
-  # real override: "6" → runner cuda_jetpack6.
-  env:
-    - name: JETSON_JETPACK
-      value: "6"
+    # Multi-arch upstream image. NOTE for Jetson (Tegra iGPU): stock arm64
+    # images don't compile CUDA kernels for sm_87, so the GPU is enumerated
+    # but skipped (silent CPU fallback). The installer detects Tegra nodes
+    # and overrides this with the keos-ollama-jetson variant (official image
+    # + the official jetpack6 runner overlay, built by scripts/release.sh)
+    # plus `env: JETSON_JETPACK=6` — ollama only auto-selects cuda_jetpack*
+    # runners when it recognises the L4T release, and R39+ (JetPack 7) is
+    # unknown to 0.30.x (OLLAMA_LLM_LIBRARY does NOT bypass that check).
+    repository: ollama/ollama
+    tag: "0.30.7"
+  # Optional extra env for the ollama container (list of {name, value}).
+  # Used by the installer's Tegra path (JETSON_JETPACK=6); empty by default.
+  env: []
   resources:
     requests: { cpu: 200m, memory: 1Gi }
     limits:   { cpu: "2",  memory: 6Gi }
@@ -442,7 +437,7 @@ opa:
 mcpServer:
   image:
     repository: keos-mcp-server
-    tag: "1.0.0"
+    tag: "1.1.0"
   resources:
     requests: { cpu: 50m, memory: 128Mi }
     limits:   { cpu: 500m, memory: 512Mi }
@@ -452,7 +447,7 @@ mcpServer:
 api:
   image:
     repository: keos-api
-    tag: "1.0.0"
+    tag: "1.1.0"
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits:   { cpu: "1",  memory: 1Gi }
@@ -485,7 +480,7 @@ api:
 frontend:
   image:
     repository: keos-frontend
-    tag: "1.0.0"
+    tag: "1.1.0"
   resources:
     requests: { cpu: 25m,  memory: 32Mi }
     limits:   { cpu: 200m, memory: 128Mi }
@@ -537,11 +532,13 @@ chaos-mesh:
 # ---------------------------------------------------------------------------
 falco:
   enabled: false
-  # Legacy eBPF probe: compiled from kernel headers by the driver-loader
-  # initContainer. The modern_ebpf probe needs a BTF-enabled kernel
-  # (CONFIG_DEBUG_INFO_BTF); NVIDIA's L4T tegra kernels ship without BTF.
+  # Default to the modern eBPF probe (CO-RE, no compilation) — correct for
+  # any BTF-enabled kernel (CONFIG_DEBUG_INFO_BTF, standard on stock distro
+  # kernels >= 5.8). On BTF-less kernels (NVIDIA L4T/tegra, WSL2) the
+  # installer's security ladder downgrades to `ebpf` with a prebuilt probe
+  # image, or disables sensors — see scripts/install-edge.sh.
   driver:
-    kind: ebpf
+    kind: modern_ebpf
   # Wire Falco's HTTP output to the agent's Falco webhook. The URL points
   # at the in-cluster API Service; the token must match FALCO_WEBHOOK_TOKEN
   # on the agent (set install-side / via the agent Secret).
