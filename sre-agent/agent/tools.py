@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 from qdrant_client import QdrantClient
 
-from agent.config import kubectl_auth_args, settings
+from agent.config import kubectl_auth_args, kubectl_env, settings
 from agent.schemas import ActionResult
 
 log = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ def _run(cmd: list[str], timeout: float = 30.0) -> tuple[int, str, str]:
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=kubectl_env(),
         )
         return p.returncode, p.stdout, p.stderr
     except subprocess.TimeoutExpired as exc:
