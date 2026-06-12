@@ -2,7 +2,7 @@
 id: developer-guide
 slug: /developer-guide
 title: Developer Guide
-sidebar_position: 6
+sidebar_position: 7
 description: Contribute to Keos — repo layout, local dev environment, the test suites, how the agent graph / MCP / OPA fit together for contributors, and the commit + release conventions.
 ---
 
@@ -78,18 +78,74 @@ no-push Docker build.
 
 ## Extending the agent
 
-- **A new SRE/security action** — add the implementation to `agent/tools.py` or
-  `security_tools.py`, expose it from `mcp_server/server.py`, add a row to the
-  Rego matrix in `policies/agent.rego` (severity × required level), and a
-  scenario to `tests/`. The graph picks it up via the tool catalog — no graph
-  surgery.
-- **A new runbook** — drop a markdown file in `agent/runbooks/`; `keosctl seed`
-  re-embeds the corpus.
-- **A new drift source** — implement the small `SourceOfTruth` protocol in
-  `agent/drift/sources.py` (e.g. a Git/Flux provider); the comparator + detector
-  are unchanged.
-- **A chart knob** — add it to `deploy/helm/pocteo/values.yaml` with a comment;
-  wire it in the relevant template; `keosctl values get` surfaces it.
+The graph never changes — you extend Keos by adding to the **tool catalog**,
+the **policy matrix**, the **runbook corpus**, or the **event sources**.
+
+### Add a new action ("skill")
+
+This is the common case — teach the agent a new remediation or containment.
+
+1. **Implement it** in `agent/tools.py` (SRE) or `agent/security_tools.py`
+   (security). A tool is a plain function that does its work via `kubectl`/the
+   API and returns an `ActionResult` (`agent/schemas.py`) — `success`, captured
+   `stdout`/`stderr`, an actionable `error`, and `meta` (e.g. `reversible`).
+   Capture subprocess errors; never raise. Honour `dry_run` (return what it
+   *would* do without mutating).
+2. **Expose it on the MCP server** — add an `@mcp.tool()` wrapper in
+   `mcp_server/server.py` that re-checks OPA, then calls your function. This is
+   the execution boundary the agent (and Claude Desktop) goes through.
+3. **Add a policy row** in `policies/agent.rego` — give the tool an autonomy
+   level per severity in the `levels` object (L1/L2 = auto-allowed, L3/L4 =
+   escalate). Lower for safe/reversible actions, higher for destructive ones.
+   Add a `test_policy.py` case. `opa fmt` + `opa check` must pass.
+4. **Let the planner choose it** — add the tool + its arg schema to the
+   `plan_action` catalog in `agent/llm.py` so the LLM can propose it, and a
+   diagnose/plan scenario in `tests/test_graph.py`.
+5. **Document it** — add a row to the action catalog in
+   [Architecture](./ARCHITECTURE.md#2-the-self-healing-loop-the-agent-graph)
+   (and [Security](./SECURITY.md) if it's a containment tool).
+
+The graph picks the tool up automatically via the catalog + the gate — no node
+surgery.
+
+### Edit the policy gate (OPA matrix)
+
+`policies/agent.rego` is the single source of risk policy. The `levels` object
+maps `action → {severity → L}`; `L ≥ 3` denies (→ escalate). Hard-deny gates
+(protected namespaces, non-active mode, unknown action/severity) live below it.
+To make an action more autonomous, lower its L at that severity; to gate it
+harder, raise it. Test before shipping:
+
+```bash
+keosctl policy test <action> <severity> <ns> <mode>   # against the live OPA
+uv run pytest tests/test_policy.py                     # the matrix unit tests
+```
+
+### Add a runbook (RAG knowledge)
+
+Drop a markdown file in `agent/runbooks/` (symptom · diagnosis · remediation).
+`keosctl seed` re-embeds the corpus into Qdrant; `diagnose` retrieves it by
+domain. Keep it tight — one chunk per file.
+
+### Add a use case (a triggerable scenario)
+
+Author one in the SPA's **Use Cases → New** wizard, or add it to the library so
+`keosctl run <slug>` fires it. A use case renders an event template (substituting
+the real target pod), optionally seeds a runbook tagged to it, and asserts
+expected outcomes — the basis of the demo + e2e suite.
+
+### Add an event source / drift provider
+
+Implement the small `SourceOfTruth` protocol in `agent/drift/sources.py` (e.g. a
+Git/Flux/Argo provider) — the comparator + detector are unchanged. New telemetry
+just needs to land on NATS `infra.events.*` / `security.events.*` in the event
+shape `triage` expects.
+
+### Add a chart knob
+
+Add it to `deploy/helm/pocteo/values.yaml` with a comment, wire it into the
+relevant template, and `keosctl values get/set` surfaces it. `helm lint` +
+the kubeconform render in CI must pass.
 
 ## Documentation
 

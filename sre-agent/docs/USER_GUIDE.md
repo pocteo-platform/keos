@@ -117,8 +117,11 @@ in [Operations](./OPERATIONS.md).
 
 ## 8. Security operations
 
-When the eBPF sensors are installed, real detections become incidents. Confirm
-the path end to end, then operate it:
+Keos runs a parallel runtime-security domain (Falco/Tetragon → detect →
+contain). The full picture — sensor tiers, the detection→containment flow, the
+containment catalog, and the security policy gate — is in
+**[Security Domain](./SECURITY.md)**. When the eBPF sensors are installed, real
+detections become incidents. Confirm the path end to end, then operate it:
 
 ```bash
 keosctl doctor --e2e           # triggers a shadow-read; asserts an incident appears

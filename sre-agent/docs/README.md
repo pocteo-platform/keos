@@ -26,9 +26,10 @@ keosctl run lib-reverse-shell   # watch the agent contain a live threat
 | **[User & Operator Guide](./USER_GUIDE.md)** | running Keos day to day — modes, UI, use cases, audit |
 | **[Architecture](./ARCHITECTURE.md)** | how it works — the loop, the safety mesh, the data planes |
 | **[Installation](./INSTALLATION.md)** | install on any distro/arch — Linux, ARM+AMD, Jetson GPU, private registry, air-gap |
+| **[Security Domain](./SECURITY.md)** | Falco/Tetragon, detection → containment, the security policy gate |
 | **[CLI Reference](./CLI_REFERENCE.md)** | every `keosctl` command |
 | **[Operations & Release](./OPERATIONS.md)** | build/publish, GitOps, GPU, observability, backup, release |
-| **[Developer Guide](./DEVELOPER_GUIDE.md)** | repo layout, dev env, tests, extending the agent |
+| **[Developer Guide](./DEVELOPER_GUIDE.md)** | repo layout, dev env, tests, extending the agent (new skills, policy, runbooks) |
 | **[Runbooks](./runbooks/README.md)** | incident-response playbooks for each failure mode |
 
 New here? Start with the **User Guide**, then **Installation**.

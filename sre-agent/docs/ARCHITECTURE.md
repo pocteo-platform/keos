@@ -106,6 +106,36 @@ Autonomy is only safe because four independent controls gate every action:
 Per-rule **confidence calibration** (learned from graded outcomes) decides when
 a diagnosis is trustworthy enough to act vs. escalate.
 
+### Policy gate (the OPA matrix)
+
+The gate is a Rego policy (`policies/agent.rego`) evaluating
+`{action, severity, agent_mode, target.namespace}`. It is **default-deny**: an
+action runs only if **no** deny-reason fires. Four hard-deny gates, then the
+matrix:
+
+1. unknown action (not in the catalog),
+2. unknown severity,
+3. **protected namespace** (`kube-system` / `kube-public`),
+4. **mode ≠ `active`** (observe-only/frozen never execute).
+
+Then a `levels[action][severity]` lookup returns an **autonomy level L1–L4**:
+**L1/L2 = allowed**, **L3/L4 = denied → escalate**. Lower-risk/higher-confidence
+combinations get lower levels (auto-act); risky or weak-signal ones get L3+
+(page a human). Examples:
+
+```
+restart_pod   : low L1 · medium L1 · high L2 · critical L2     (allowed across the board)
+drain_node    : low L4 · medium L3 · high L2 · critical L1     (gated low, autonomous when severe)
+isolate_pod   : low L3 · medium L3 · high L2 · critical L1     (escalate-first containment)
+page_human    : L1 everywhere                                   (always allowed)
+```
+
+The same matrix is evaluated **twice** — in the agent's `policy_gate` node and
+again in the MCP server before any side effect (defense-in-depth). Read it with
+`keosctl policy show`, test any decision with `keosctl policy test <action>
+<severity> <ns> <mode>`, and edit it in `policies/agent.rego` (see the
+[Developer Guide](./DEVELOPER_GUIDE.md#extending-the-agent)).
+
 ## 4. Components
 
 | Pod | Role |
@@ -149,12 +179,30 @@ per kernel via `keosctl falco-probe build`), or `off` (synthetic-event demo).
 
 ## 7. Continuous intelligence
 
-- **Confidence calibration** — per-rule thresholds learned from graded outcomes.
-- **ML baselines** — rolling baselines of cluster metrics for anomaly framing.
-- **Predictive forecasting** — surfaces likely surges; feeds `tune_hpa` /
-  `set_resources` / `evict_workload`.
-- **GitOps drift detection** — watches a source-of-truth and reverts/triages
-  drift in real time (complements the *scheduled* GitOps delivery in §8).
+Four loops make the agent better over time and let it act *before* a symptom:
+
+- **Confidence calibration** — each rule keeps a learned threshold from graded
+  outcomes (p50/p90 telemetry). `diagnose` confidence is compared against the
+  per-rule threshold (falling back to the global `agent.confidenceThreshold`
+  until enough samples exist) to decide act-vs-escalate. Inspect/override with
+  `keosctl calibration {list,set,reset}`.
+- **ML baselines (anomaly framing)** — a rolling, **seasonal** baseline per
+  `(metric, namespace, pod)`: the *seasonal residual* is `current −
+  hour-of-day median` over 24 hourly buckets (≥ 7 days of 15-min samples), fed
+  through a **σ-floored z-score**. `diagnose` gets "this pod's memory is N σ
+  above its time-of-day baseline" instead of a raw number.
+- **Predictive forecasting** — a pure-Python **linear-regression (OLS)** fit
+  over the baseline samples projects each metric to **5 / 15 / 60-minute**
+  horizons (with an **r² floor** so a noisy fit never acts). When a forecast
+  crosses a threshold, the agent fires a *predictive* incident **ahead of** the
+  reactive symptom and can choose `tune_hpa`, `set_resources`, or
+  `evict_workload` proactively (all OPA-gated like any action).
+- **GitOps drift detection** — watches a source-of-truth (a manifest set; a
+  pluggable `SourceOfTruth` provider can read Git/Flux/Argo) and publishes a
+  `infra.events.drift` incident in real time, which the agent triages and can
+  `revert_drift`. This is the *reactive* complement to the *scheduled* GitOps
+  **delivery** in §8 — Flux owns desired state; the agent reacts between
+  reconciles.
 
 ## 8. Deployment & delivery
 
