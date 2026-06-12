@@ -644,29 +644,97 @@ print(0)
     ok "Tegra/Jetson GPU detected — ollama image ${_jetson_ollama_repo}:${OLLAMA_VERSION}-jp6 + JETSON_JETPACK=6"
   fi
 fi
-# Security domain (Phase 21): --security installs Falco + Tetragon for live
-# eBPF threat detection. Both are eBPF agents and need the same containerd
-# socket path the distro probe already resolved for chaos-mesh.
+# Security domain (Phase 21): a CAPABILITY LADDER, not an unconditional
+# install. The kernel decides what can actually run — forcing modern_ebpf
+# + tetragon on a BTF-less kernel just crash-loops the DaemonSets and turns
+# the whole install into a 10-minute helm timeout (the Jetson failure mode).
+# Preflight already probed BTF and labelled nodes keos.pocteo/btf-kernel;
+# we re-derive it here so the installer stands alone too.
 if [[ "$ENABLE_SECURITY" -eq 1 ]]; then
-  HELM_ARGS+=(
-    --set "falco.enabled=true"
-    --set "tetragon.enabled=true"
-    --set "tetragon.tetragon.hostProcPath=/proc"
-  )
-  ok "security domain: Falco + Tetragon enabled (live eBPF detection)"
-  # Non-blocking capability warning. eBPF sensors need a real, BTF-capable
-  # kernel; WSL2 and some minimal/locked-down kernels can't run them and
-  # the DaemonSet pods will CrashLoop. We still attempt (operator asked
-  # for sensors); just flag it so a crashloop isn't a mystery.
-  _krel="$(uname -r 2>/dev/null || echo unknown)"
-  if grep -qiE "microsoft|wsl" /proc/version 2>/dev/null || [[ "$_krel" == *microsoft* ]]; then
-    warn "kernel '$_krel' looks like WSL2 — Falco/Tetragon may not start here."
-    warn "  If the falco/tetragon pods CrashLoop, re-run with --no-security."
+  # Does the TARGET node have BTF? Prefer the preflight label; fall back to
+  # a local check when we're installing from the node itself.
+  _btf_label="$(kubectl get node "$NODE" -o jsonpath='{.metadata.labels.keos\.pocteo/btf-kernel}' 2>/dev/null || true)"
+  if [[ -z "$_btf_label" && -e /sys/kernel/btf/vmlinux && "$(hostname 2>/dev/null)" == "$NODE" ]]; then
+    _btf_label="true"
   fi
+  _krel="$(uname -r 2>/dev/null || echo unknown)"
+  _is_wsl=0
+  grep -qiE "microsoft|wsl" /proc/version 2>/dev/null && _is_wsl=1
+  [[ "$_krel" == *microsoft* ]] && _is_wsl=1
+
+  # Common falco→agent delivery wiring (all tiers that run falco): generate
+  # the webhook token, store it in the auth secret, and point falcosidekick
+  # at the agent WITH the Authorization header the handler requires.
+  _wire_falco_webhook() {
+    FALCO_WEBHOOK_TOKEN=$(openssl rand -base64 32 | tr -d '=' | head -c 32)
+    HELM_ARGS+=(
+      --set-string "auth.falcoWebhookToken=${FALCO_WEBHOOK_TOKEN}"
+      --set "falco.falcosidekick.enabled=true"
+      --set-string "falco.falcosidekick.config.webhook.address=http://api:8000/api/webhooks/falco"
+      --set-string "falco.falcosidekick.config.webhook.customHeaders=Authorization:Bearer ${FALCO_WEBHOOK_TOKEN}"
+    )
+  }
+
+  if [[ "$_is_wsl" -eq 1 ]]; then
+    SECURITY_TIER="off"
+    warn "WSL2 kernel ($_krel) — eBPF sensors cannot run here; installing sensors-off."
+    note "  The security domain still works on synthetic events (keosctl run lib-*)."
+    HELM_ARGS+=(--set "falco.enabled=false" --set "tetragon.enabled=false")
+  elif [[ "$_btf_label" == "true" ]]; then
+    SECURITY_TIER="modern_ebpf"
+    HELM_ARGS+=(
+      --set "falco.enabled=true"
+      --set-string "falco.driver.kind=modern_ebpf"
+      --set "tetragon.enabled=true"
+      --set "tetragon.tetragon.hostProcPath=/proc"
+    )
+    _wire_falco_webhook
+    ok "security tier: modern_ebpf — Falco (CO-RE) + Tetragon (BTF kernel)"
+  elif [[ "$_btf_label" == "false" ]]; then
+    # No BTF: Falco legacy probe from a PREBUILT image (the in-cluster
+    # loader can't compile it — glibc wall). Tetragon can't run at all.
+    _probe_img=""
+    if [[ -n "$IMAGE_REGISTRY" ]]; then
+      _node_krel="$(kubectl get node "$NODE" -o jsonpath='{.status.nodeInfo.kernelVersion}' 2>/dev/null)"
+      _probe_img="${IMAGE_REGISTRY}/pocteo-platform/falco-probe-${_node_krel}:${KEOS_FALCO_DRIVER_TAG:-8.0.0-driver}"
+    fi
+    if [[ -n "$_probe_img" ]]; then
+      SECURITY_TIER="ebpf-prebuilt"
+      HELM_ARGS+=(
+        --set "falco.enabled=true"
+        --set-string "falco.driver.kind=ebpf"
+        --set "falco.driver.loader.enabled=false"
+        --set "tetragon.enabled=false"
+        --set-string "falco.extra.initContainers[0].name=keos-prebuilt-probe"
+        --set-string "falco.extra.initContainers[0].image=${_probe_img}"
+        --set-string "falco.extra.initContainers[0].command[0]=sh"
+        --set-string "falco.extra.initContainers[0].command[1]=-c"
+        --set-string "falco.extra.initContainers[0].command[2]=cp /falco-bpf.o /root/.falco/falco-bpf.o"
+        --set-string "falco.extra.initContainers[0].volumeMounts[0].name=root-falco-fs"
+        --set-string "falco.extra.initContainers[0].volumeMounts[0].mountPath=/root/.falco"
+        --set-string "falco.driver.ebpf.path=/root/.falco/falco-bpf.o"
+      )
+      _wire_falco_webhook
+      ok "security tier: ebpf-prebuilt — Falco legacy probe from ${_probe_img}; Tetragon off (no BTF)"
+    else
+      SECURITY_TIER="off"
+      warn "no BTF on $NODE and no prebuilt Falco probe available — installing sensors-off."
+      note "  Build one: sudo REGISTRY=<reg> scripts/build-falco-probe.sh (on $NODE), then re-run with --image-registry <reg>."
+      note "  Synthetic-event security flow still works meanwhile."
+      HELM_ARGS+=(--set "falco.enabled=false" --set "tetragon.enabled=false")
+    fi
+  else
+    SECURITY_TIER="off"
+    warn "BTF state for $NODE unknown (preflight skipped?) — installing sensors-off to avoid a crash-loop."
+    note "  Run 'keosctl preflight' to classify the node, or --no-security to silence this."
+    HELM_ARGS+=(--set "falco.enabled=false" --set "tetragon.enabled=false")
+  fi
+  HELM_ARGS+=(--set-string "keosSecurity.tier=${SECURITY_TIER}")
 else
   note "security sensors (Falco + Tetragon) skipped (--no-security). The"
   note "  security domain still works on synthetic events, but live eBPF"
   note "  threat detection is off."
+  HELM_ARGS+=(--set-string "keosSecurity.tier=off")
 fi
 helm "${HELM_ARGS[@]}"
 ok "Helm release '$RELEASE' deployed"
