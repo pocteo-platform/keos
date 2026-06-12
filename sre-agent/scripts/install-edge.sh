@@ -169,6 +169,7 @@ fi
 step()  { echo "${C_HEAD}[install-edge]${C_RST} $*"; }
 ok()    { echo "${C_HEAD}[install-edge]${C_RST} ${C_OK}✓${C_RST} $*"; }
 warn()  { echo "${C_HEAD}[install-edge]${C_RST} ${C_WARN}⚠ $*${C_RST}"; }
+note()  { echo "${C_HEAD}[install-edge]${C_RST} ${C_DIM}$*${C_RST}"; }
 die()   { echo "${C_HEAD}[install-edge]${C_RST} ${C_ERR}✗ $*${C_RST}" >&2; exit 1; }
 
 # ─── Preflight ─────────────────────────────────────────────────────────────
@@ -627,21 +628,48 @@ print(0)
 ')
   if [[ "$IS_TEGRA" == "1" ]]; then
     OLLAMA_VERSION="${KEOS_OLLAMA_VERSION:-0.30.7}"
+    _jetson_ollama_tag="${OLLAMA_VERSION}-jp6"
     if [[ -n "$IMAGE_REGISTRY" ]]; then
+      # Registry flow: kubelet pulls the variant from the fleet registry.
       _jetson_ollama_repo="${IMAGE_REGISTRY}/pocteo-platform/keos-ollama-jetson"
+      HELM_ARGS+=(
+        --set-string "ollama.image.repository=${_jetson_ollama_repo}"
+        --set-string "ollama.image.tag=${_jetson_ollama_tag}"
+        --set-string "ollama.env[0].name=JETSON_JETPACK"
+        --set-string "ollama.env[0].value=6"
+      )
     else
-      # No registry: the image must already be in the node's containerd
-      # (scripts/release.sh build pushes it; or import it manually).
+      # No registry (local-build path): the bare-named variant must be in
+      # the node's containerd, and kubelet must NOT try to pull it. Import
+      # it from docker if present (mirrors the first-party import above);
+      # fail clearly if it's nowhere — it isn't built from source here.
       _jetson_ollama_repo="keos-ollama-jetson"
-      warn "Tegra node + no --image-registry: expecting keos-ollama-jetson:${OLLAMA_VERSION}-jp6 already present in containerd"
+      if sudo k3s ctr -n=k8s.io images ls -q 2>/dev/null | grep -q "${_jetson_ollama_repo}:${_jetson_ollama_tag}"; then
+        ok "ollama variant already in containerd: ${_jetson_ollama_repo}:${_jetson_ollama_tag}"
+      elif command -v docker >/dev/null 2>&1 && docker image inspect "${_jetson_ollama_repo}:${_jetson_ollama_tag}" >/dev/null 2>&1; then
+        step "Importing ${_jetson_ollama_repo}:${_jetson_ollama_tag} into containerd…"
+        docker save "${_jetson_ollama_repo}:${_jetson_ollama_tag}" -o "/tmp/${_jetson_ollama_repo}-${_jetson_ollama_tag}.tar"
+        if command -v k3s >/dev/null 2>&1; then
+          sudo k3s ctr -n=k8s.io image import "/tmp/${_jetson_ollama_repo}-${_jetson_ollama_tag}.tar" >/dev/null
+        else
+          sudo ctr -n=k8s.io image import "/tmp/${_jetson_ollama_repo}-${_jetson_ollama_tag}.tar" >/dev/null
+        fi
+        rm -f "/tmp/${_jetson_ollama_repo}-${_jetson_ollama_tag}.tar"
+        ok "imported ${_jetson_ollama_repo}:${_jetson_ollama_tag}"
+      else
+        die "Tegra GPU needs ${_jetson_ollama_repo}:${_jetson_ollama_tag}, not found in containerd or docker.
+   Build it:  docker build --build-arg OLLAMA_VERSION=${OLLAMA_VERSION} -t ${_jetson_ollama_repo}:${_jetson_ollama_tag} $REPO_ROOT/deploy/ollama-jetson
+   or pass --image-registry <host:port> (populate it with scripts/release.sh), or --no-gpu for CPU."
+      fi
+      HELM_ARGS+=(
+        --set-string "ollama.image.repository=${_jetson_ollama_repo}"
+        --set-string "ollama.image.tag=${_jetson_ollama_tag}"
+        --set-string "ollama.image.pullPolicy=Never"
+        --set-string "ollama.env[0].name=JETSON_JETPACK"
+        --set-string "ollama.env[0].value=6"
+      )
     fi
-    HELM_ARGS+=(
-      --set-string "ollama.image.repository=${_jetson_ollama_repo}"
-      --set-string "ollama.image.tag=${OLLAMA_VERSION}-jp6"
-      --set-string "ollama.env[0].name=JETSON_JETPACK"
-      --set-string "ollama.env[0].value=6"
-    )
-    ok "Tegra/Jetson GPU detected — ollama image ${_jetson_ollama_repo}:${OLLAMA_VERSION}-jp6 + JETSON_JETPACK=6"
+    ok "Tegra/Jetson GPU detected — ollama image ${_jetson_ollama_repo}:${_jetson_ollama_tag} + JETSON_JETPACK=6"
   fi
 fi
 # Security domain (Phase 21): a CAPABILITY LADDER, not an unconditional

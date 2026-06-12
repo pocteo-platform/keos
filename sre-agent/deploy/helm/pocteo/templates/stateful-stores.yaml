@@ -80,6 +80,9 @@ spec:
       containers:
         - name: {{ $name }}
           image: {{ include "pocteo.image" (dict "global" $.Values.global "repository" $cfg.image.repository "tag" $cfg.image.tag "firstParty" false) }}
+          {{- if $cfg.image.pullPolicy }}
+          imagePullPolicy: {{ $cfg.image.pullPolicy }}
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
