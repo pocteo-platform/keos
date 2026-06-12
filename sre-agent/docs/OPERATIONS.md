@@ -127,7 +127,7 @@ keosctl restore keos-backup.tar.gz
 
 Add `--include-models` to capture the Ollama blobs (large). Retention windows
 for audit / incidents / traces are Helm values. For full DR, see the
-[disaster-recovery runbook](./RUNBOOKS/disaster-recovery.md).
+[disaster-recovery runbook](./runbooks/disaster-recovery.md).
 
 ## Release checklist
 
@@ -146,4 +146,4 @@ for audit / incidents / traces are Helm values. For full DR, see the
 `keosctl doctor` is the first stop — it checks every component and prescribes
 the fix. For specific failure modes (api/ollama/nats down, audit tampering,
 runaway graph, drift storm, agent took a destructive action, secret rotation,
-DR) see the [Runbooks](./RUNBOOKS/index.md).
+DR) see the [Runbooks](./runbooks/README.md).

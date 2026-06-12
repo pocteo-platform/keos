@@ -1,9 +1,0 @@
-{
-  "label": "Getting started",
-  "position": 2,
-  "link": {
-    "type": "generated-index",
-    "title": "Getting started",
-    "description": "Zero to running scenario in under 15 minutes. Three pages: an overview of what you're installing, the install command itself, and your first end-to-end scenario."
-  }
-}

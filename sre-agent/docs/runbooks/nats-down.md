@@ -1,10 +1,3 @@
----
-id: nats-down
-slug: /runbooks/nats-down
-title: NATS / JetStream is down
-sidebar_position: 4
----
-
 # Runbook: NATS down / consumer stuck
 
 ## Symptom
@@ -194,4 +187,4 @@ For the "what we'll change" section, consider:
 - Did the alert fire on `keos_nats_consumer_pending` before the symptom
   was user-visible? If not, tune the threshold.
 - Was the cause data (corruption) or capacity (graph too slow)? Capacity
-  means [JETSON.md](/docs/platforms/jetson) GPU offload is worth a serious look.
+  means [JETSON.md](../INSTALLATION.md) GPU offload is worth a serious look.

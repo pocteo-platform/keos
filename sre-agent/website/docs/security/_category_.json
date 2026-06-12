@@ -1,9 +1,0 @@
-{
-  "label": "Security domain",
-  "position": 4,
-  "link": {
-    "type": "generated-index",
-    "title": "The Keos security domain",
-    "description": "Keos runs two agent domains over one graph: SRE reliability and runtime security. The security domain ingests Falco + Tetragon eBPF telemetry, diagnoses runtime threats with RAG + LLM, and gates containment through the same OPA matrix + HMAC audit chain — Detect → Investigate → Contain → Respond."
-  }
-}

@@ -86,16 +86,14 @@ const config: Config = {
       "classic",
       {
         docs: {
-          // The docs site is self-contained — its own curated `docs/`
-          // tree under `website/`. Content is hand-authored or copied
-          // from the repo-level markdown, but the website never reaches
-          // outside its directory. Keeps the repo-meta files
-          // (CONTRIBUTING.md, SECURITY.md, etc.) in their conventional
-          // GitHub locations without forcing them to also be docs pages.
-          path: "docs",
+          // SINGLE SOURCE OF TRUTH (Phase 24): the site renders the 6 canonical
+          // docs in `sre-agent/docs/` directly — there is no second copy under
+          // `website/docs/`. Edit the markdown in `sre-agent/docs/`; the site
+          // and GitHub stay in lockstep forever.
+          path: "../docs",
           routeBasePath: "docs",
           sidebarPath: "./sidebars.ts",
-          editUrl: ({ docPath }) => `${EDIT_BASE}/website/docs/${docPath}`,
+          editUrl: ({ docPath }) => `${EDIT_BASE}/docs/${docPath}`,
           showLastUpdateTime: true,
           showLastUpdateAuthor: true,
         },
@@ -123,33 +121,12 @@ const config: Config = {
       items: [
         {
           type: "docSidebar",
-          sidebarId: "userGuide",
+          sidebarId: "docs",
           position: "left",
-          label: "User Guide",
+          label: "Docs",
         },
-        {
-          type: "docSidebar",
-          sidebarId: "cli",
-          position: "left",
-          label: "CLI",
-        },
-        {
-          type: "docSidebar",
-          sidebarId: "operations",
-          position: "left",
-          label: "Operations",
-        },
-        {
-          type: "docSidebar",
-          sidebarId: "reference",
-          position: "left",
-          label: "Reference",
-        },
-        {
-          to: "/docs/runbooks/",
-          label: "Runbooks",
-          position: "left",
-        },
+        { to: "/docs/cli", label: "CLI", position: "left" },
+        { to: "/docs/runbooks/", label: "Runbooks", position: "left" },
         {
           type: "localeDropdown",
           position: "right",
@@ -167,10 +144,11 @@ const config: Config = {
         {
           title: "Docs",
           items: [
-            { label: "Quickstart", to: "/docs/getting-started/quickstart" },
-            { label: "Architecture", to: "/docs/architecture/overview" },
+            { label: "User Guide", to: "/docs/user-guide" },
+            { label: "Architecture", to: "/docs/architecture" },
+            { label: "Installation", to: "/docs/installation" },
+            { label: "CLI reference", to: "/docs/cli" },
             { label: "Runbooks", to: "/docs/runbooks/" },
-            { label: "Config reference", to: "/docs/configuration/environment-variables" },
           ],
         },
         {

@@ -9,7 +9,7 @@ description: Contribute to Keos — repo layout, local dev environment, the test
 # Developer Guide
 
 How to build, test, and extend Keos. For the runtime design see
-[Architecture](./architecture); for operating a deployment see the
+[Architecture](./ARCHITECTURE.md); for operating a deployment see the
 [User Guide](./USER_GUIDE.md).
 
 ## Repository layout

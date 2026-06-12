@@ -1,9 +1,0 @@
-{
-  "label": "Platforms",
-  "position": 4,
-  "link": {
-    "type": "generated-index",
-    "title": "Install — pick your platform",
-    "description": "Per-host-OS walkthroughs (Linux, macOS, Windows) for the laptop demo. Plus platform-specific paths: any conformant Kubernetes via Helm, k3s on Jetson Orin Nano with GPU, and Talos Linux for tiny-footprint edge clusters."
-  }
-}

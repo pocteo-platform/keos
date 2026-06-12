@@ -1,10 +1,3 @@
----
-id: incident-response-agent
-slug: /runbooks/incident-response-agent
-title: The agent IS the incident
-sidebar_position: 10
----
-
 # Runbook: when the agent itself is the incident
 
 ## Severity
@@ -183,7 +176,7 @@ trust model needs tightening. Options:
    require `len() >= 2` before calling MCP.
 3. **Tighten the OPA matrix.** Move any actions you've had to override
    incorrectly toward L3/L4 so the default is deny. See
-   [USE_CASES.md §6 Scenario 5](/docs/operations/ui-walkthrough) for the existing
+   [USE_CASES.md §6 Scenario 5](../USER_GUIDE.md) for the existing
    demo-by-design L4 path.
 
 ## Postmortem template

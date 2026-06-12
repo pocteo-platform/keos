@@ -1,9 +1,0 @@
-{
-  "label": "Release notes",
-  "position": 8,
-  "link": {
-    "type": "generated-index",
-    "title": "Release notes",
-    "description": "What landed in each release, what's known-broken, and what's still ahead."
-  }
-}

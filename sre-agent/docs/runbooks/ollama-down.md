@@ -33,7 +33,7 @@ kubectl -n pocteo exec deploy/api -- \
 
 | Pattern | Cause | Jump to |
 |---|---|---|
-| `0/1 Running, Pending` + `0/1 nodes are available: 1 Insufficient nvidia.com/gpu` | GPU disappeared (Jetson) | [JETSON.md](../JETSON.md) §Troubleshooting |
+| `0/1 Running, Pending` + `0/1 nodes are available: 1 Insufficient nvidia.com/gpu` | GPU disappeared (Jetson) | [JETSON.md](../INSTALLATION.md) §Troubleshooting |
 | `OOMKilled` in pod events | Resource limit too tight for the model | Resolution §A |
 | `no such file or directory` for the model file | Model never pulled or PVC wiped | Resolution §B |
 | Connection refused, pod Running, model listed | Internal Ollama deadlock | Resolution §C |

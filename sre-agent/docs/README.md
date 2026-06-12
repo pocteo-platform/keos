@@ -29,6 +29,6 @@ keosctl run lib-reverse-shell   # watch the agent contain a live threat
 | **[CLI Reference](./CLI_REFERENCE.md)** | every `keosctl` command |
 | **[Operations & Release](./OPERATIONS.md)** | build/publish, GitOps, GPU, observability, backup, release |
 | **[Developer Guide](./DEVELOPER_GUIDE.md)** | repo layout, dev env, tests, extending the agent |
-| **[Runbooks](./RUNBOOKS/index.md)** | incident-response playbooks for each failure mode |
+| **[Runbooks](./runbooks/README.md)** | incident-response playbooks for each failure mode |
 
 New here? Start with the **User Guide**, then **Installation**.

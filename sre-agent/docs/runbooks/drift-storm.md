@@ -164,9 +164,9 @@ Time from containment → resolution: [N min]
 
 ## See also
 
-- [Phase 15 — GitOps drift detection](../../website/docs/architecture/gitops-drift.md)
+- [Phase 15 — GitOps drift detection](../ARCHITECTURE.md)
   — architecture deep-dive
-- [agent/runbooks/012-drift.md](../../agent/runbooks/012-drift.md) — the
+- [agent/runbooks/012-drift.md](../ARCHITECTURE.md) — the
   RAG-indexed diagnostic runbook (read by the diagnose LLM, not by
   humans)
-- [Settings → Drift tab](../UI_GUIDE.md) — operator-facing event list
+- [Settings → Drift tab](../USER_GUIDE.md) — operator-facing event list
