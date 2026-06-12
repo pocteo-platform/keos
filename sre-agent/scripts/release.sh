@@ -107,13 +107,29 @@ dest_path() {
 }
 
 # ─── build ─────────────────────────────────────────────────────────────────
+# IMPORTANT — QEMU + uv caveat (verified 2026-06-12 on an arm64 host):
+#   `uv pip install` SEGFAULTS (exit 139) when run under QEMU emulation
+#   (e.g. building the amd64 leg on an arm64 host, or vice-versa on some
+#   hosts). The NATIVE leg always works. So the cross-arch leg must build
+#   on real hardware of that arch, not emulation. Options:
+#     * run this on an amd64 workstation, add the Jetson as a native arm64
+#       node:  docker buildx create --name keosbuild --node ws --platform linux/amd64
+#              docker buildx create --append --name keosbuild --node jetson \
+#                 --platform linux/arm64 ssh://<user>@<jetson>
+#              BUILDX_BUILDER=keosbuild  (then release.sh build)
+#     * or build+push each arch on its own machine and `docker buildx
+#       imagetools create` a combined manifest.
+#   The native-arch images themselves are fine — this is purely an
+#   emulation limitation. See docs/RELEASE_CHECKLIST.md.
 cmd_build() {
   command -v docker >/dev/null || die "docker not on PATH"
   docker buildx version >/dev/null 2>&1 || die "docker buildx not available"
-  if [[ "$PLATFORMS" == *arm64* && "$(uname -m)" != "aarch64" ]]; then
-    if ! docker buildx ls 2>/dev/null | grep -q "linux/arm64"; then
-      warn "no arm64 builder — one-time setup: docker run --privileged --rm tonistiigi/binfmt --install arm64"
-    fi
+  local host_arch; host_arch="$(uname -m)"
+  if { [[ "$PLATFORMS" == *amd64* && "$host_arch" == "aarch64" ]] || \
+       [[ "$PLATFORMS" == *arm64* && "$host_arch" == "x86_64" ]]; }; then
+    warn "cross-arch build requested on a $host_arch host — the emulated leg uses QEMU."
+    warn "  uv segfaults under emulation; if a leg dies with exit 139, build that arch"
+    warn "  natively (heterogeneous buildx builder / per-arch build). See the header note."
   fi
   step "Building first-party images (${PLATFORMS}) + Jetson ollama variant → ${REGISTRY}"
   REGISTRY="$REGISTRY" TAG="$VERSION" PLATFORMS="$PLATFORMS" OLLAMA_VERSION="$OLLAMA_VERSION" \

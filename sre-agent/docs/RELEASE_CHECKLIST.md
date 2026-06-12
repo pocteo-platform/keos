@@ -14,6 +14,19 @@ good. Two reference devices: an amd64 k3s box (Tier 1, BTF) and a Jetson Orin
 - [ ] `make audit-images REGISTRY=<host:port>` → **0 failures** (amd64+arm64
       everywhere; opa `-static`; no hardcoded arch in Dockerfiles)
 
+> ⚠️ **QEMU + uv caveat (verified).** `uv pip install` **segfaults under QEMU
+> emulation** (exit 139) — so you cannot cross-build all arches from one host
+> by emulation alone. The native leg always works. Build each arch on real
+> hardware of that arch:
+> - amd64 workstation + the Jetson as a native arm64 buildx node over SSH
+>   (`docker buildx create --append --node jetson --platform linux/arm64 ssh://…`), **or**
+> - build+push each arch on its own box, then
+>   `docker buildx imagetools create -t <reg>/…:<tag> <reg>/…:<tag>-amd64 <reg>/…:<tag>-arm64`.
+>
+> *Proven on this device:* chart push + install-edge OCI probe round-trip ✓,
+> native-arm64 first-party build+push+manifest ✓, registry trust + plain-HTTP ✓.
+> Only the emulated cross-arch leg is blocked (QEMU/uv), and it's not a repo bug.
+
 ## 2 · Fresh amd64 k3s (Tier 1)
 
 - [ ] device trusts the registry (`/etc/rancher/k3s/registries.yaml`, `docs/REGISTRY.md`)
