@@ -54,6 +54,18 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 30
           env:
+            # kubectl runs as uid 1000 but the image leaves HOME=/root: it
+            # dies on the unreadable /root/.kube/config instead of falling
+            # back to the in-cluster service account. Point HOME somewhere
+            # readable so the fallback engages.
+            - name: HOME
+              value: /tmp
+            # The image bakes KUBECONFIG=/root/.kube/config for the
+            # compose/laptop path; in-cluster that file is absent and
+            # unreadable (uid 1000), and kubectl hard-fails on it instead
+            # of using the ServiceAccount. Empty = unset for kubectl.
+            - name: KUBECONFIG
+              value: ""
             - name: OPA_URL
               value: "http://opa:8181"
             - name: AUDIT_LOG_PATH
