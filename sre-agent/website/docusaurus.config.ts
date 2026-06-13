@@ -58,10 +58,12 @@ const config: Config = {
     // be escaped. Set per-file via front-matter `format: mdx` when JSX
     // components are needed inside a `.md` page.
     format: "detect",
-    // Mermaid disabled — Docusaurus 3.4-3.8 has an SSR bug where the
-    // mermaid renderer calls useColorMode outside the ColorModeProvider.
-    // Diagrams ship as plain `text title="Mermaid…"` code blocks for
-    // now; readers can paste into https://mermaid.live to render.
+    // Mermaid: the docs use ```mermaid fences (they render natively on
+    // GitHub — the single source). To render them on THIS site too, bump
+    // Docusaurus to >= 3.9 (fixes the useColorMode SSR bug present in
+    // 3.4–3.8) then set `mermaid: true` and add
+    // `themes: ["@docusaurus/theme-mermaid"]`. Kept false here because the
+    // pinned 3.7.0 drops the page on SSR. See the LICENSE/upgrade follow-up.
     mermaid: false,
   },
 

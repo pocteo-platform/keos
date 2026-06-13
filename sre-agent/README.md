@@ -56,6 +56,13 @@ keosctl events -w                # stream incidents
 `keosctl` is the single entry point for everything — install, day-2 ops, release,
 GitOps, GPU, audit. Full list: **[CLI Reference](docs/CLI_REFERENCE.md)**.
 
+<p align="center">
+  <img src="docs/assets/casts/ep01-status.gif" alt="keosctl status + doctor screencast" width="720">
+</p>
+
+More screencasts (install · use cases · day-2 · introspection) are in the
+[User Guide](docs/USER_GUIDE.md#screencasts).
+
 ## Where it runs
 
 | Target | Notes |
