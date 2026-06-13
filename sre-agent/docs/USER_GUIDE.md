@@ -69,19 +69,66 @@ keosctl policy test isolate_pod high workloads active     # → ALLOW
 keosctl policy test isolate_pod high kube-system active    # → DENY (protected ns)
 ```
 
-## 5. The web UI
+## 5. The web UI — walkthrough
 
 `keosctl ui` port-forwards and opens the SPA (paste the token from
-`keosctl token`). Six views:
+`keosctl token`). The app is bilingual (EN/FR, switch in the top bar) and has
+six views:
 
-| View | What it's for |
-|---|---|
-| **Cluster** | Live nodes / namespaces / pods. |
-| **Incidents** | Every incident, filterable; drill into the 8 tabs (Falco event, RAG, K8sGPT, LLM, policy, action, audit chain, pipeline replay). |
-| **Pipeline** | The agent graph animating live, or replayed for any past incident. |
-| **Use Cases** | The scenario library + the creator wizard. |
-| **Control** | Flip the agent mode; approve/deny pending actions; browse the audit log. |
-| **Settings** | Calibration, retention, language (EN/FR). |
+### Cluster
+Live nodes, namespaces, and pods with status, and a namespace picker. Updates
+within ~1 s of a change. The fast way to see what the agent sees.
+
+### Incidents
+Every incident as a sortable, filterable table (severity · namespace · pod ·
+diagnosis · action · outcome · mode-at-time). URL params reflect filters so a
+view is shareable. Click any row for the **8-tab drill-down**: the **Falco/event**
+that triggered it, the **RAG** runbooks retrieved, the **K8sGPT** findings, the
+raw **LLM** diagnose/plan responses, the **policy** decision (allow/deny +
+reasons), the **action** result, the **audit chain** (with per-record HMAC
+✓/✗), and a **Pipeline replay** of that incident.
+
+### Pipeline
+The agent graph rendered as a live, animating flow — nodes light up as the
+incident moves triage → … → verify, edges animate, and the active node's
+input/output is one click away. Open it on `/pipeline/live` to watch a running
+incident, or open a past incident to **replay** it with a scrubber
+(play/pause/step, 0.5×–4×). This is the "wow" view for understanding *why* the
+agent did what it did.
+
+### Use Cases
+The scenario library (SRE + security) with search/filter, plus the **New Use
+Case** wizard — author a target, an event template, expected outcomes, and an
+EN/FR runbook, then Run it.
+
+### Control
+Flip the **agent mode** (observe-only / active / frozen), action the
+**pending-approval** queue (approve an L3-denied action with a human-override
+audit marker, or deny with a reason), and browse the **audit log** with live
+HMAC verification.
+
+### Settings
+Per-rule **calibration**, data **retention** windows, and language (EN/FR).
+
+## Screencasts
+
+Short terminal recordings of `keosctl` against a real cluster (also available as
+asciinema `.cast` files in [`docs/assets/casts/`](./assets/casts)):
+
+**Status + doctor + config**
+
+![keosctl status / doctor / config screencast](./assets/casts/ep01-status.gif)
+
+**Run a use case end-to-end**
+
+![keosctl run use case screencast](./assets/casts/ep02-usecase.gif)
+
+**Day-2 operations**
+
+![keosctl day-2 screencast](./assets/casts/ep04-day2.gif)
+
+(Install · introspection · help: `ep00-install`, `ep03-introspection`,
+`ep05-help` in the same folder.)
 
 ## 6. Use cases (drive the agent)
 

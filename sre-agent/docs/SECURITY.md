@@ -23,19 +23,17 @@ for installing the sensors see
 
 ## The detect → investigate → contain → respond flow
 
-```
-Falco / Tetragon (eBPF) ─► falcosidekick ─►(Bearer token)─► api /api/webhooks/falco
-        detect                forward                          │
-                                                               ▼  security.events.<rule>
-                                            triage (domain=security) → retrieve → diagnose
-                                                               │
-                                                               ▼  plan: isolate_pod / quarantine_pod / …
-                                                          OPA gate (security matrix)
-                                                               │ allow (active + high/critical)
-                                                               ▼
-                                       execute: deny-all NetworkPolicy + quarantine label
-                                                               │
-                                                               ▼  verify → signed audit → page_security
+```mermaid
+flowchart TB
+    D[Falco / Tetragon · eBPF<br/>detect] --> FS[falcosidekick<br/>forward + Bearer token]
+    FS --> WH[api · /api/webhooks/falco]
+    WH -->|security.events.rule| TR[triage · domain=security]
+    TR --> DG[retrieve → diagnose]
+    DG --> PL[plan: isolate_pod / quarantine_pod / …]
+    PL --> G{OPA gate · security matrix}
+    G -->|allow · active · high/critical| EX[execute:<br/>deny-all NetworkPolicy + quarantine label]
+    G -->|deny / low signal| ES[page_security]
+    EX --> V[verify → signed audit]
 ```
 
 A detection becomes a `security.events.*` incident, runs the same nine-node

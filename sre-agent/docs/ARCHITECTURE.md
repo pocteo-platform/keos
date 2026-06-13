@@ -21,18 +21,19 @@ This page is the system map. For *operating* it see the
 
 ## 1. The big picture
 
-```
-            ┌──────────────────────────── edge cluster ───────────────────────────┐
- telemetry  │  kubelet events ──┐                                                  │
- sources    │  Falco / Tetragon ─┼─► NATS JetStream ─► ┌─────────────────────────┐ │
-            │  Chaos Mesh ───────┘   (durable bus)     │   agent (LangGraph)     │ │
-            │                                           │  triage→…→verify→audit  │ │
- operator   │  keosctl / SPA ─► FastAPI ─► MCP server ──┤  diagnose: Ollama + RAG │ │
-            │                       │           │       └────────┬────────────────┘ │
-            │                       │           ▼ OPA gate        ▼ scoped RBAC       │
-            │                  AgentMode CRD    OPA          kube-apiserver           │
-            │  state: Qdrant (RAG) · audit log (HMAC) · calibration / baselines DB    │
-            └────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    KE[kubelet events]:::src --> NATS
+    FT[Falco / Tetragon]:::src --> NATS
+    CM[Chaos Mesh]:::src --> NATS
+    OP[keosctl / SPA]:::src --> API[FastAPI + MCP]
+    NATS[(NATS JetStream)] --> AG[Agent · LangGraph<br/>triage → … → verify]
+    API --> AG
+    AG --> OPA{OPA gate}
+    AG --> ST[(Qdrant RAG · HMAC audit<br/>calibration · baselines)]
+    OPA -->|allow| K8S[kube-apiserver]
+    MODE[/AgentMode CRD<br/>kill-switch/] -.-> AG
+    classDef src fill:#eef,stroke:#88a;
 ```
 
 The loop has a name: **Observe → Predict → Heal → Learn**. Everything runs
@@ -46,17 +47,16 @@ The heart of Keos is an explicit **LangGraph state machine** — not a free-form
 ReAct loop. Every incident flows through the same nine nodes, each a pure
 `state → state` function that emits one audit record:
 
-```
-triage → retrieve_context → k8sgpt_analyze → diagnose ─(confidence < threshold)─► escalate ─► END
-                                                  │
-                                                  ▼
-                                            plan_action → policy_gate ─(deny)─► escalate ─► END
-                                                              │ (allow)
-                                                              ▼
-                                                          execute → verify ─(unhealed)─► escalate ─► END
-                                                                        │ (healed)
-                                                                        ▼
-                                                                       END
+```mermaid
+flowchart LR
+    T[triage] --> R[retrieve_context] --> K[k8sgpt_analyze] --> D[diagnose]
+    D -- low confidence --> E[escalate]
+    D --> P[plan_action] --> G{policy_gate}
+    G -- deny --> E
+    G -- allow --> X[execute] --> V{verify}
+    V -- unhealed --> E
+    V -- healed --> Z([END])
+    E --> Z
 ```
 
 | Node | Responsibility |
@@ -73,6 +73,40 @@ triage → retrieve_context → k8sgpt_analyze → diagnose ─(confidence < thr
 
 On CPU the full loop is minutes; on a GPU edge node (Jetson Orin) it is
 **seconds** end to end.
+
+### Context & enrichment (RAG + K8sGPT)
+
+`diagnose` is only as good as what it's given. Three nodes feed it structured
+context *before* the LLM sees the event:
+
+```mermaid
+flowchart LR
+    EV[event] --> RC[retrieve_context]
+    RC -->|embed → top-k| Q[(Qdrant runbooks)]
+    RC -->|kubectl describe| DSC[pod state]
+    EV --> KA[k8sgpt_analyze] -->|rule analyzers| KG[K8sGPT findings]
+    EV --> BL[baseline z-scores]
+    RC & KA & BL --> DG[diagnose · LLM]
+    DG --> OUT[summary · root_cause · confidence · evidence]
+```
+
+- **retrieve_context (RAG)** — embeds the event with `nomic-embed`, pulls the
+  top-k runbook chunks from Qdrant **filtered to the incident's domain** (so a
+  security incident retrieves security runbooks, not SRE ones), and attaches the
+  target's `kubectl describe`.
+- **k8sgpt_analyze (enrichment)** — runs **K8sGPT's rule-based analyzers** (not
+  LLM summaries) over the live cluster and returns **structured findings**
+  (`{kind, name, error, parent_object, details}`), filtered to the incident's
+  pod or its owner. It is **best-effort**: if K8sGPT is unreachable the node
+  logs and returns `[]`, and the graph continues — diagnosis degrades, it never
+  blocks. K8sGPT is consumed over HTTP/MCP, so it's swappable.
+- **baselines** — the σ-above-baseline z-score for the pod's metrics (see §7).
+
+`diagnose` then reconciles all three (event + runbooks + K8sGPT findings +
+baseline) into `{summary, root_cause, confidence, evidence[]}`. This is why
+Keos diagnoses *real cluster noise* better than the small local LLM could alone
+— the model arbitrates between independent structured signals rather than
+hallucinating from a single event string.
 
 ### Action catalog
 
