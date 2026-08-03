@@ -21,7 +21,7 @@ RUN npm run build
 # securityContext even with NET_BIND_SERVICE added — the cap must be
 # set on the nginx binary file itself, which unprivileged variant
 # does and the default image doesn't.
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+FROM nginxinc/nginx-unprivileged:1.30-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/nginx.conf
 EXPOSE 8080
