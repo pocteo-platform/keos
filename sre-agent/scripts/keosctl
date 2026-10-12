@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-KEOSCTL_VERSION="1.0.1"
+KEOSCTL_VERSION="1.1.0"
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 

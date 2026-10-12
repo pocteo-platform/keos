@@ -84,7 +84,7 @@ banner() {
 EOF
   printf "${C_RST}\n"
   printf "       ${C_BOLD}The Autonomous SRE Agent for Edge Kubernetes${C_RST}\n"
-  printf "       ${C_DIM}by Pocteo Platform · v1.0.1${C_RST}\n\n"
+  printf "       ${C_DIM}by Pocteo Platform · v1.1.0${C_RST}\n\n"
   hr
   say "${C_DIM}This wizard installs Keos on a Kubernetes cluster.${C_RST}"
   say "${C_DIM}Estimated time: 5–15 min on a typical install (mostly LLM model download).${C_RST}"

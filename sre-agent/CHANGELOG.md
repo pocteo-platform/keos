@@ -6,6 +6,64 @@ version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-12
+
+**Minor:** the runtime-security domain, `keosctl` as the single entry
+point, the fleet/edge install flow (private registry, GitOps, Jetson),
+and live Falco 0.45 detection end to end.
+
+### Added
+
+- **Security domain (Phase 21)** — `security.events.*` incidents run the
+  same nine-node graph with escalate-first containment (`isolate_pod`,
+  `apply_network_policy`, `quarantine_pod`, `capture_forensics`,
+  `kill_pod`, `page_security`) behind the OPA matrix, four security use
+  cases, and a Security section in the UI.
+- **Falco + Tetragon sub-charts** with a kernel-capability ladder in the
+  installer (`modern_ebpf` / `ebpf-prebuilt` / `off`), prebuilt legacy
+  probes for BTF-less kernels (`keosctl falco-probe build`), delivery
+  through falcosidekick with a bearer token, and `keosctl doctor --e2e`.
+- **`keosctl`** — one CLI for the whole lifecycle: install wizard,
+  per-command `--help`, `deps`, `images`, `values`, `policy`, `runbooks`,
+  `bus`, `preflight`, `gpu-setup`, `release`, `gitops`.
+- **Fleet installs** — self-hosted registry pipeline (`keosctl release
+  all`), multi-arch image audit, pre-install checks, GitOps delivery with
+  Flux + SOPS (`auth.existingSecret`), Jetson GPU automation.
+- **`make sensors` / `.\make.ps1 sensors`** — cert-manager, Tetragon and
+  Falco 0.45 on the laptop k3d cluster, wired to the compose API's webhook.
+
+### Changed
+
+- **Falco 0.45** (chart 9.2.0) for BTF kernels — Falco 0.40's modern probe
+  fails the BPF verifier on 6.18 kernels. BTF-less kernels keep Falco 0.40
+  (chart 4.21.3) under the new `falco-legacy` values key, because Falco
+  0.41+ dropped the legacy eBPF probe. Custom `falco.*` overrides for the
+  `ebpf-prebuilt` tier move to `falco-legacy.*`.
+- **qwen2.5:3b** (`qwen2.5:3b-instruct-q4_K_M`) is the default chat model
+  everywhere (Makefile, `make.ps1`, chart, installers, `keosctl`), and
+  every Ollama call sends `num_ctx` (`OLLAMA_NUM_CTX`, default 8192).
+- Security sensors install by default (`--no-security` opts out).
+- Docs consolidated into a few canonical guides under `docs/`, which the
+  Docusaurus site renders directly.
+
+### Fixed
+
+- Prompts were silently truncated at Ollama's 2048-token default context,
+  so the 3b model failed validation twice and escalated.
+- Falco alerts without a pod (host processes) are dropped instead of
+  reaching the LLM, which invented a pod to isolate.
+- `keosctl deps install falco` posted to a nonexistent `pocteo` Service
+  without the bearer token; it now goes through falcosidekick to the `api`
+  Service with the agent's `FALCO_WEBHOOK_TOKEN`, pinned to the chart's
+  Falco version.
+- The api NetworkPolicy now admits falcosidekick (release namespace and
+  `falco`); before, enforcing CNIs (k3s) dropped every Falco alert.
+- The agent detects Falco in its own namespace, where the chart installs it.
+- NetworkPolicy: agent egress to the kube-apiserver, selector label keys;
+  RBAC: patch/update on NetworkPolicies so `isolate_pod` is idempotent.
+- Installer: one exported kubeconfig for kubectl and helm, model pull
+  waits for Ollama, `--local-build` fallback for kind + k3d.
+
 ## [1.0.1] - 2026-06-06
 
 **Patch:** the chart defaults that v1.0.0 shipped pointed at

@@ -1,6 +1,6 @@
 [project]
 name = "self-healing-agent"
-version = "1.0.1"
+version = "1.1.0"
 description = "LangGraph state machine for the self-healing K8s edge security PoC."
 requires-python = ">=3.11"
 dependencies = [
