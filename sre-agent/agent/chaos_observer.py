@@ -304,7 +304,9 @@ class ChaosObserver:
         if kind == "Pod" and self._pod_is_ready(ns, name):
             log.debug(
                 "chaos_observer: skip %s/%s reason=%s — pod is Ready (transient)",
-                kind, name, reason,
+                kind,
+                name,
+                reason,
             )
             return
 
