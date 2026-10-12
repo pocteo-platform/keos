@@ -174,11 +174,23 @@ inbound access. See [Operations → GitOps](./OPERATIONS.md#gitops-pull-based-de
 Live eBPF runtime detection is on by default (`--no-security` to skip). It needs
 a capable kernel:
 
-- **BTF kernel** (most stock distros ≥5.8, Talos) → `modern_ebpf`, Tetragon on.
-- **No BTF** (Jetson L4T, locked-down kernels) → legacy `ebpf` with a prebuilt
-  probe: `sudo REGISTRY=<reg> keosctl falco-probe build` on the node (once per
-  kernel), Tetragon off.
+- **BTF kernel** (most stock distros ≥5.8, Talos) → Falco 0.45 `modern_ebpf`,
+  Tetragon on.
+- **No BTF** (Jetson L4T, locked-down kernels) → Falco 0.40 (`falco-legacy`)
+  with a legacy probe prebuilt for the node's kernel:
+  `sudo REGISTRY=<reg> keosctl falco-probe build` on the node (once per
+  kernel), Tetragon off. Falco 0.41+ no longer ships the legacy probe.
 - **WSL2 / incapable** → sensors off; the synthetic use-case demo still works.
+
+To add Falco or Tetragon to an existing install, run `keosctl deps install falco`
+(or `tetragon`). It uses the chart's versions, and Falco delivers through
+falcosidekick with the agent's webhook token.
+
+**Laptop demo (docker compose + k3d):** `make sensors` (`.\make.ps1 sensors` on
+Windows) installs cert-manager, Tetragon and Falco 0.45 on the k3d cluster and
+points falcosidekick at the compose API. It needs a kernel with BTF (Docker
+Desktop's WSL2 kernel has it) and adds `FALCO_WEBHOOK_TOKEN` to `.env.local` if
+it's missing.
 
 ## Verify the install
 

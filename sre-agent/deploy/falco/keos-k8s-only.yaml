@@ -1,0 +1,6 @@
+# Keos acts on Kubernetes workloads. On a WSL2/Docker Desktop host, Falco also sees the
+# WSL distro's own shells (no pod, no namespace) — keep this rule to real pods only.
+- rule: Redirect STDOUT/STDIN to Network Connection in Container
+  condition: and k8s.ns.name exists
+  override:
+    condition: append

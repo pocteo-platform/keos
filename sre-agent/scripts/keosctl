@@ -853,16 +853,18 @@ USAGE
                               [--values FILE] [--namespace NS] [--set k=v]
 
 DESCRIPTION
-  Keos itself ships ONLY chaos-mesh as a sub-chart. Other operators
-  (Prometheus / ArgoCD / Flux / cert-manager / kube-state-metrics) are
-  detected at runtime — the agent adapts. `deps install` adds the
-  missing one via Helm.
+  Operators Keos uses but doesn't require (Prometheus / ArgoCD / Flux /
+  cert-manager / kube-state-metrics / Falco / Tetragon) are detected at
+  runtime — the agent adapts. `deps install` adds the missing one via Helm.
+  falco and tetragon default to the versions the Keos chart vendors; falco
+  delivers through falcosidekick with the agent's webhook token.
 
 SUPPORTED NAMES
-  prometheus  argocd  flux  cert-manager  kube-state-metrics
+  prometheus  argocd  flux  cert-manager  kube-state-metrics  falco  tetragon
 
 EXAMPLES
   keosctl deps list
+  keosctl deps install falco
   keosctl deps install prometheus
   keosctl deps install prometheus --chart-repo https://harbor.corp/chartrepo --version 75.0.0
   keosctl deps install argocd --namespace argocd
@@ -1413,7 +1415,7 @@ cmd_doctor() {
     case "$tier" in
       modern_ebpf) [[ "$btf_true" -gt 0 ]] && ok "$(printf '%-15s' 'security tier')  modern_ebpf (BTF nodes present)" \
                      || warn "$(printf '%-15s' 'security tier')  modern_ebpf but no btf-kernel=true node — falco may crashloop" ;;
-      ebpf-prebuilt) ok "$(printf '%-15s' 'security tier')  ebpf-prebuilt (legacy probe; tetragon off)" ;;
+      ebpf-prebuilt) ok "$(printf '%-15s' 'security tier')  ebpf-prebuilt (Falco 0.40 legacy probe; tetragon off)" ;;
       off) note "$(printf '%-15s' 'security tier')  off (synthetic events only)" ;;
       *) note "$(printf '%-15s' 'security tier')  $tier" ;;
     esac
@@ -2440,7 +2442,7 @@ cmd_deps() {
           *) die "unrecognized argument '$1' — run this command with -h/--help to see valid options." ;;
         esac
       done
-      local def_repo="" def_chart="" def_ns=""
+      local def_repo="" def_chart="" def_ns="" def_version=""
       case "$name" in
         prometheus|kube-prometheus-stack)
           def_repo="https://prometheus-community.github.io/helm-charts"
@@ -2464,22 +2466,33 @@ cmd_deps() {
           def_chart="kube-state-metrics"; def_ns="monitoring"
           ;;
         falco)
-          # Security domain (Phase 21) — Falco for live eBPF detection.
-          # Wire its HTTP output at the agent's webhook so alerts become
-          # security.events.* (set FALCO_WEBHOOK_TOKEN on the agent to match).
+          # Security domain (Phase 21) — Falco for live eBPF detection, same
+          # version as the chart's `falco` sub-chart (modern_ebpf, BTF
+          # kernels). Alerts go through falcosidekick: Falco's own
+          # http_output can't send the Authorization header the agent
+          # webhook requires. The token is the one in the agent's auth secret.
           def_repo="https://falcosecurity.github.io/charts"
-          def_chart="falco"; def_ns="falco"
+          def_chart="falco"; def_ns="falco"; def_version="9.2.0"
+          local auth_secret falco_tok
+          auth_secret=$(kc get deploy -l app.kubernetes.io/component=api \
+            -o jsonpath='{.items[0].spec.template.spec.containers[*].envFrom[*].secretRef.name}' 2>/dev/null | awk '{print $1}')
+          falco_tok=$(kc get secret "${auth_secret:-${RELEASE}-pocteo-auth}" \
+            -o jsonpath='{.data.FALCO_WEBHOOK_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null)
+          [[ -n "$falco_tok" ]] || die "no FALCO_WEBHOOK_TOKEN in the agent's auth secret (ns/$NAMESPACE) — without it the webhook refuses every alert.
+   Set one on the Keos release (--set-string auth.falcoWebhookToken=\$(openssl rand -hex 16)), or reinstall with security on."
           set_args+=(--set "driver.kind=modern_ebpf")
-          set_args+=(--set "falcosidekick.enabled=false")
           set_args+=(--set "falco.json_output=true")
-          set_args+=(--set "falco.http_output.enabled=true")
-          set_args+=(--set "falco.http_output.url=http://pocteo.${KEOS_NAMESPACE:-keos}.svc.cluster.local:8000/api/webhooks/falco")
-          note "After install, set FALCO_WEBHOOK_TOKEN on the agent + Falco's Authorization header to match."
+          set_args+=(--set "falcosidekick.enabled=true")
+          set_args+=(--set-string "falcosidekick.config.webhook.address=http://api.${NAMESPACE}.svc.cluster.local:8000/api/webhooks/falco")
+          set_args+=(--set-string "falcosidekick.config.webhook.customHeaders=Authorization:Bearer ${falco_tok}")
+          set_args+=(--set-string "falcosidekick.config.webhook.minimumpriority=notice")
+          [[ "${ns:-falco}" == "falco" ]] \
+            || note "The agent's NetworkPolicy admits falcosidekick from ns/falco and ns/$NAMESPACE only."
           ;;
         tetragon)
           # Security domain (Phase 21) — Tetragon for eBPF process/network events.
           def_repo="https://helm.cilium.io"
-          def_chart="tetragon"; def_ns="kube-system"
+          def_chart="tetragon"; def_ns="kube-system"; def_version="1.4.1"
           set_args+=(--set "tetragon.enableProcessCred=true")
           set_args+=(--set "tetragon.enableProcessNs=true")
           ;;
@@ -2487,6 +2500,7 @@ cmd_deps() {
       esac
       chart_repo="${chart_repo:-$def_repo}"
       ns="${ns:-$def_ns}"
+      version="${version:-$def_version}"
       info "Installing $name into ns/$ns from $chart_repo${version:+ (version $version)}"
       local helm_args
       if [[ "$chart_repo" == oci://* ]]; then

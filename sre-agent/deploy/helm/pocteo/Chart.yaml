@@ -28,6 +28,14 @@ maintainers:
 # runs synthetic events without them. Turn on for live eBPF detection via
 # `install-edge.sh --security`, `keosctl deps install falco|tetragon`, or
 # `--set falco.enabled=true --set tetragon.enabled=true`.
+#
+# Falco ships twice, never both enabled:
+#   falco         9.2.0  (Falco 0.45) — modern_ebpf on BTF kernels. 0.40's
+#                        modern probe fails the BPF verifier on 6.18 kernels.
+#   falco-legacy  4.21.3 (Falco 0.40) — the legacy eBPF probe for BTF-less
+#                        kernels (Jetson L4T). Falco 0.41+ dropped that probe
+#                        (only kmod + modern_ebpf remain), so this tier stays
+#                        on 0.40 with a prebuilt probe (keosctl falco-probe).
 dependencies:
   - name: chaos-mesh
     version: "2.7.2"
@@ -35,10 +43,15 @@ dependencies:
     condition: chaos-mesh.enabled
     alias: chaos-mesh
   - name: falco
-    version: "4.21.3"
+    version: "9.2.0"
     repository: https://falcosecurity.github.io/charts
     condition: falco.enabled
     alias: falco
+  - name: falco
+    version: "4.21.3"
+    repository: https://falcosecurity.github.io/charts
+    condition: falco-legacy.enabled
+    alias: falco-legacy
   - name: tetragon
     version: "1.4.1"
     repository: https://helm.cilium.io

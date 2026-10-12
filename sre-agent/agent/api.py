@@ -1169,9 +1169,14 @@ def _detect_operators() -> DetectedOperators:
     except Exception:  # noqa: BLE001
         pass
     # Falco (Phase 21) ships as a DaemonSet, not a CRD. Match any DaemonSet
-    # whose name contains "falco" across the usual install namespaces.
+    # whose name contains "falco" across the usual install namespaces, plus
+    # the agent's own: the chart's falco / falco-legacy sub-charts land there.
     try:
-        for ns in ("falco", "kube-system", "security"):
+        falco_namespaces = ["falco", "kube-system", "security"]
+        own_ns = os.environ.get("KEOS_POD_NAMESPACE", "")
+        if own_ns and own_ns not in falco_namespaces:
+            falco_namespaces.append(own_ns)
+        for ns in falco_namespaces:
             items = _kubectl_get("daemonsets", "", ns).get("items", [])
             for d in items:
                 dname = ((d.get("metadata") or {}).get("name") or "").lower()

@@ -4,9 +4,12 @@ dependencies:
   version: 2.7.2
 - name: falco
   repository: https://falcosecurity.github.io/charts
+  version: 9.2.0
+- name: falco
+  repository: https://falcosecurity.github.io/charts
   version: 4.21.3
 - name: tetragon
   repository: https://helm.cilium.io
   version: 1.4.1
-digest: sha256:12e467e2d819f9897b97951b4d98be116240bb5d795ecf6d4c48278eae47beaa
-generated: "2026-06-10T23:36:59.746563773+02:00"
+digest: sha256:67422bf5efd9b5384d0d8cb5ff61fe5eb764892e14a2d79f06b46c0a3c90e66b
+generated: "2026-10-12T23:31:36.3570405+01:00"

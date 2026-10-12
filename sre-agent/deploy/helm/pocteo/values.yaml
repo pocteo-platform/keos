@@ -549,17 +549,18 @@ chaos-mesh:
 # alerts to the agent's webhook, which normalises them onto
 # security.events.* for the keos-security-agent NATS consumer.
 #
-# The dependency is declared in Chart.yaml. eBPF needs the containerd
-# socket — install-edge.sh resolves the per-distro path (k3s/Talos/Docker)
-# and passes it here, same as chaos-mesh.
+# Two dependencies in Chart.yaml, one per kernel tier, never both on:
+# `falco` (Falco 0.45, BTF kernels) and `falco-legacy` (Falco 0.40,
+# BTF-less kernels) below. install-edge.sh's security ladder picks one.
+# Falco 0.45's container plugin finds the containerd socket itself: the
+# k3s, Talos and stock containerd paths are all in its default list.
 # ---------------------------------------------------------------------------
 falco:
   enabled: false
-  # Default to the modern eBPF probe (CO-RE, no compilation) — correct for
-  # any BTF-enabled kernel (CONFIG_DEBUG_INFO_BTF, standard on stock distro
-  # kernels >= 5.8). On BTF-less kernels (NVIDIA L4T/tegra, WSL2) the
-  # installer's security ladder downgrades to `ebpf` with a prebuilt probe
-  # image, or disables sensors — see scripts/install-edge.sh.
+  # The modern eBPF probe (CO-RE, no compilation) — correct for any
+  # BTF-enabled kernel (CONFIG_DEBUG_INFO_BTF, standard on stock distro
+  # kernels >= 5.8). Falco 0.45 offers only modern_ebpf and kmod; BTF-less
+  # kernels (NVIDIA L4T/tegra) get `falco-legacy` instead.
   driver:
     kind: modern_ebpf
   falco:
@@ -586,6 +587,32 @@ falco:
         address: ""
         method: "POST"
         customHeaders: ""
+        # Notice and above: debug/informational rules would turn routine
+        # activity into incidents.
+        minimumpriority: "notice"
+
+# Falco 0.40 (chart 4.21.3) for BTF-less kernels: the legacy eBPF probe,
+# prebuilt once per kernel by `keosctl falco-probe build` (the in-cluster
+# loader can't compile it). install-edge.sh's ebpf-prebuilt tier enables
+# this instead of `falco`, mounts the prebuilt probe and passes the
+# containerd socket (0.40 has no socket auto-discovery). Same delivery path.
+falco-legacy:
+  enabled: false
+  driver:
+    kind: ebpf
+  falco:
+    json_output: true
+    http_output:
+      enabled: true
+      url: ""
+  falcosidekick:
+    enabled: false
+    config:
+      webhook:
+        address: ""
+        method: "POST"
+        customHeaders: ""
+        minimumpriority: "notice"
 
 # ---------------------------------------------------------------------------
 # Tetragon sub-chart (Phase 21 — eBPF enforcement + kernel process/network
@@ -614,8 +641,9 @@ tetragon:
 # ---------------------------------------------------------------------------
 # Inert record of the security tier the installer's capability ladder chose,
 # so `helm get values` / `keosctl doctor` can show what's actually running:
-#   modern_ebpf   BTF kernel — Falco modern probe + Tetragon
-#   ebpf-prebuilt no BTF — Falco legacy probe from a prebuilt image, no Tetragon
+#   modern_ebpf   BTF kernel — Falco 0.45 modern probe (`falco`) + Tetragon
+#   ebpf-prebuilt no BTF — Falco 0.40 legacy probe from a prebuilt image
+#                 (`falco-legacy`), no Tetragon
 #   off           no eBPF-capable kernel — sensors disabled, synthetic only
 # Not consumed by any template; purely informational.
 # ---------------------------------------------------------------------------

@@ -323,6 +323,23 @@ def test_deny_missing(client) -> None:
     assert r.json()["approved"] is False
 
 
+def test_detect_operators_finds_falco_in_the_agent_namespace(monkeypatch) -> None:
+    """The chart's falco / falco-legacy sub-charts run in the release
+    namespace, not ns/falco — detection has to look there too."""
+    from agent import api
+
+    def fake_kget(kind, name, namespace):
+        if kind == "daemonsets" and namespace == "keos":
+            return {"items": [{"metadata": {"name": "keos-falco-legacy"}}]}
+        return {}
+
+    monkeypatch.setattr("agent.api._kubectl_get", fake_kget)
+    monkeypatch.delenv("KEOS_POD_NAMESPACE", raising=False)
+    assert api._detect_operators().falco is False
+    monkeypatch.setenv("KEOS_POD_NAMESPACE", "keos")
+    assert api._detect_operators().falco is True
+
+
 def test_falco_webhook_publishes_pod_alerts_and_skips_host_ones(client, monkeypatch) -> None:
     """A Falco alert with no k8s.pod.name (a host process) is dropped: the
     agent can't act on it, and the LLM would invent a pod to isolate."""

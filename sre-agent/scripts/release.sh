@@ -78,18 +78,23 @@ fi
 # the failure mode the old hardcoded array in build-airgap-bundle.sh had.
 cmd_images_list() {
   command -v helm >/dev/null || die "helm not on PATH"
-  {
+  _render_images() {
     helm template keos "$CHART_DIR" \
       --set-string auth.apiToken=x --set-string auth.hmacKey=y \
-      --set falco.enabled=true \
-      --set falco.driver.kind=ebpf \
-      --set falco.falcosidekick.enabled=true \
       --set tetragon.enabled=true \
       --set chaos-mesh.enabled=true \
       --set monitoring.enabled=true \
       --set agent.attachment.mode=hard \
       --set-string agent.attachment.nodeName=render-hook \
+      "$@" \
       2>/dev/null | grep -E '^\s+(-\s+)?image:' | sed -E 's/.*image:\s*"?([^" ]+)"?.*/\1/'
+  }
+  {
+    # One render per security tier: the two Falco sub-charts share template
+    # names, so they can't render together (installs only ever enable one).
+    _render_images --set falco.enabled=true --set falco.falcosidekick.enabled=true
+    _render_images --set falco-legacy.enabled=true --set falco-legacy.driver.kind=ebpf \
+                   --set falco-legacy.falcosidekick.enabled=true
     # Not rendered by the chart but required by the install flow:
     echo "nvcr.io/nvidia/k8s-device-plugin:v0.16.2"   # keosctl gpu-setup
     echo "busybox:stable"                              # falco prebuilt-probe carrier
@@ -100,10 +105,11 @@ cmd_images_list() {
     echo "ghcr.io/fluxcd/kustomize-controller:v1.4.0"
     echo "ghcr.io/fluxcd/helm-controller:v1.1.0"
   } | grep -v '^ghcr.io/pocteo-platform/' \
-    | grep -v '^appropriate/curl$' \
+    | grep -v -E '^(appropriate|curlimages)/curl$' \
     | sort -u
-  # Excluded: first-party (comes from `build`); appropriate/curl (untagged,
-  # falcosidekick's `helm test` hook only — never pulled during install).
+  # Excluded: first-party (comes from `build`); appropriate/curl and
+  # curlimages/curl (untagged, the `helm test` hooks of falcosidekick 0.9 /
+  # 0.14 — never pulled during install).
 }
 
 # Map a source image ref to its path inside ${REGISTRY}. Mirrors the

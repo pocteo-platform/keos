@@ -46,12 +46,18 @@ eBPF needs a capable kernel. The installer picks the tier and records it:
 
 | Tier | When | Behaviour |
 |---|---|---|
-| `modern_ebpf` | kernel has BTF (most stock distros ≥5.8, Talos) | Falco CO-RE probe + **Tetragon on**; nothing to compile |
-| `ebpf-prebuilt` | no BTF (Jetson L4T, locked-down kernels) | legacy Falco probe built once per kernel via `keosctl falco-probe build`; Tetragon off |
+| `modern_ebpf` | kernel has BTF (most stock distros ≥5.8, Talos) | Falco 0.45 CO-RE probe + **Tetragon on**; nothing to compile |
+| `ebpf-prebuilt` | no BTF (Jetson L4T, locked-down kernels) | Falco 0.40 (`falco-legacy`) legacy probe built once per kernel via `keosctl falco-probe build`; Tetragon off |
 | `off` | WSL2 / incapable kernel | sensors disabled; the synthetic use-case path still demonstrates the full loop |
 
 On a Jetson: `sudo REGISTRY=<reg> keosctl falco-probe build` on the node (once
-per kernel), then install. Re-run after a kernel upgrade.
+per kernel), then install. Re-run after a kernel upgrade. That tier stays on
+Falco 0.40 because Falco 0.41+ dropped the legacy probe (only `kmod` and
+`modern_ebpf` remain); BTF kernels get Falco 0.45, whose modern probe also
+passes the verifier on recent kernels (0.40's fails on 6.18).
+
+On the laptop demo (docker compose + k3d), `make sensors` runs the
+`modern_ebpf` tier on the k3d cluster.
 
 ## Delivery: why falcosidekick
 

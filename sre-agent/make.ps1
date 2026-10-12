@@ -18,6 +18,10 @@ $Cluster        = 'poc'
 $KubeconfigFile = Join-Path $script:RepoRoot '.kube\config'
 $ChatModel      = 'qwen2.5:3b-instruct-q4_K_M'
 $EmbedModel     = 'nomic-embed-text'
+# `sensors`: same Falco + Tetragon versions as the Helm chart.
+$FalcoChartVersion    = '9.2.0'
+$TetragonChartVersion = '1.4.1'
+$CertManagerVersion   = 'v1.21.2'
 
 function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 function Info($msg) { Write-Host $msg -ForegroundColor Cyan }
@@ -68,6 +72,7 @@ Targets:
   seed          Load runbooks into Qdrant
   cluster       Create k3d cluster + apply manifests
   cluster-down  Delete the k3d cluster only
+  sensors       Falco + Tetragon + cert-manager on the k3d cluster (needs a BTF kernel)
   kubeconfig    Re-export .\.kube\config from the cluster
   test-policy   Run pytest against the OPA policy via HTTP
   test          Run all pytest suites
@@ -358,6 +363,84 @@ function Invoke-ClusterDown {
     if (Cmd-Exists 'k3d') { k3d cluster delete $Cluster }
 }
 
+function Get-EnvLocalValue($name) {
+    $envLocal = Join-Path $script:RepoRoot '.env.local'
+    if (-not (Test-Path $envLocal)) { return $null }
+    $line = Get-Content $envLocal | Where-Object { $_ -match "^$name=" } | Select-Object -First 1
+    if ($line) { return $line.Substring($name.Length + 1).Trim() }
+    return $null
+}
+
+# Live security sensors on the k3d cluster: cert-manager, Tetragon, and
+# Falco 0.45 + falcosidekick posting to the compose API's Falco webhook
+# (host.k3d.internal:8000) with FALCO_WEBHOOK_TOKEN from .env.local
+# (generated here if missing; the running API is recreated to read it).
+# Needs a kernel with BTF (Docker Desktop's WSL2 kernel has it). Idempotent;
+# same Falco and Tetragon versions as the Helm chart. Mirrors `make sensors`.
+function Invoke-Sensors {
+    if (-not (Cmd-Exists 'helm')) { Fail "helm not on PATH." }
+    $env:KUBECONFIG = $KubeconfigFile
+    Ensure-EnvLocalToken
+    $token = Get-EnvLocalValue 'FALCO_WEBHOOK_TOKEN'
+    if (-not $token) {
+        $bytes = New-Object byte[] 24
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+        $token = [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+','-').Replace('/','_')
+        $envLocal = Join-Path $script:RepoRoot '.env.local'
+        $raw = [IO.File]::ReadAllText($envLocal)
+        $sep = if ($raw.Length -gt 0 -and -not $raw.EndsWith("`n")) { "`n" } else { '' }
+        [IO.File]::AppendAllText($envLocal, "${sep}FALCO_WEBHOOK_TOKEN=$token`n")
+        Ok "Generated FALCO_WEBHOOK_TOKEN in .env.local"
+        $running = & docker compose ps --services --status running 2>$null
+        if ($running -contains 'api') {
+            docker compose up -d --no-deps api
+            Need-Exit $LASTEXITCODE "recreating the api container failed"
+        }
+    }
+    helm repo add jetstack https://charts.jetstack.io --force-update | Out-Null
+    helm repo add cilium https://helm.cilium.io --force-update | Out-Null
+    helm repo add falcosecurity https://falcosecurity.github.io/charts --force-update | Out-Null
+    helm repo update jetstack cilium falcosecurity | Out-Null
+    Need-Exit $LASTEXITCODE "helm repo update failed"
+
+    Info "cert-manager $CertManagerVersion..."
+    helm upgrade --install cert-manager jetstack/cert-manager --version $CertManagerVersion `
+        -n cert-manager --create-namespace --set crds.enabled=true --wait --timeout 6m | Out-Null
+    Need-Exit $LASTEXITCODE "cert-manager install failed"
+    Info "Tetragon $TetragonChartVersion..."
+    helm upgrade --install tetragon cilium/tetragon --version $TetragonChartVersion `
+        -n kube-system --wait --timeout 6m | Out-Null
+    Need-Exit $LASTEXITCODE "tetragon install failed"
+    Info "Falco (chart $FalcoChartVersion) + falcosidekick -> host.k3d.internal:8000..."
+    # helm --set-file treats backslashes as escapes: hand it forward slashes.
+    $rules = (Join-Path $script:RepoRoot 'deploy\falco\keos-k8s-only.yaml').Replace('\', '/')
+    helm upgrade --install falco falcosecurity/falco --version $FalcoChartVersion `
+        -n falco --create-namespace `
+        --set driver.kind=modern_ebpf --set tty=true `
+        --set falco.json_output=true --set falco.http_output.enabled=true `
+        --set falcosidekick.enabled=true --set falcosidekick.replicaCount=1 `
+        --set-string 'falcosidekick.config.webhook.address=http://host.k3d.internal:8000/api/webhooks/falco' `
+        --set-string falcosidekick.config.webhook.method=POST `
+        --set-string "falcosidekick.config.webhook.customHeaders=Authorization:Bearer $token" `
+        --set-string falcosidekick.config.webhook.minimumpriority=notice `
+        --set-file "customRules.keos-k8s-only\.yaml=$rules" `
+        --wait --timeout 8m | Out-Null
+    Need-Exit $LASTEXITCODE "falco install failed"
+
+    # Confirm from the agent's side: the dashboard's detected operators.
+    $apiToken = Get-EnvLocalValue 'SHP_API_TOKEN'
+    try {
+        $ctx = Invoke-RestMethod -Uri 'http://localhost:8000/api/cluster/context' `
+            -Headers @{ Authorization = "Bearer $apiToken" } -TimeoutSec 20
+        foreach ($k in 'cert_manager', 'kube_state_metrics', 'falco', 'tetragon') {
+            if ($ctx.detected_operators.$k) { Ok "  $k OK" }
+            else { Write-Host "  $k MISSING" -ForegroundColor Yellow }
+        }
+    } catch {
+        Write-Host "Sensors installed (agent API not reachable on localhost:8000 to confirm)." -ForegroundColor Yellow
+    }
+}
+
 function Write-KubeconfigFile {
     param([string]$Path, [string]$Content)
     # On Windows, compose may have the file bind-mounted read-only into
@@ -476,6 +559,7 @@ switch ($Target.ToLower()) {
     'seed'         { Invoke-Seed }
     'cluster'      { Invoke-Cluster }
     'cluster-down' { Invoke-ClusterDown }
+    'sensors'      { Invoke-Sensors }
     'kubeconfig'   { Invoke-Kubeconfig }
     'test-policy'  { Invoke-TestPolicy }
     'test'         { Invoke-Test }

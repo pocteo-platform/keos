@@ -24,7 +24,7 @@ export OLLAMA_CHAT_MODEL OLLAMA_EMBED_MODEL
 # python3, fall back to python only if python3 is missing.
 PYTHON ?= $(shell command -v python3 2>/dev/null || command -v python 2>/dev/null || echo python3)
 
-.PHONY: help install doctor up up-gpu up-cpu down restart rebuild rebuild-nocache rebuild-full logs ps seed pull-models cluster cluster-down \
+.PHONY: help install doctor up up-gpu up-cpu down restart rebuild rebuild-nocache rebuild-full logs ps seed pull-models cluster cluster-down sensors \
         kubeconfig test test-policy demo demo-ui clean \
         lint lint-python lint-frontend format typecheck typecheck-python typecheck-frontend coverage \
         docs-install docs-dev docs-build docs-serve docs-clean
@@ -38,6 +38,7 @@ help:
 	@echo "  seed          Load runbooks into Qdrant"
 	@echo "  cluster       Create k3d cluster + apply manifests"
 	@echo "  cluster-down  Delete the k3d cluster only"
+	@echo "  sensors       Falco + Tetragon + cert-manager on the k3d cluster (needs a BTF kernel)"
 	@echo "  test-policy   Run pytest against the OPA policy via HTTP"
 	@echo "  test          Run all pytest suites"
 	@echo "  demo          End-to-end CLI narrative: observe-only -> escalate, then active -> heal"
@@ -287,6 +288,53 @@ cluster:
 	    $(COMPOSE) up -d --force-recreate --no-deps $$to_recreate; \
 	  fi
 	@bash k3d/bootstrap.sh
+
+# Live security sensors on the k3d cluster: cert-manager, Tetragon, and
+# Falco 0.45 + falcosidekick posting to the compose API's Falco webhook
+# (host.k3d.internal:8000) with FALCO_WEBHOOK_TOKEN from .env.local —
+# generated here if missing, then the running API is recreated to read it.
+# Needs a kernel with BTF (most distros, Docker Desktop's WSL2 kernel).
+# Idempotent; same Falco and Tetragon versions as the Helm chart.
+FALCO_CHART_VERSION ?= 9.2.0
+TETRAGON_CHART_VERSION ?= 1.4.1
+CERT_MANAGER_VERSION ?= v1.21.2
+sensors: .env.local
+	@set -e; export KUBECONFIG=$(KUBECONFIG_FILE); \
+	if ! grep -q '^FALCO_WEBHOOK_TOKEN=' .env.local; then \
+	  [ -z "$$(tail -c1 .env.local)" ] || echo >> .env.local; \
+	  echo "FALCO_WEBHOOK_TOKEN=$$($(PYTHON) -c 'import secrets; print(secrets.token_urlsafe(24))')" >> .env.local; \
+	  echo "Generated FALCO_WEBHOOK_TOKEN in .env.local"; \
+	  if $(COMPOSE) ps --services --status running 2>/dev/null | grep -qx api; then \
+	    $(COMPOSE) up -d --no-deps api; \
+	  fi; \
+	fi; \
+	token=$$(grep '^FALCO_WEBHOOK_TOKEN=' .env.local | cut -d= -f2- | tr -d '\r'); \
+	helm repo add jetstack https://charts.jetstack.io --force-update >/dev/null; \
+	helm repo add cilium https://helm.cilium.io --force-update >/dev/null; \
+	helm repo add falcosecurity https://falcosecurity.github.io/charts --force-update >/dev/null; \
+	helm repo update jetstack cilium falcosecurity >/dev/null; \
+	echo "cert-manager $(CERT_MANAGER_VERSION)..."; \
+	helm upgrade --install cert-manager jetstack/cert-manager --version $(CERT_MANAGER_VERSION) \
+	  -n cert-manager --create-namespace --set crds.enabled=true --wait --timeout 6m >/dev/null; \
+	echo "Tetragon $(TETRAGON_CHART_VERSION)..."; \
+	helm upgrade --install tetragon cilium/tetragon --version $(TETRAGON_CHART_VERSION) \
+	  -n kube-system --wait --timeout 6m >/dev/null; \
+	echo "Falco (chart $(FALCO_CHART_VERSION)) + falcosidekick -> host.k3d.internal:8000..."; \
+	helm upgrade --install falco falcosecurity/falco --version $(FALCO_CHART_VERSION) \
+	  -n falco --create-namespace \
+	  --set driver.kind=modern_ebpf --set tty=true \
+	  --set falco.json_output=true --set falco.http_output.enabled=true \
+	  --set falcosidekick.enabled=true --set falcosidekick.replicaCount=1 \
+	  --set-string falcosidekick.config.webhook.address=http://host.k3d.internal:8000/api/webhooks/falco \
+	  --set-string falcosidekick.config.webhook.method=POST \
+	  --set-string "falcosidekick.config.webhook.customHeaders=Authorization:Bearer $$token" \
+	  --set-string falcosidekick.config.webhook.minimumpriority=notice \
+	  --set-file "customRules.keos-k8s-only\.yaml=deploy/falco/keos-k8s-only.yaml" \
+	  --wait --timeout 8m >/dev/null; \
+	api_token=$$(grep '^SHP_API_TOKEN=' .env.local | cut -d= -f2- | tr -d '\r'); \
+	curl -fsS -m 20 -H "Authorization: Bearer $$api_token" http://localhost:8000/api/cluster/context 2>/dev/null \
+	  | $(PYTHON) -c 'import json,sys; d=json.load(sys.stdin)["detected_operators"]; print("Agent sees: " + "  ".join(k + (" OK" if d.get(k) else " MISSING") for k in ("cert_manager", "kube_state_metrics", "falco", "tetragon")))' 2>/dev/null \
+	  || echo "Sensors installed (agent API not reachable on localhost:8000 to confirm)."
 
 cluster-down:
 	@k3d cluster delete $(CLUSTER)

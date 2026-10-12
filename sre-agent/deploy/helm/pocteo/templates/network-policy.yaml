@@ -9,6 +9,7 @@
   Topology:
     Caddy        --[80, ws]--> Frontend
                  --[8000]----> API
+    falcosidekick --[8000]---> API (Falco webhook; this ns or ns/falco)
     API          --[8000]----> MCP server, OPA, Qdrant, NATS, Ollama, K8sGPT, K8s apiserver, kube-dns
     MCP server   --[8181]----> OPA
                  --[443]-----> K8s apiserver
@@ -47,6 +48,21 @@ spec:
             matchLabels:
               app.kubernetes.io/name: {{ $partOf }}
               app.kubernetes.io/component: caddy
+      ports:
+        - { port: 8000, protocol: TCP }
+    # From falcosidekick: Falco alerts → /api/webhooks/falco. The handler
+    # still requires the bearer token; this only opens the port. Covers the
+    # chart's own sub-chart (this namespace) and `keosctl deps install
+    # falco` (namespace falco).
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [{{ .Release.Namespace | quote }}, "falco"]
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: falcosidekick
       ports:
         - { port: 8000, protocol: TCP }
   egress:

@@ -615,6 +615,10 @@ apply_registry_overrides() {
     --set-string "falco.falcoctl.image.registry=${IMAGE_REGISTRY}"
     --set-string "falco.driver.loader.initContainer.image.registry=${IMAGE_REGISTRY}"
     --set-string "falco.falcosidekick.image.registry=${IMAGE_REGISTRY}"
+    --set-string "falco-legacy.image.registry=${IMAGE_REGISTRY}"
+    --set-string "falco-legacy.falcoctl.image.registry=${IMAGE_REGISTRY}"
+    --set-string "falco-legacy.driver.loader.initContainer.image.registry=${IMAGE_REGISTRY}"
+    --set-string "falco-legacy.falcosidekick.image.registry=${IMAGE_REGISTRY}"
     --set-string "tetragon.tetragon.image.repository=${IMAGE_REGISTRY}/cilium/tetragon"
     --set-string "tetragon.tetragonOperator.image.repository=${IMAGE_REGISTRY}/cilium/tetragon-operator"
     --set-string "tetragon.export.stdout.image.repository=${IMAGE_REGISTRY}/cilium/hubble-export-stdout"
@@ -748,13 +752,15 @@ if [[ "$ENABLE_SECURITY" -eq 1 ]]; then
   # Common falco→agent delivery wiring (all tiers that run falco): generate
   # the webhook token, store it in the auth secret, and point falcosidekick
   # at the agent WITH the Authorization header the handler requires.
+  # $1 is the values key of the Falco sub-chart in use: falco | falco-legacy.
   _wire_falco_webhook() {
+    local key="$1"
     FALCO_WEBHOOK_TOKEN=$(openssl rand -base64 32 | tr -d '=' | head -c 32)
     HELM_ARGS+=(
       --set-string "auth.falcoWebhookToken=${FALCO_WEBHOOK_TOKEN}"
-      --set "falco.falcosidekick.enabled=true"
-      --set-string "falco.falcosidekick.config.webhook.address=http://api:8000/api/webhooks/falco"
-      --set-string "falco.falcosidekick.config.webhook.customHeaders=Authorization:Bearer ${FALCO_WEBHOOK_TOKEN}"
+      --set "${key}.falcosidekick.enabled=true"
+      --set-string "${key}.falcosidekick.config.webhook.address=http://api:8000/api/webhooks/falco"
+      --set-string "${key}.falcosidekick.config.webhook.customHeaders=Authorization:Bearer ${FALCO_WEBHOOK_TOKEN}"
     )
   }
 
@@ -762,20 +768,23 @@ if [[ "$ENABLE_SECURITY" -eq 1 ]]; then
     SECURITY_TIER="off"
     warn "WSL2 kernel ($_krel) — eBPF sensors cannot run here; installing sensors-off."
     note "  The security domain still works on synthetic events (keosctl run lib-*)."
-    HELM_ARGS+=(--set "falco.enabled=false" --set "tetragon.enabled=false")
+    HELM_ARGS+=(--set "falco.enabled=false" --set "falco-legacy.enabled=false" --set "tetragon.enabled=false")
   elif [[ "$_btf_label" == "true" ]]; then
     SECURITY_TIER="modern_ebpf"
     HELM_ARGS+=(
       --set "falco.enabled=true"
+      --set "falco-legacy.enabled=false"
       --set-string "falco.driver.kind=modern_ebpf"
       --set "tetragon.enabled=true"
       --set "tetragon.tetragon.hostProcPath=/proc"
     )
-    _wire_falco_webhook
-    ok "security tier: modern_ebpf — Falco (CO-RE) + Tetragon (BTF kernel)"
+    _wire_falco_webhook falco
+    ok "security tier: modern_ebpf — Falco 0.45 (CO-RE) + Tetragon (BTF kernel)"
   elif [[ "$_btf_label" == "false" ]]; then
     # No BTF: Falco legacy probe from a PREBUILT image (the in-cluster
     # loader can't compile it — glibc wall). Tetragon can't run at all.
+    # Falco 0.41+ dropped the legacy probe, so this tier runs the Falco 0.40
+    # sub-chart (`falco-legacy`), which also needs the containerd socket.
     _probe_img=""
     if [[ -n "$IMAGE_REGISTRY" ]]; then
       _node_krel="$(kubectl get node "$NODE" -o jsonpath='{.status.nodeInfo.kernelVersion}' 2>/dev/null)"
@@ -784,33 +793,35 @@ if [[ "$ENABLE_SECURITY" -eq 1 ]]; then
     if [[ -n "$_probe_img" ]]; then
       SECURITY_TIER="ebpf-prebuilt"
       HELM_ARGS+=(
-        --set "falco.enabled=true"
-        --set-string "falco.driver.kind=ebpf"
-        --set "falco.driver.loader.enabled=false"
+        --set "falco.enabled=false"
+        --set "falco-legacy.enabled=true"
+        --set-string "falco-legacy.driver.kind=ebpf"
+        --set "falco-legacy.driver.loader.enabled=false"
         --set "tetragon.enabled=false"
-        --set-string "falco.extra.initContainers[0].name=keos-prebuilt-probe"
-        --set-string "falco.extra.initContainers[0].image=${_probe_img}"
-        --set-string "falco.extra.initContainers[0].command[0]=sh"
-        --set-string "falco.extra.initContainers[0].command[1]=-c"
-        --set-string "falco.extra.initContainers[0].command[2]=cp /falco-bpf.o /root/.falco/falco-bpf.o"
-        --set-string "falco.extra.initContainers[0].volumeMounts[0].name=root-falco-fs"
-        --set-string "falco.extra.initContainers[0].volumeMounts[0].mountPath=/root/.falco"
-        --set-string "falco.driver.ebpf.path=/root/.falco/falco-bpf.o"
+        --set-string "falco-legacy.collectors.containerd.socket=${CONTAINERD_SOCKET}"
+        --set-string "falco-legacy.extra.initContainers[0].name=keos-prebuilt-probe"
+        --set-string "falco-legacy.extra.initContainers[0].image=${_probe_img}"
+        --set-string "falco-legacy.extra.initContainers[0].command[0]=sh"
+        --set-string "falco-legacy.extra.initContainers[0].command[1]=-c"
+        --set-string "falco-legacy.extra.initContainers[0].command[2]=cp /falco-bpf.o /root/.falco/falco-bpf.o"
+        --set-string "falco-legacy.extra.initContainers[0].volumeMounts[0].name=root-falco-fs"
+        --set-string "falco-legacy.extra.initContainers[0].volumeMounts[0].mountPath=/root/.falco"
+        --set-string "falco-legacy.driver.ebpf.path=/root/.falco/falco-bpf.o"
       )
-      _wire_falco_webhook
-      ok "security tier: ebpf-prebuilt — Falco legacy probe from ${_probe_img}; Tetragon off (no BTF)"
+      _wire_falco_webhook falco-legacy
+      ok "security tier: ebpf-prebuilt — Falco 0.40 legacy probe from ${_probe_img}; Tetragon off (no BTF)"
     else
       SECURITY_TIER="off"
       warn "no BTF on $NODE and no prebuilt Falco probe available — installing sensors-off."
       note "  Build one: sudo REGISTRY=<reg> keosctl falco-probe build (on $NODE), then re-run with --image-registry <reg>."
       note "  Synthetic-event security flow still works meanwhile."
-      HELM_ARGS+=(--set "falco.enabled=false" --set "tetragon.enabled=false")
+      HELM_ARGS+=(--set "falco.enabled=false" --set "falco-legacy.enabled=false" --set "tetragon.enabled=false")
     fi
   else
     SECURITY_TIER="off"
     warn "BTF state for $NODE unknown (preflight skipped?) — installing sensors-off to avoid a crash-loop."
     note "  Run 'keosctl preflight' to classify the node, or --no-security to silence this."
-    HELM_ARGS+=(--set "falco.enabled=false" --set "tetragon.enabled=false")
+    HELM_ARGS+=(--set "falco.enabled=false" --set "falco-legacy.enabled=false" --set "tetragon.enabled=false")
   fi
   HELM_ARGS+=(--set-string "keosSecurity.tier=${SECURITY_TIER}")
 else
