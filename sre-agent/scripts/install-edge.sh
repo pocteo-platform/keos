@@ -578,8 +578,14 @@ HELM_ARGS=(
   --set "agent.attachment.mode=hard"
   --set-string "agent.attachment.nodeName=$NODE"
   --set "agent.bootstrapNodeLabel.enabled=true"
+  # The models the agent asks Ollama for must be the ones pulled below
+  # ("Pulling LLM models"): a wizard choice other than the default used to
+  # leave the agent requesting a model that was never pulled.
+  --set-string "ollama.chatModel=${KEOS_CHAT_MODEL:-qwen2.5:3b-instruct-q4_K_M}"
+  --set-string "ollama.embedModel=${KEOS_EMBED_MODEL:-nomic-embed-text}"
   --wait --timeout 10m
 )
+[[ -n "${KEOS_NUM_CTX:-}" ]] && HELM_ARGS+=(--set "ollama.numCtx=${KEOS_NUM_CTX}")
 # OCI charts: helm pulls + installs by version. Local-chart path
 # embeds the version in the .tgz filename so this is a no-op.
 if [[ "$CHART_NAME" == oci://* ]]; then

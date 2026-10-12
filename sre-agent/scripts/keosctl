@@ -637,14 +637,22 @@ keosctl models — manage Ollama LLM weights
 
 USAGE
   keosctl models list
-  keosctl models pull <model>
+  keosctl models pull [<model>]
   keosctl models rm   <model>
   keosctl models show <model>
 
+DESCRIPTION
+  Without a model, `pull` fetches exactly what the agent is configured to
+  ask for (the api pod's OLLAMA_CHAT_MODEL + OLLAMA_EMBED_MODEL); the
+  default is qwen2.5:3b-instruct-q4_K_M + nomic-embed-text.
+  Pulling a model does not switch the agent to it. To change the chat
+  model, pull it, then:
+    helm upgrade keos <chart> --reuse-values --set ollama.chatModel=<model>
+
 EXAMPLES
   keosctl models list
-  keosctl models pull qwen2.5:7b-instruct-q4_K_M     # ~4.5 GB
-  keosctl models pull nomic-embed-text                # embed model
+  keosctl models pull                                 # the agent's models
+  keosctl models pull qwen2.5:7b-instruct-q4_K_M      # ~4.5 GB, ≥ 8 GB VRAM
   keosctl models rm qwen2.5:1.5b-instruct-q4_K_M
   keosctl models show qwen2.5:3b-instruct-q4_K_M
 EOF
@@ -1642,11 +1650,23 @@ cmd_models() {
       kc exec "$ollama_pod" -- ollama list
       ;;
     pull)
-      local model="${1:-}"
-      [[ -z "$model" ]] && die "usage: keosctl models pull <model>"
-      say "Pulling $model… (this can take several minutes)"
-      kc exec "$ollama_pod" -- ollama pull "$model"
-      ok "Pulled $model"
+      local -a pull_models=("$@")
+      if [[ ${#pull_models[@]} -eq 0 ]]; then
+        # No argument: the models the agent actually asks Ollama for.
+        local api_pod chat embed
+        api_pod="$(pod_for api)"
+        if [[ -n "$api_pod" ]]; then
+          chat="$(kc get pod "$api_pod" -o jsonpath='{.spec.containers[0].env[?(@.name=="OLLAMA_CHAT_MODEL")].value}' 2>/dev/null)"
+          embed="$(kc get pod "$api_pod" -o jsonpath='{.spec.containers[0].env[?(@.name=="OLLAMA_EMBED_MODEL")].value}' 2>/dev/null)"
+        fi
+        pull_models=("${chat:-qwen2.5:3b-instruct-q4_K_M}" "${embed:-nomic-embed-text}")
+      fi
+      local model
+      for model in "${pull_models[@]}"; do
+        say "Pulling $model… (this can take several minutes)"
+        kc exec "$ollama_pod" -- ollama pull "$model"
+        ok "Pulled $model"
+      done
       ;;
     rm)
       local model="${1:-}"
@@ -2889,7 +2909,7 @@ EOF
   printf "  keosctl token                            ${C_DIM}# print the bearer token${C_RST}\n\n"
   printf "  ${C_DIM}# Model management${C_RST}\n"
   printf "  keosctl models list                      ${C_DIM}# what's loaded?${C_RST}\n"
-  printf "  keosctl models pull qwen2.5:7b           ${C_DIM}# upgrade to a bigger model${C_RST}\n\n"
+  printf "  keosctl models pull                      ${C_DIM}# the agent's models (default qwen2.5:3b)${C_RST}\n\n"
   printf "  ${C_DIM}# Lifecycle${C_RST}\n"
   printf "  keosctl uninstall --keep-pvcs            ${C_DIM}# clean removal, keep state${C_RST}\n\n"
 

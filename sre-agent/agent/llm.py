@@ -306,6 +306,9 @@ def _generate(system: str, user: str, timeout: float = 300.0) -> str:
             "temperature": 0.1,
             "num_predict": 512,
             "top_p": 0.9,
+            # Without this, prompts past Ollama's default window lose their
+            # instructions (see Settings.ollama_num_ctx).
+            "num_ctx": settings.ollama_num_ctx,
         },
     }
     last_err: Exception | None = None
@@ -356,7 +359,13 @@ def warmup_chat_model(timeout: float = 300.0) -> None:
                 "prompt": "ok",
                 "stream": False,
                 "keep_alive": "30m",
-                "options": {"num_predict": 1, "temperature": 0.0},
+                # Same num_ctx as _generate, so the warm instance is the one
+                # the real calls use (a different value forces a reload).
+                "options": {
+                    "num_predict": 1,
+                    "temperature": 0.0,
+                    "num_ctx": settings.ollama_num_ctx,
+                },
             },
             timeout=timeout,
         ).raise_for_status()

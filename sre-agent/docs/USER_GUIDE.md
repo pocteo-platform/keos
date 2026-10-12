@@ -154,7 +154,7 @@ keosctl status                 # pods + mode + release
 keosctl doctor [--e2e]         # full health check (+ live security path)
 keosctl top                    # one-screen live dashboard
 keosctl logs api -f            # tail a component
-keosctl models pull qwen2.5:7b-instruct-q4_K_M   # upgrade the LLM
+keosctl models pull            # (re)pull the agent's models (default qwen2.5:3b)
 keosctl backup -o keos.tar.gz  # snapshot state
 keosctl upgrade                # helm upgrade --reuse-values
 ```

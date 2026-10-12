@@ -18,7 +18,7 @@ import urllib.request
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 MODELS = [
-    os.environ.get("OLLAMA_CHAT_MODEL", "qwen2.5:7b-instruct-q4_K_M"),
+    os.environ.get("OLLAMA_CHAT_MODEL", "qwen2.5:3b-instruct-q4_K_M"),
     os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
 ]
 

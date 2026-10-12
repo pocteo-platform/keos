@@ -326,6 +326,9 @@ function Invoke-Coverage {
 }
 
 function Invoke-PullModels {
+    # Same defaults as the Makefile (3b); an OLLAMA_CHAT_MODEL already in the environment wins.
+    if (-not $env:OLLAMA_CHAT_MODEL)  { $env:OLLAMA_CHAT_MODEL  = $ChatModel }
+    if (-not $env:OLLAMA_EMBED_MODEL) { $env:OLLAMA_EMBED_MODEL = $EmbedModel }
     python (Join-Path $script:RepoRoot 'agent\pull_models.py')
     Need-Exit $LASTEXITCODE "model pull failed"
 }

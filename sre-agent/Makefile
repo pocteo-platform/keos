@@ -12,8 +12,12 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 CLUSTER := poc
 KUBECONFIG_FILE := ./.kube/config
-OLLAMA_CHAT_MODEL := qwen2.5:7b-instruct-q4_K_M
-OLLAMA_EMBED_MODEL := nomic-embed-text
+# Models `make pull-models` downloads and host-side runs use. Default 3b
+# everywhere (agent/config.py, Helm chart, installers). Override per call:
+#   make pull-models OLLAMA_CHAT_MODEL=qwen2.5:7b-instruct-q4_K_M
+OLLAMA_CHAT_MODEL ?= qwen2.5:3b-instruct-q4_K_M
+OLLAMA_EMBED_MODEL ?= nomic-embed-text
+export OLLAMA_CHAT_MODEL OLLAMA_EMBED_MODEL
 
 # Many Linux distros (Ubuntu, Debian, RHEL 9+) ship only `python3` — no
 # unsuffixed `python` exists. macOS Homebrew + WSL behave the same. Prefer

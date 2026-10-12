@@ -44,10 +44,10 @@ services:
       # Allow concurrent diagnose + plan_action evaluations. 2 is plenty
       # for the agent's burst pattern; raise if you parallelise scenarios.
       OLLAMA_NUM_PARALLEL: "2"
-      # The chat-model context window. qwen2.5:3b-instruct supports 32k
-      # but we only use a few thousand tokens; bumping to 4k saves VRAM
-      # vs the default 8k while keeping headroom for the diagnose prompt.
-      OLLAMA_CONTEXT_LENGTH: "4096"
+      # Default context for clients that don't send num_ctx (newer Ollama
+      # only). The agent sends num_ctx itself (OLLAMA_NUM_CTX, default 8192):
+      # with qwen2.5:3b that is ~2.9 GB of VRAM, model + KV cache.
+      OLLAMA_CONTEXT_LENGTH: "8192"
     deploy:
       resources:
         reservations:

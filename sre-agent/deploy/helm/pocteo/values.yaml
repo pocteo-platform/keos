@@ -367,6 +367,18 @@ ollama:
     storageClass: ""   # cluster default
   chatModel: qwen2.5:3b-instruct-q4_K_M
   embedModel: nomic-embed-text
+  # Context window the agent sends with every LLM call (OLLAMA_NUM_CTX).
+  # The diagnose/plan prompts exceed 2k tokens; a shorter window drops the
+  # prompt's instructions and a 3b model answers off-schema. Keep ≥ 8192.
+  numCtx: 8192
+
+  # Point the agent at an EXTERNAL Ollama instead of the in-cluster one.
+  # When set, the api's OLLAMA_HOST uses this URL and the in-cluster ollama
+  # StatefulSet + Service are NOT rendered. Handy for GPU on a host where
+  # the cluster can't get a GPU (e.g. k3d on Docker Desktop / WSL2): run
+  # Ollama natively with the GPU and set this to the host the pods can
+  # reach (k3d: http://host.k3d.internal:11434). Empty = in-cluster ollama.
+  externalUrl: ""
 
   # GPU acceleration — see docs/JETSON.md for the full setup walkthrough.
   #

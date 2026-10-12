@@ -32,13 +32,22 @@ class Settings:
     nats_url: str = _env("NATS_URL", "nats://localhost:4222")
     opa_url: str = _env("OPA_URL", "http://localhost:8181")
 
-    # qwen2.5:7b-instruct-q4_K_M is ~4.4 GB resident — fits in ≥ 8 GB
-    # VRAM with room for the embed model + KV cache. Expected confidence
-    # lift over 3b: +3-5 percentage points (per Phase 12 measurements).
-    # Set OLLAMA_CHAT_MODEL=qwen2.5:3b-instruct-q4_K_M to roll back on
-    # cards with < 8 GB VRAM or CPU-only hosts (~5× faster on CPU).
-    chat_model: str = _env("OLLAMA_CHAT_MODEL", "qwen2.5:7b-instruct-q4_K_M")
+    # qwen2.5:3b-instruct-q4_K_M is the default everywhere (compose, Helm,
+    # installers): ~1.9 GB, ~2.9 GB resident with an 8k context, fits any
+    # ≥ 4 GB GPU and stays usable on CPU / Jetson. Set
+    # OLLAMA_CHAT_MODEL=qwen2.5:7b-instruct-q4_K_M on ≥ 8 GB cards for a
+    # +3-5 point confidence lift (Phase 12 measurements).
+    chat_model: str = _env("OLLAMA_CHAT_MODEL", "qwen2.5:3b-instruct-q4_K_M")
     embed_model: str = _env("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+    # Context window sent with every generate call. The diagnose and
+    # plan_action prompts (instructions + runbooks + k8sgpt findings +
+    # describe output + baselines) run past 2k tokens; Ollama silently drops
+    # the START of an over-long prompt — the instructions and JSON schema —
+    # and a 3b model then answers with free-form JSON that fails validation.
+    # Older Ollama builds (e.g. 0.4.7) ignore OLLAMA_CONTEXT_LENGTH, so the
+    # agent sets num_ctx per request. Every generate call must send the same
+    # value, or Ollama reloads the model between calls.
+    ollama_num_ctx: int = int(_env("OLLAMA_NUM_CTX", "8192"))
 
     kubeconfig: str = _env("KUBECONFIG", str(_REPO_ROOT / ".kube" / "config"))
 

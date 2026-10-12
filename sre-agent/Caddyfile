@@ -22,6 +22,6 @@
     # Everything else is the SPA. nginx already does the SPA-fallback to
     # index.html (see frontend/nginx.conf), so we just forward.
     handle {
-        reverse_proxy frontend:80
+        reverse_proxy frontend:8080
     }
 }

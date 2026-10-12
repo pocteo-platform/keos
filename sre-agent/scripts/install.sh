@@ -599,7 +599,7 @@ EOF
   printf "  ${C_CYAN}keosctl doctor${C_RST}              ${C_DIM}# health check across every component${C_RST}\n"
   printf "  ${C_CYAN}keosctl logs api -f${C_RST}         ${C_DIM}# tail the agent's logs${C_RST}\n"
   printf "  ${C_CYAN}keosctl mode active${C_RST}         ${C_DIM}# let the agent take action${C_RST}\n"
-  printf "  ${C_CYAN}keosctl models pull qwen2.5:7b${C_RST} ${C_DIM} # upgrade the LLM${C_RST}\n"
+  printf "  ${C_CYAN}keosctl models list${C_RST}         ${C_DIM}# models in Ollama (default qwen2.5:3b)${C_RST}\n"
   printf "  ${C_CYAN}keosctl uninstall --keep-pvcs${C_RST}  ${C_DIM} # remove but keep state${C_RST}\n"
   printf "\n"
   note "Full reference: keosctl help"

@@ -6,7 +6,9 @@
   Each gets a headless Service so its Pod has a stable DNS name.
 */}}
 
-{{- range $idx, $name := list "ollama" "qdrant" "nats" }}
+{{- $stores := list "ollama" "qdrant" "nats" }}
+{{- if .Values.ollama.externalUrl }}{{- $stores = list "qdrant" "nats" }}{{- end }}
+{{- range $idx, $name := $stores }}
 {{- $cfg := index $.Values $name }}
 ---
 apiVersion: v1
