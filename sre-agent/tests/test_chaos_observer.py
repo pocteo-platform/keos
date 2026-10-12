@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -255,6 +256,53 @@ def test_handle_missing_involved_object_is_silently_skipped(
     assert _published_count(obs) == 0
 
 
+class _ApiError(Exception):
+    """Stand-in for kubernetes.client.ApiException (only `.status` is read)."""
+
+    def __init__(self, status: int) -> None:
+        super().__init__(f"HTTP {status}")
+        self.status = status
+
+
+class _FakeCoreV1:
+    """`read_namespaced_pod_status` stand-in: a pod whose Ready condition is
+    `ready`, or the given API error."""
+
+    def __init__(self, ready: str = "False", error: int | None = None) -> None:
+        self._ready = ready
+        self._error = error
+
+    def read_namespaced_pod_status(self, name: str, namespace: str) -> SimpleNamespace:
+        if self._error is not None:
+            raise _ApiError(self._error)
+        ready = SimpleNamespace(type="Ready", status=self._ready)
+        return SimpleNamespace(status=SimpleNamespace(conditions=[ready]))
+
+
+@pytest.mark.parametrize("api", [_FakeCoreV1(error=404), _FakeCoreV1(ready="True")])
+def test_handle_drops_events_for_pods_gone_or_ready(api: _FakeCoreV1) -> None:
+    """The watch re-lists every stored Event each session, so a crash loop's
+    BackOff events outlive the pod. Forwarding them made the agent
+    `restart_pod` pods that no longer existed (kubectl exit 1)."""
+    obs = ChaosObserver()
+    obs._allow_ns = None  # type: ignore[attr-defined]
+    obs._api = api
+    obs._handle(_fake_event(reason="BackOff", namespace="falco", name="falco-46hkw"), None)
+    assert _published_count(obs) == 0
+
+
+@pytest.mark.parametrize("api", [_FakeCoreV1(ready="False"), _FakeCoreV1(error=403)])
+def test_handle_keeps_events_for_failing_pods_and_on_api_errors(api: _FakeCoreV1) -> None:
+    """A pod that exists and isn't Ready is the real signal; any other API
+    error fails open so a problem is never silently dropped. (No loop is
+    wired, so _handle stops right after recording the emit.)"""
+    obs = ChaosObserver()
+    obs._allow_ns = None  # type: ignore[attr-defined]
+    obs._api = api
+    obs._handle(_fake_event(reason="BackOff"), None)
+    assert _published_count(obs) == 1
+
+
 # ---------------------------------------------------------------------------
 # Debounce
 # ---------------------------------------------------------------------------
@@ -371,6 +419,25 @@ def test_build_event_envelope_is_falco_shaped() -> None:
     assert of["k8s.ns.name"] == "workloads"
     assert of["k8s.pod.name"] == "nginx-xxx"
     assert of["involved.kind"] == "Pod"
+
+
+def test_build_event_evt_time_is_when_the_k8s_event_fired() -> None:
+    """Triage skips stale events by `evt.time` (STALE_EVENT_S). Stamping the
+    publish time made hour-old re-listed events look brand new."""
+    ev = _fake_event(reason="BackOff")
+    ev.last_timestamp = datetime(2026, 10, 12, 22, 5, tzinfo=UTC)
+    payload = ChaosObserver()._build_event(ev, "BackOff", "Error", "Pod", "nginx-xxx", "workloads")
+    assert payload["output_fields"]["evt.time"] == "2026-10-12T22:05:00.000Z"
+    # `time` stays the moment the observer forwarded it.
+    assert payload["time"] != payload["output_fields"]["evt.time"]
+
+
+def test_build_event_evt_time_falls_back_to_now_without_timestamps() -> None:
+    payload = ChaosObserver()._build_event(
+        _fake_event(), "OOMKilled", "Critical", "Pod", "nginx-xxx", "workloads"
+    )
+    fired = datetime.fromisoformat(payload["output_fields"]["evt.time"].replace("Z", "+00:00"))
+    assert abs((datetime.now(UTC) - fired).total_seconds()) < 5
 
 
 def test_build_event_truncates_message_at_500_chars() -> None:

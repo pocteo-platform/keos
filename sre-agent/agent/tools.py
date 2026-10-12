@@ -52,6 +52,19 @@ def _kubectl(args: list[str], timeout: float = 30.0) -> tuple[int, str, str]:
     return _run(["kubectl", *kubectl_auth_args(), *args], timeout=timeout)
 
 
+def _kubectl_error(code: int, err: str) -> str | None:
+    """ActionResult.error for a kubectl call: None on success, otherwise the
+    exit code plus kubectl's own message (`pods "x" not found`). The MCP
+    server and the UI surface `error`, so a bare `kubectl exit 1` hid why an
+    action failed."""
+    if code == 0:
+        return None
+    msg = err.strip()
+    if len(msg) > 300:
+        msg = msg[:300] + "..."
+    return f"kubectl exit {code}: {msg}" if msg else f"kubectl exit {code}"
+
+
 # ---------------------------------------------------------------------------
 # Read helpers used by retrieve_context / verify.
 # ---------------------------------------------------------------------------
@@ -221,7 +234,7 @@ def restart_pod(pod_name: str, namespace: str, dry_run: bool = False) -> ActionR
         success=(code == 0),
         stdout=out.strip(),
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
     )
 
 
@@ -243,7 +256,7 @@ def rollout_undo(deployment_name: str, namespace: str, dry_run: bool = False) ->
         success=(code == 0),
         stdout=out.strip(),
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
     )
 
 
@@ -278,7 +291,7 @@ def scale_deployment(
         success=(code == 0),
         stdout=out.strip(),
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
     )
 
 
@@ -357,7 +370,7 @@ def tune_hpa(
         success=(code == 0),
         stdout=out.strip(),
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
     )
 
 
@@ -446,7 +459,7 @@ def set_resources(
         success=(code == 0),
         stdout=out.strip(),
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
     )
 
 
@@ -493,7 +506,7 @@ def evict_workload(
         success=(code == 0),
         stdout=out.strip(),
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
     )
 
 
@@ -639,7 +652,7 @@ def revert_drift(
         success=(code == 0),
         stdout=out.strip(),
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
     )
 
 
@@ -665,7 +678,7 @@ def cordon_node(node_name: str, dry_run: bool = False) -> ActionResult:
         success=(code == 0),
         stdout=out.strip(),
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
     )
 
 
@@ -700,7 +713,7 @@ def drain_node(node_name: str, grace_period_s: int = 60, dry_run: bool = False) 
         success=(code == 0),
         stdout=out.strip(),
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
     )
 
 
@@ -727,7 +740,7 @@ def uncordon_node(node_name: str, dry_run: bool = False) -> ActionResult:
         success=(code == 0),
         stdout=out.strip(),
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
     )
 
 

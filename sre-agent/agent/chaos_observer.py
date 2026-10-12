@@ -99,6 +99,25 @@ def _now_iso() -> str:
     )
 
 
+def _event_time_iso(k8s_event) -> str:
+    """When the K8s Event last fired, not when the observer saw it. The watch
+    re-lists every stored Event at the start of each session (every 300 s),
+    so stamping the publish time made an hour-old event look new and
+    defeated triage's staleness check (STALE_EVENT_S in graph.py)."""
+    series = getattr(k8s_event, "series", None)
+    for ts in (
+        getattr(series, "last_observed_time", None),
+        getattr(k8s_event, "last_timestamp", None),
+        getattr(k8s_event, "event_time", None),
+        getattr(k8s_event, "first_timestamp", None),
+    ):
+        if isinstance(ts, datetime):
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            return ts.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return _now_iso()
+
+
 class ChaosObserver:
     """Long-running asyncio task. `start()` returns the awaitable."""
 
@@ -114,36 +133,40 @@ class ChaosObserver:
         # field exists to dodge.
         self._loop: asyncio.AbstractEventLoop | None = None
         # CoreV1Api handle, stashed in run() so the worker-thread _handle()
-        # can pre-check pod readiness before publishing (see _pod_is_ready).
+        # can pre-check the pod before publishing (see _pod_state).
         self._api = None
 
     def stop(self) -> None:
         self._stop.set()
 
-    # ---- readiness pre-check ---------------------------------------------
+    # ---- pod pre-check ---------------------------------------------------
 
-    def _pod_is_ready(self, namespace: str, name: str) -> bool:
-        """True if the pod is currently Ready=True. Used to suppress ghost
-        incidents: kubelet re-emits transient `Unhealthy`/`BackOff` warnings
-        for pods that have already recovered (a flapping probe re-fires every
-        few minutes, sails past the debounce, and would otherwise spawn an
-        endless stream of auto-resolved incidents). If the pod is Ready right
-        now, the signal no longer reflects reality — skip it at the source
-        instead of letting the graph create an incident the triage node will
-        only mark stale. Fail-OPEN (return False) on any error so a real
-        problem is never silently dropped."""
+    def _pod_state(self, namespace: str, name: str) -> str:
+        """Return "ready" if the pod is Ready=True, "gone" if it no longer
+        exists (404), "" otherwise. Both named states mean the event no longer
+        reflects reality, so _handle drops it instead of letting the graph
+        build an incident:
+          - ready: kubelet re-emits transient `Unhealthy`/`BackOff` warnings
+            for pods that have already recovered (a flapping probe re-fires
+            every few minutes and sails past the debounce).
+          - gone: the pod was deleted (its DaemonSet/ReplicaSet replaced
+            it). The watch re-lists every stored Event each session, so a
+            crash loop's events outlive the pod until the event TTL; acting
+            on them deletes a pod that isn't there.
+        Fail-OPEN ("") on any other error so a real problem is never
+        silently dropped."""
         api = self._api
         if api is None:
-            return False
+            return ""
         try:
             pod = api.read_namespaced_pod_status(name=name, namespace=namespace)
-            conds = (pod.status.conditions or []) if pod and pod.status else []
-            for c in conds:
-                if getattr(c, "type", "") == "Ready":
-                    return getattr(c, "status", "") == "True"
-            return False
-        except Exception:  # noqa: BLE001 — readiness check is best-effort
-            return False
+        except Exception as exc:  # noqa: BLE001 — the pre-check is best-effort
+            return "gone" if getattr(exc, "status", None) == 404 else ""
+        conds = (pod.status.conditions or []) if pod and pod.status else []
+        for c in conds:
+            if getattr(c, "type", "") == "Ready":
+                return "ready" if getattr(c, "status", "") == "True" else ""
+        return ""
 
     # ---- rate limit ------------------------------------------------------
 
@@ -290,25 +313,26 @@ class ChaosObserver:
 
         key = (ns, kind, name, reason)
         now = time.monotonic()
-        last = self._last_emit.get(key, 0.0)
-        if now - last < DEBOUNCE_S:
+        # Never-seen keys always pass: monotonic() counts from boot, so a
+        # 0.0 default debounced every first event in a node's first minute.
+        last = self._last_emit.get(key)
+        if last is not None and now - last < DEBOUNCE_S:
             return
 
-        # Readiness pre-check (Pod events only). kubelet re-emits transient
-        # `Unhealthy`/`BackOff` warnings for pods that have already recovered;
-        # a flapping probe re-fires every few minutes, clears the debounce,
-        # and would spawn an endless stream of auto-resolved "ghost"
-        # incidents. If the pod is Ready right now, the signal is stale — drop
-        # it here so the graph never creates an incident triage would only
-        # skip. Node events (kind=Node) and not-found pods fall through.
-        if kind == "Pod" and self._pod_is_ready(ns, name):
-            log.debug(
-                "chaos_observer: skip %s/%s reason=%s — pod is Ready (transient)",
-                kind,
-                name,
-                reason,
-            )
-            return
+        # Pod pre-check (Pod events only): drop events for pods that are Ready
+        # again or no longer exist — see _pod_state. Node events (kind=Node)
+        # and unknown states fall through.
+        if kind == "Pod":
+            pod_state = self._pod_state(ns, name)
+            if pod_state:
+                log.debug(
+                    "chaos_observer: skip %s/%s reason=%s — pod is %s",
+                    kind,
+                    name,
+                    reason,
+                    pod_state,
+                )
+                return
 
         if not self._take_token():
             log.warning(
@@ -384,7 +408,9 @@ class ChaosObserver:
                 "k8s.node.name": name if kind == "Node" else "",
                 "involved.kind": kind,
                 "involved.name": name,
-                "evt.time": _now_iso(),
+                # When it happened (triage's staleness check reads this);
+                # `time` above stays the moment the observer forwarded it.
+                "evt.time": _event_time_iso(k8s_event),
             },
         }
 

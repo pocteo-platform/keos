@@ -28,7 +28,7 @@ from agent.schemas import ActionResult
 
 # Reuse the SRE tools' subprocess plumbing verbatim — one mental model for
 # kubectl auth + error capture across both domains.
-from agent.tools import _kubectl  # noqa: PLC2701  (intentional internal reuse)
+from agent.tools import _kubectl, _kubectl_error  # noqa: PLC2701  (intentional internal reuse)
 
 log = logging.getLogger(__name__)
 
@@ -248,7 +248,7 @@ def kill_pod(pod_name: str, namespace: str, dry_run: bool = False) -> ActionResu
         success=(code == 0),
         stdout=out.strip(),
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
         meta={"reversible": False},
     )
 
@@ -339,7 +339,7 @@ def capture_forensics(pod_name: str, namespace: str, dry_run: bool = False) -> A
         success=(code == 0),
         stdout=f"captured {len(captured)} bytes of logs",
         stderr=err.strip(),
-        error=None if code == 0 else f"kubectl exit {code}",
+        error=_kubectl_error(code, err),
         meta={"log_capture": captured} if code == 0 else None,
     )
 
