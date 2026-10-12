@@ -640,15 +640,24 @@ async def falco_webhook(request: Request) -> dict[str, Any]:
         pass
 
     accepted = 0
+    skipped = 0
     try:
         for a in alerts:
             if not isinstance(a, dict):
                 continue
             rule = (a.get("rule") or "unknown_rule").strip()
+            fields = a.get("output_fields") or {}
+            # Every security action targets a pod. An alert with no pod (a
+            # host process — on WSL2 / Docker Desktop, Falco also sees the
+            # distro's own shells) gives the agent nothing to act on, and the
+            # LLM then invents a target from its runbook examples. Drop it.
+            if not fields.get("k8s.pod.name"):
+                skipped += 1
+                log.info("falco: skipped %r (no k8s.pod.name — not a pod)", rule)
+                continue
             # Sanitize the rule name into a dot-safe NATS subject suffix.
             subject_kind = "".join(c if c.isalnum() else "_" for c in rule).lower()
             subject = f"security.events.{subject_kind}"
-            fields = a.get("output_fields") or {}
             event = {
                 "uuid": (fields.get("evt.id") or a.get("hostname") or "") + "",
                 "time": a.get("time") or _now_iso(),
@@ -675,7 +684,7 @@ async def falco_webhook(request: Request) -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             pass
 
-    return {"ok": True, "accepted": accepted, "total": len(alerts)}
+    return {"ok": True, "accepted": accepted, "skipped": skipped, "total": len(alerts)}
 
 
 # ---------------------------------------------------------------------------

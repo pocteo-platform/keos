@@ -321,3 +321,48 @@ def test_deny_missing(client) -> None:
     )
     assert r.status_code == 200
     assert r.json()["approved"] is False
+
+
+def test_falco_webhook_publishes_pod_alerts_and_skips_host_ones(client, monkeypatch) -> None:
+    """A Falco alert with no k8s.pod.name (a host process) is dropped: the
+    agent can't act on it, and the LLM would invent a pod to isolate."""
+    published: list[str] = []
+
+    class _JetStream:
+        async def add_stream(self, **_kw):
+            return None
+
+        async def publish(self, subject, _payload):
+            published.append(subject)
+
+    class _Conn:
+        def jetstream(self):
+            return _JetStream()
+
+        async def drain(self):
+            return None
+
+    async def _fake_connect(_url):
+        return _Conn()
+
+    monkeypatch.setenv("FALCO_WEBHOOK_TOKEN", "falco-test-token")
+    monkeypatch.setattr("nats.connect", _fake_connect)
+
+    pod_alert = {
+        "rule": "Drop and execute new binary in container",
+        "priority": "Critical",
+        "output_fields": {"k8s.ns.name": "workloads", "k8s.pod.name": "nginx-demo-abc"},
+    }
+    host_alert = {
+        "rule": "Redirect STDOUT/STDIN to Network Connection in Container",
+        "priority": "Notice",
+        "output_fields": {"k8s.ns.name": None, "k8s.pod.name": None},
+    }
+    r = client.post(
+        "/api/webhooks/falco",
+        headers={"Authorization": "Bearer falco-test-token"},
+        json=[pod_alert, host_alert],
+    )
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "accepted": 1, "skipped": 1, "total": 2}
+    assert published == ["security.events.drop_and_execute_new_binary_in_container"]
