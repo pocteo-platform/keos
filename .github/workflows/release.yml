@@ -1,7 +1,7 @@
 # Release pipeline — triggered by pushing a `v*.*.*` tag.
 #
 # Outputs per tag:
-#   - 3 multi-arch images at ghcr.io/<owner>/pocteo-{api,mcp-server,frontend}:<tag>
+#   - 3 multi-arch images at ghcr.io/<owner>/keos-{api,mcp-server,frontend}:<tag>
 #   - Each image is signed with cosign (keyless via GitHub OIDC).
 #   - Each image carries an SBOM attestation (syft via the cosign attest path).
 #   - A GitHub Release with auto-generated changelog from the previous tag.
@@ -59,7 +59,7 @@ jobs:
             echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
           fi
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
-          echo "image=ghcr.io/${OWNER}/pocteo-${{ matrix.component.name }}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${OWNER}/keos-${{ matrix.component.name }}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -142,12 +142,12 @@ jobs:
             echo ""
             echo "### Images"
             OWNER="${GITHUB_REPOSITORY_OWNER,,}"
-            echo "- \`ghcr.io/${OWNER}/pocteo-api:${TAG#v}\`"
-            echo "- \`ghcr.io/${OWNER}/pocteo-mcp-server:${TAG#v}\`"
-            echo "- \`ghcr.io/${OWNER}/pocteo-frontend:${TAG#v}\`"
+            echo "- \`ghcr.io/${OWNER}/keos-api:${TAG#v}\`"
+            echo "- \`ghcr.io/${OWNER}/keos-mcp-server:${TAG#v}\`"
+            echo "- \`ghcr.io/${OWNER}/keos-frontend:${TAG#v}\`"
             echo ""
             echo "All images are signed (cosign keyless) and have SBOMs attached."
-            echo "Verify with: \`cosign verify --certificate-identity-regexp '.*' --certificate-oidc-issuer-regexp '.*' ghcr.io/${OWNER}/pocteo-api:${TAG#v}\`"
+            echo "Verify with: \`cosign verify --certificate-identity-regexp '.*' --certificate-oidc-issuer-regexp '.*' ghcr.io/${OWNER}/keos-api:${TAG#v}\`"
           } > release-notes.md
           echo "path=release-notes.md" >> "$GITHUB_OUTPUT"
 

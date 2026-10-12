@@ -63,6 +63,17 @@ and live Falco 0.45 detection end to end.
   RBAC: patch/update on NetworkPolicies so `isolate_pod` is idempotent.
 - Installer: one exported kubeconfig for kubectl and helm, model pull
   waits for Ollama, `--local-build` fallback for kind + k3d.
+- The release workflow published `pocteo-{api,mcp-server,frontend}` while
+  the chart, `keosctl release`, preflight and the air-gap bundle all pull
+  `keos-*`. It now publishes `ghcr.io/pocteo-platform/keos-*`.
+
+### Operator action — one-time GitHub setting
+
+The first `v1.1.0` publish creates the `keos-api`, `keos-mcp-server` and
+`keos-frontend` packages, **private** like every new GHCR package. Flip
+them to public at https://github.com/orgs/pocteo-platform/packages (or give
+nodes an image pull secret); until then installs fall back to
+`--local-build`.
 
 ## [1.0.1] - 2026-06-06
 
