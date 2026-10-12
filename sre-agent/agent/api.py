@@ -28,6 +28,7 @@ from limits.storage import MemoryStorage as _RateLimitStorage
 from limits.strategies import MovingWindowRateLimiter as _RateLimitStrategy
 
 from agent import (
+    __version__,
     approvals,
     incident_store,
     pipeline_trace,
@@ -98,7 +99,7 @@ _audit = AuditLogger()
 
 app = FastAPI(
     title=os.environ.get("POCTEO_PRODUCT_NAME", "Keos SRE Agent") + " API",
-    version="0.1.0",
+    version=__version__,
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
 )

@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agent import __version__
 from agent.schemas import AgentModeLiteral, Severity, ToolName
 
 # ---------------------------------------------------------------------------
@@ -21,7 +22,8 @@ from agent.schemas import AgentModeLiteral, Severity, ToolName
 class HealthResponse(BaseModel):
     ok: bool = True
     agent_mode: str | None = None
-    version: str = "0.1.0"
+    # The package version (agent/__init__.py) — Settings → About shows it.
+    version: str = __version__
 
 
 class ModeResponse(BaseModel):

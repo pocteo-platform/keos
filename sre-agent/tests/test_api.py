@@ -84,9 +84,13 @@ def client(monkeypatch) -> TestClient:
 
 
 def test_health_does_not_require_auth(client) -> None:
+    from agent import __version__
+
     r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json()["ok"] is True
+    # Settings → About shows this; it was hardcoded to 0.1.0.
+    assert r.json()["version"] == __version__
 
 
 def test_other_endpoints_require_auth(client) -> None:

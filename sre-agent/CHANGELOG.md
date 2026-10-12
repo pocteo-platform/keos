@@ -59,6 +59,17 @@ and live Falco 0.45 detection end to end.
 - The api NetworkPolicy now admits falcosidekick (release namespace and
   `falco`); before, enforcing CNIs (k3s) dropped every Falco alert.
 - The agent detects Falco in its own namespace, where the chart installs it.
+- The Kubernetes-events observer forwarded events for pods that no longer
+  existed. Its watch re-lists every stored Event every 5 minutes, so a
+  crash loop's BackOff events outlived their pods for up to an hour, and in
+  `active` mode the agent tried to `restart_pod` pods that were already
+  gone. Those events are now dropped, `evt.time` is when the Kubernetes
+  Event fired (so triage's stale-event check works), and a never-seen
+  event is no longer debounced in a node's first minute of uptime.
+- A failed kubectl action now says why: `kubectl exit 1: pods "x" not found`
+  instead of `kubectl exit 1`.
+- `/api/health` (and Settings → About) reported version `0.1.0`; it now
+  reports the package version.
 - NetworkPolicy: agent egress to the kube-apiserver, selector label keys;
   RBAC: patch/update on NetworkPolicies so `isolate_pod` is idempotent.
 - Installer: one exported kubeconfig for kubectl and helm, model pull
