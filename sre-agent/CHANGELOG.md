@@ -6,6 +6,16 @@ version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed
+
+- The Falco and Alertmanager webhooks share the API's per-IP rate limit
+  with the SPA. Behind a NAT (Docker Desktop, an ingress) every client has
+  the same source IP, so an open UI spent the 120/min budget and Falco
+  alerts were rejected with 429. Webhooks now have their own budget.
+- `make sensors` / `.\make.ps1 sensors` pin the Falco image to
+  `0.45.1-rc1`: on WSL kernel 6.18.54, 0.45.0's modern probe fails the
+  BPF verifier (`signal_deliver`) and Falco crash-loops.
+
 ## [1.1.0] - 2026-10-12
 
 **Minor:** the runtime-security domain, `keosctl` as the single entry

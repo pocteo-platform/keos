@@ -20,6 +20,9 @@ $ChatModel      = 'qwen2.5:3b-instruct-q4_K_M'
 $EmbedModel     = 'nomic-embed-text'
 # `sensors`: same Falco + Tetragon versions as the Helm chart.
 $FalcoChartVersion    = '9.2.0'
+# Falco 0.45.0's modern probe fails the BPF verifier on WSL kernel 6.18.54
+# (signal_deliver); 0.45.1-rc1 loads. Drop the pin once 0.45.1 is final.
+$FalcoImageTag        = '0.45.1-rc1'
 $TetragonChartVersion = '1.4.1'
 $CertManagerVersion   = 'v1.21.2'
 
@@ -411,11 +414,11 @@ function Invoke-Sensors {
     helm upgrade --install tetragon cilium/tetragon --version $TetragonChartVersion `
         -n kube-system --wait --timeout 6m | Out-Null
     Need-Exit $LASTEXITCODE "tetragon install failed"
-    Info "Falco (chart $FalcoChartVersion) + falcosidekick -> host.k3d.internal:8000..."
+    Info "Falco $FalcoImageTag (chart $FalcoChartVersion) + falcosidekick -> host.k3d.internal:8000..."
     # helm --set-file treats backslashes as escapes: hand it forward slashes.
     $rules = (Join-Path $script:RepoRoot 'deploy\falco\keos-k8s-only.yaml').Replace('\', '/')
     helm upgrade --install falco falcosecurity/falco --version $FalcoChartVersion `
-        -n falco --create-namespace `
+        -n falco --create-namespace --set-string image.tag=$FalcoImageTag `
         --set driver.kind=modern_ebpf --set tty=true `
         --set falco.json_output=true --set falco.http_output.enabled=true `
         --set falcosidekick.enabled=true --set falcosidekick.replicaCount=1 `

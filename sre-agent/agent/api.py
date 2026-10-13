@@ -169,6 +169,11 @@ _RATE_LIMIT_EXEMPT_PATHS = frozenset(
 _RATE_LIMIT_ITEM = _parse_rate_limit(_RATE_GLOBAL)
 _RATE_LIMIT_STORAGE = _RateLimitStorage()
 _RATE_LIMITER = _RateLimitStrategy(_RATE_LIMIT_STORAGE)
+# The token-authenticated webhooks (Falco, Alertmanager) count against their
+# own per-IP budget. Behind a NAT — Docker Desktop, an ingress — the SPA and
+# falcosidekick share one source IP, and an open UI used to spend the whole
+# budget and get Falco alerts rejected with 429: a dropped security alert.
+_RATE_LIMIT_WEBHOOK_PREFIX = "/api/webhooks/"
 
 
 def _client_ip(request: Request) -> str:
@@ -186,8 +191,9 @@ async def _global_rate_limit(request: Request, call_next):
     if request.url.path in _RATE_LIMIT_EXEMPT_PATHS:
         return await call_next(request)
     key = _client_ip(request)
+    scope = "webhook" if request.url.path.startswith(_RATE_LIMIT_WEBHOOK_PREFIX) else "global"
     try:
-        allowed = _RATE_LIMITER.hit(_RATE_LIMIT_ITEM, "global", key)
+        allowed = _RATE_LIMITER.hit(_RATE_LIMIT_ITEM, scope, key)
     except Exception as exc:  # noqa: BLE001 — never let rate-limit failures break the API
         log.warning("rate-limit check failed (%s); allowing request", exc)
         return await call_next(request)

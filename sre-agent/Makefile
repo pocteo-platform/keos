@@ -296,6 +296,9 @@ cluster:
 # Needs a kernel with BTF (most distros, Docker Desktop's WSL2 kernel).
 # Idempotent; same Falco and Tetragon versions as the Helm chart.
 FALCO_CHART_VERSION ?= 9.2.0
+# Falco 0.45.0's modern probe fails the BPF verifier on WSL kernel 6.18.54
+# (signal_deliver); 0.45.1-rc1 loads. Drop the pin once 0.45.1 is final.
+FALCO_IMAGE_TAG ?= 0.45.1-rc1
 TETRAGON_CHART_VERSION ?= 1.4.1
 CERT_MANAGER_VERSION ?= v1.21.2
 sensors: .env.local
@@ -319,9 +322,9 @@ sensors: .env.local
 	echo "Tetragon $(TETRAGON_CHART_VERSION)..."; \
 	helm upgrade --install tetragon cilium/tetragon --version $(TETRAGON_CHART_VERSION) \
 	  -n kube-system --wait --timeout 6m >/dev/null; \
-	echo "Falco (chart $(FALCO_CHART_VERSION)) + falcosidekick -> host.k3d.internal:8000..."; \
+	echo "Falco $(FALCO_IMAGE_TAG) (chart $(FALCO_CHART_VERSION)) + falcosidekick -> host.k3d.internal:8000..."; \
 	helm upgrade --install falco falcosecurity/falco --version $(FALCO_CHART_VERSION) \
-	  -n falco --create-namespace \
+	  -n falco --create-namespace --set-string image.tag=$(FALCO_IMAGE_TAG) \
 	  --set driver.kind=modern_ebpf --set tty=true \
 	  --set falco.json_output=true --set falco.http_output.enabled=true \
 	  --set falcosidekick.enabled=true --set falcosidekick.replicaCount=1 \

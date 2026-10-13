@@ -327,6 +327,23 @@ def test_deny_missing(client) -> None:
     assert r.json()["approved"] is False
 
 
+def test_webhooks_have_their_own_rate_limit_budget(client, monkeypatch) -> None:
+    """Behind Docker Desktop's NAT the SPA and falcosidekick share one source
+    IP; an open UI used to spend the budget and get Falco alerts 429'd."""
+    from limits import parse
+    from limits.storage import MemoryStorage
+    from limits.strategies import MovingWindowRateLimiter
+
+    monkeypatch.delenv("FALCO_WEBHOOK_TOKEN", raising=False)
+    monkeypatch.setattr("agent.api._RATE_LIMIT_ITEM", parse("2/minute"))
+    monkeypatch.setattr("agent.api._RATE_LIMITER", MovingWindowRateLimiter(MemoryStorage()))
+    auth = {"Authorization": "Bearer test-token"}
+    assert [client.get("/api/mode", headers=auth).status_code for _ in range(3)] == [200, 200, 429]
+    # Same client IP, budget spent by the UI — the webhook still gets through
+    # (503 here: FALCO_WEBHOOK_TOKEN is unset, so the handler fails closed).
+    assert client.post("/api/webhooks/falco", json=[]).status_code == 503
+
+
 def test_detect_operators_finds_falco_in_the_agent_namespace(monkeypatch) -> None:
     """The chart's falco / falco-legacy sub-charts run in the release
     namespace, not ns/falco — detection has to look there too."""
