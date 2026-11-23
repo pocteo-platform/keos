@@ -151,7 +151,7 @@ jobs:
           } > release-notes.md
           echo "path=release-notes.md" >> "$GITHUB_OUTPUT"
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           body_path: ${{ steps.notes.outputs.path }}
           generate_release_notes: false   # we built our own above
